@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# Be able to run from within the webkit submodule or the staging repository.
+TOPLEVEL=$(git rev-parse --show-toplevel)
+if [[ "$(basename $TOPLEVEL)" == "OpenSource" ]]; then
+   TOPLEVEL=$TOPLEVEL/../   
+fi
+
+TOPLEVEL=$(cd "$TOPLEVEL";pwd)
+echo "Using staging repository: $TOPLEVEL"
+
+WEBKIT_PATH=$(cd "$TOPLEVEL/OpenSource/";pwd)
+if [ ! -z "$(cd $WEBKIT_PATH && git status --porcelain)" ]; then
+   echo "ABORT! Cannot export patches because there are uncommitted changes"
+   echo "in the OpenSource directory. Discard or commit the changes first."
+   cd $WEBKIT_PATH && git diff --stat
+   exit
+fi
+
+BASE_COMMIT=$(cd $WEBKIT_PATH && git merge-base origin/master head)
+echo "Using merge-base commit: $BASE_COMMIT"
+
+# To export patches to multiple directories, the commands here must be
+# modified to tell apart the commit ranges and export directories.
+
+EXPORT_DIR=$(cd "$TOPLEVEL/patches/replay/";pwd)
+echo "Exporting the following commits as patches to $EXPORT_DIR..."
+cd $WEBKIT_PATH && git log --oneline $BASE_COMMIT...HEAD || exit
+
+git format-patch -U10 -N -o $EXPORT_DIR $BASE_COMMIT...HEAD || exit
+
+echo "Export complete!"

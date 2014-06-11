@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# Be able to run from within the webkit submodule or the staging repository.
+TOPLEVEL=$(git rev-parse --show-toplevel)
+if [[ "$(basename $TOPLEVEL)" == "OpenSource" ]]; then
+   TOPLEVEL=$TOPLEVEL/../   
+fi
+
+TOPLEVEL=$(cd "$TOPLEVEL";pwd)
+echo "Using staging repository: $TOPLEVEL"
+
+WEBKIT_PATH=$(cd "$TOPLEVEL/OpenSource/";pwd)
+if [ ! -z "$(cd $WEBKIT_PATH && git status --porcelain)" ]; then
+   echo "ABORT! Cannot import patches because there are uncommitted changes"
+   echo "in the OpenSource directory. Discard the changes first."
+   cd $WEBKIT_PATH && git diff --stat
+   exit
+fi
+
+BASE_COMMIT=$(cd $WEBKIT_PATH && git merge-base origin/master head)
+echo "Using merge-base commit: $BASE_COMMIT"
+
+if [ ! -z "$(cd $WEBKIT_PATH && git log --oneline $BASE_COMMIT...HEAD)" ]; then
+    echo "ABORT! Cannot import patches because there are commits on top"
+    echo "of the merge-base commit. Are the following commits expected?"
+    cd $WEBKIT_PATH && git log --oneline $BASE_COMMIT...HEAD
+    exit
+fi
+
+IMPORT_DIR=$(cd "$TOPLEVEL/patches/replay/";pwd)
+echo "Importing patches from $IMPORT_DIR as commits..."
+cd $WEBKIT_PATH && git am $IMPORT_DIR/* || exit
+# To import from more directories, add additional `git am` commands here.
+
+echo "Import complete!"
