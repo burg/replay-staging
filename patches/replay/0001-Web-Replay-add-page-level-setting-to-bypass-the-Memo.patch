@@ -1,0 +1,497 @@
+From 912f7ab91abb22b5877748365c99c0df853e174a Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Wed, 11 Jun 2014 15:33:16 -0700
+Subject: [PATCH] Web Replay: add page-level setting to bypass the MemoryCache
+ https://bugs.webkit.org/show_bug.cgi?id=130728
+
+Reviewed by NOBODY (OOPS!).
+
+../../OpenSource/Source/WebCore:
+When replaying a specific Page we don't want to store its cached resources in the
+MemoryCache. This patch adds a page setting to prevent the page's resources from
+being saved in the MemoryCache.
+
+If Settings::usesMemoryCache() is false, page resources are given the special
+SessionID bypassCacheSessionID(). The cached resource loader and memory cache
+act as if the memory cache is disabled if the resource has this special session id.
+This new session id is considered non-ephemeral; it uses the same network session
+as the default session id, but doesn't add entries to MemoryCache.
+
+No new tests, as this functionality will be exercised by network replay tests.
+
+* loader/cache/CachedResourceLoader.cpp:
+(WebCore::CachedResourceLoader::requestResource):
+(WebCore::CachedResourceLoader::revalidateResource):
+* loader/cache/MemoryCache.cpp:
+(WebCore::MemoryCache::add):
+* page/Page.cpp:
+(WebCore::Page::enableLegacyPrivateBrowsing): Update assertion to use SessionID::isEphemeral().
+(WebCore::Page::sessionID):
+* page/SessionID.h:
+(WebCore::SessionID::isEphemeral): bypassCacheSessionID is also not ephemeral.
+(WebCore::SessionID::bypassCacheSessionID): Added.
+(WebCore::SessionID::legacyPrivateSessionID): Reorder.
+* page/Settings.cpp:
+(WebCore::Settings::Settings):
+* page/Settings.h:
+(WebCore::Settings::setUsesMemoryCache): Added.
+(WebCore::Settings::usesMemoryCache): Added.
+* replay/ReplayController.cpp: Also flip usesMemoryCache.
+(WebCore::ReplayController::setForceDeterministicSettings):
+* replay/ReplayController.h:
+
+../../OpenSource/Source/WebKit2:
+Use the default session if the session id is not ephemeral. The default session id
+and bypass cache session id are both considered to be non-ephemeral.
+
+* Shared/SessionTracker.cpp:
+(WebKit::SessionTracker::session):
+(WebKit::SessionTracker::setSession):
+---
+ Source/WebCore/ChangeLog                           | 40 ++++++++++++++++++++++
+ .../WebCore/loader/cache/CachedResourceLoader.cpp  |  6 +++-
+ Source/WebCore/loader/cache/MemoryCache.cpp        |  3 ++
+ Source/WebCore/page/Page.cpp                       |  7 ++--
+ Source/WebCore/page/SessionID.h                    |  5 +--
+ Source/WebCore/page/Settings.cpp                   |  1 +
+ Source/WebCore/page/Settings.h                     |  6 +++-
+ Source/WebCore/replay/ReplayController.cpp         |  3 ++
+ Source/WebCore/replay/ReplayController.h           |  4 ++-
+ Source/WebKit2/ChangeLog                           | 14 ++++++++
+ Source/WebKit2/Shared/SessionTracker.cpp           |  8 ++---
+ 11 files changed, 86 insertions(+), 11 deletions(-)
+
+diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
+index dd33359..3cfdfe5 100644
+--- a/Source/WebCore/ChangeLog
++++ b/Source/WebCore/ChangeLog
+@@ -1,10 +1,50 @@
++2014-04-12  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Replay: add page-level setting to bypass the MemoryCache
++        https://bugs.webkit.org/show_bug.cgi?id=130728
++
++        Reviewed by NOBODY (OOPS!).
++
++        When replaying a specific Page we don't want to store its cached resources in the
++        MemoryCache. This patch adds a page setting to prevent the page's resources from
++        being saved in the MemoryCache.
++
++        If Settings::usesMemoryCache() is false, page resources are given the special
++        SessionID bypassCacheSessionID(). The cached resource loader and memory cache
++        act as if the memory cache is disabled if the resource has this special session id.
++        This new session id is considered non-ephemeral; it uses the same network session
++        as the default session id, but doesn't add entries to MemoryCache.
++
++        No new tests, as this functionality will be exercised by network replay tests.
++
++        * loader/cache/CachedResourceLoader.cpp:
++        (WebCore::CachedResourceLoader::requestResource):
++        (WebCore::CachedResourceLoader::revalidateResource):
++        * loader/cache/MemoryCache.cpp:
++        (WebCore::MemoryCache::add):
++        * page/Page.cpp:
++        (WebCore::Page::enableLegacyPrivateBrowsing): Update assertion to use SessionID::isEphemeral().
++        (WebCore::Page::sessionID):
++        * page/SessionID.h:
++        (WebCore::SessionID::isEphemeral): bypassCacheSessionID is also not ephemeral.
++        (WebCore::SessionID::bypassCacheSessionID): Added.
++        (WebCore::SessionID::legacyPrivateSessionID): Reorder.
++        * page/Settings.cpp:
++        (WebCore::Settings::Settings):
++        * page/Settings.h:
++        (WebCore::Settings::setUsesMemoryCache): Added.
++        (WebCore::Settings::usesMemoryCache): Added.
++        * replay/ReplayController.cpp: Also flip usesMemoryCache.
++        (WebCore::ReplayController::setForceDeterministicSettings):
++        * replay/ReplayController.h:
++
+ 2014-06-11  peavo@outlook.com  <peavo@outlook.com>
+ 
+         [Curl] Empty headers in request response.
+         https://bugs.webkit.org/show_bug.cgi?id=133483
+ 
+         Reviewed by Brent Fulgham.
+ 
+         When a request is taken from the cache, its cached response headers are empty, if the cache entry was created in the same session.
+         It is only when the cache entry is loaded from disc, that the response headers are properly set.
+         We need to set the cached response headers in both cases.
+diff --git a/Source/WebCore/loader/cache/CachedResourceLoader.cpp b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
+index 9fde92e..8c4c478 100644
+--- a/Source/WebCore/loader/cache/CachedResourceLoader.cpp
++++ b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
+@@ -484,37 +484,41 @@ CachedResourceHandle<CachedResource> CachedResourceLoader::requestResource(Cache
+             if (resource->inCache())
+                 memoryCache()->remove(resource.get());
+             return 0;
+         }
+     }
+ 
+     if (document() && !document()->loadEventFinished() && !request.resourceRequest().url().protocolIsData())
+         m_validatedURLs.add(request.resourceRequest().url());
+ 
+     ASSERT(resource->url() == url.string());
+-    m_documentResources.set(resource->url(), resource);
++
++    if (sessionID() != SessionID::bypassCacheSessionID())
++        m_documentResources.set(resource->url(), resource);
++
+     return resource;
+ }
+ 
+ void CachedResourceLoader::documentDidFinishLoadEvent()
+ {
+     m_validatedURLs.clear();
+ }
+ 
+ CachedResourceHandle<CachedResource> CachedResourceLoader::revalidateResource(const CachedResourceRequest& request, CachedResource* resource)
+ {
+     ASSERT(resource);
+     ASSERT(resource->inCache());
+     ASSERT(!memoryCache()->disabled());
+     ASSERT(resource->canUseCacheValidator());
+     ASSERT(!resource->resourceToRevalidate());
+     ASSERT(resource->sessionID() == sessionID());
++    ASSERT(sessionID() != SessionID::bypassCacheSessionID());
+ 
+     // Copy the URL out of the resource to be revalidated in case it gets deleted by the remove() call below.
+     String url = resource->url();
+     CachedResourceHandle<CachedResource> newResource = createResource(resource->type(), resource->resourceRequest(), resource->encoding(), resource->sessionID());
+     
+     LOG(ResourceLoading, "Resource %p created to revalidate %p", newResource.get(), resource);
+     newResource->setResourceToRevalidate(resource);
+     
+     memoryCache()->remove(resource);
+     memoryCache()->add(newResource.get());
+diff --git a/Source/WebCore/loader/cache/MemoryCache.cpp b/Source/WebCore/loader/cache/MemoryCache.cpp
+index d32badf..8c251cc 100644
+--- a/Source/WebCore/loader/cache/MemoryCache.cpp
++++ b/Source/WebCore/loader/cache/MemoryCache.cpp
+@@ -104,20 +104,23 @@ URL MemoryCache::removeFragmentIdentifierIfNeeded(const URL& originalURL)
+     URL url = originalURL;
+     url.removeFragmentIdentifier();
+     return url;
+ }
+ 
+ bool MemoryCache::add(CachedResource* resource)
+ {
+     if (disabled())
+         return false;
+ 
++    if (resource->sessionID() == SessionID::bypassCacheSessionID())
++        return false;
++
+     ASSERT(WTF::isMainThread());
+ 
+     CachedResourceMap& resources = getSessionMap(resource->sessionID());
+ #if ENABLE(CACHE_PARTITIONING)
+     CachedResourceItem* originMap = resources.get(resource->url());
+     if (!originMap) {
+         originMap = new CachedResourceItem;
+         resources.set(resource->url(), adoptPtr(originMap));
+     }
+     originMap->set(resource->cachePartition(), resource);
+diff --git a/Source/WebCore/page/Page.cpp b/Source/WebCore/page/Page.cpp
+index 11e8934..591246b 100644
+--- a/Source/WebCore/page/Page.cpp
++++ b/Source/WebCore/page/Page.cpp
+@@ -1147,22 +1147,22 @@ void Page::storageBlockingStateChanged()
+     // Collect the PluginViews in to a vector to ensure that action the plug-in takes
+     // from below storageBlockingStateChanged does not affect their lifetime.
+     auto views = pluginViews();
+ 
+     for (unsigned i = 0; i < views.size(); ++i)
+         views[i]->storageBlockingStateChanged();
+ }
+ 
+ void Page::enableLegacyPrivateBrowsing(bool privateBrowsingEnabled)
+ {
+-    // Don't allow changing the legacy private browsing state if we have set a session ID.
+-    ASSERT(m_sessionID == SessionID::defaultSessionID() || m_sessionID == SessionID::legacyPrivateSessionID());
++    // Don't allow changing the legacy private browsing state if we have set an ephemeral session ID.
++    ASSERT(m_sessionID.isEphemeral() || m_sessionID == SessionID::legacyPrivateSessionID());
+ 
+     setSessionID(privateBrowsingEnabled ? SessionID::legacyPrivateSessionID() : SessionID::defaultSessionID());
+ }
+ 
+ #if !ASSERT_DISABLED
+ void Page::checkSubframeCountConsistency() const
+ {
+     ASSERT(m_subframeCount >= 0);
+ 
+     int subframeCount = 0;
+@@ -1582,20 +1582,23 @@ void Page::setUserContentController(UserContentController* userContentController
+ VisitedLinkStore& Page::visitedLinkStore()
+ {
+     if (m_visitedLinkStore)
+         return *m_visitedLinkStore;
+ 
+     return group().visitedLinkStore();
+ }
+ 
+ SessionID Page::sessionID() const
+ {
++    if (!settings().usesMemoryCache())
++        return SessionID::bypassCacheSessionID();
++
+     return m_sessionID;
+ }
+ 
+ void Page::setSessionID(SessionID sessionID)
+ {
+     ASSERT(sessionID.isValid());
+ 
+     bool privateBrowsingStateChanged = (sessionID.isEphemeral() != m_sessionID.isEphemeral());
+ 
+     m_sessionID = sessionID;
+diff --git a/Source/WebCore/page/SessionID.h b/Source/WebCore/page/SessionID.h
+index 5efd74a..883babb 100644
+--- a/Source/WebCore/page/SessionID.h
++++ b/Source/WebCore/page/SessionID.h
+@@ -28,25 +28,26 @@
+ 
+ namespace WebCore {
+ 
+ class SessionID {
+ public:
+     SessionID()
+         : SessionID(emptySessionID()) { }
+     explicit SessionID(uint64_t sessionID)
+         : m_sessionID(sessionID) { }
+     bool isValid() const { return *this != emptySessionID(); }
+-    bool isEphemeral() const { return *this != defaultSessionID(); }
++    bool isEphemeral() const { return *this != defaultSessionID() && *this != bypassCacheSessionID(); }
+     uint64_t sessionID() const { return m_sessionID; }
+     bool operator==(SessionID sessionID) const { return m_sessionID == sessionID.m_sessionID; }
+     bool operator!=(SessionID sessionID) const { return m_sessionID != sessionID.m_sessionID; }
+ 
+     static SessionID emptySessionID() { return SessionID(0); }
+     static SessionID defaultSessionID() { return SessionID(1); }
+-    static SessionID legacyPrivateSessionID() { return SessionID(2); }
++    static SessionID bypassCacheSessionID() { return SessionID(2); }
++    static SessionID legacyPrivateSessionID() { return SessionID(3); }
+ private:
+     uint64_t m_sessionID;
+ };
+ 
+ } // namespace WebCore
+ 
+ #endif // SessionID_h
+diff --git a/Source/WebCore/page/Settings.cpp b/Source/WebCore/page/Settings.cpp
+index d7b0bee..8c5f30e 100644
+--- a/Source/WebCore/page/Settings.cpp
++++ b/Source/WebCore/page/Settings.cpp
+@@ -170,20 +170,21 @@ Settings::Settings(Page* page)
+     SETTINGS_INITIALIZER_LIST
+     , m_screenFontSubstitutionEnabled(shouldEnableScreenFontSubstitutionByDefault())
+     , m_isJavaEnabled(false)
+     , m_isJavaEnabledForLocalFiles(true)
+     , m_loadsImagesAutomatically(false)
+     , m_areImagesEnabled(true)
+     , m_arePluginsEnabled(false)
+     , m_isScriptEnabled(false)
+     , m_needsAdobeFrameReloadingQuirk(false)
+     , m_usesPageCache(false)
++    , m_usesMemoryCache(true)
+     , m_fontRenderingMode(0)
+     , m_showTiledScrollingIndicator(false)
+     , m_backgroundShouldExtendBeyondPage(false)
+     , m_dnsPrefetchingEnabled(false)
+ #if ENABLE(TOUCH_EVENTS)
+     , m_touchEventEmulationEnabled(false)
+ #endif
+     , m_scrollingPerformanceLoggingEnabled(false)
+     , m_timeWithoutMouseMovementBeforeHidingControls(3)
+     , m_setImageLoadingSettingsTimer(this, &Settings::imageLoadingSettingsTimerFired)
+diff --git a/Source/WebCore/page/Settings.h b/Source/WebCore/page/Settings.h
+index 2e0d6ef..22f75de7 100644
+--- a/Source/WebCore/page/Settings.h
++++ b/Source/WebCore/page/Settings.h
+@@ -173,21 +173,24 @@ public:
+     void setLayoutInterval(std::chrono::milliseconds);
+     std::chrono::milliseconds layoutInterval() const { return m_layoutInterval; }
+ 
+ #if ENABLE(HIDDEN_PAGE_DOM_TIMER_THROTTLING)
+     bool hiddenPageDOMTimerThrottlingEnabled() const { return m_hiddenPageDOMTimerThrottlingEnabled; }
+     void setHiddenPageDOMTimerThrottlingEnabled(bool);
+ #endif
+ 
+     void setUsesPageCache(bool);
+     bool usesPageCache() const { return m_usesPageCache; }
+-        
++
++    void setUsesMemoryCache(bool usesMemoryCache) { m_usesMemoryCache = usesMemoryCache; }
++    bool usesMemoryCache() const { return m_usesMemoryCache; }
++
+     void setFontRenderingMode(FontRenderingMode mode);
+     FontRenderingMode fontRenderingMode() const;
+ 
+     void setShowTiledScrollingIndicator(bool);
+     bool showTiledScrollingIndicator() const { return m_showTiledScrollingIndicator; }
+ 
+ #if PLATFORM(WIN)
+     static void setShouldUseHighResolutionTimers(bool);
+     static bool shouldUseHighResolutionTimers() { return gShouldUseHighResolutionTimers; }
+ #endif
+@@ -290,20 +293,21 @@ private:
+ 
+     bool m_screenFontSubstitutionEnabled : 1;
+     bool m_isJavaEnabled : 1;
+     bool m_isJavaEnabledForLocalFiles : 1;
+     bool m_loadsImagesAutomatically : 1;
+     bool m_areImagesEnabled : 1;
+     bool m_arePluginsEnabled : 1;
+     bool m_isScriptEnabled : 1;
+     bool m_needsAdobeFrameReloadingQuirk : 1;
+     bool m_usesPageCache : 1;
++    bool m_usesMemoryCache : 1;
+     unsigned m_fontRenderingMode : 1;
+     bool m_showTiledScrollingIndicator : 1;
+     bool m_backgroundShouldExtendBeyondPage : 1;
+     bool m_dnsPrefetchingEnabled : 1;
+ 
+ #if ENABLE(TOUCH_EVENTS)
+     bool m_touchEventEmulationEnabled : 1;
+ #endif
+     bool m_scrollingPerformanceLoggingEnabled : 1;
+ 
+diff --git a/Source/WebCore/replay/ReplayController.cpp b/Source/WebCore/replay/ReplayController.cpp
+index 67b4247..e869cc4 100644
+--- a/Source/WebCore/replay/ReplayController.cpp
++++ b/Source/WebCore/replay/ReplayController.cpp
+@@ -99,24 +99,27 @@ ReplayController::ReplayController(Page& page)
+     , m_sessionState(SessionState::Inactive)
+     , m_dispatchSpeed(DispatchSpeed::FastForward)
+ {
+ }
+ 
+ void ReplayController::setForceDeterministicSettings(bool shouldForceDeterministicBehavior)
+ {
+     ASSERT(shouldForceDeterministicBehavior ^ (m_sessionState == SessionState::Inactive));
+ 
+     if (shouldForceDeterministicBehavior) {
++        m_savedSettings.usesMemoryCache = m_page.settings().usesMemoryCache();
+         m_savedSettings.usesPageCache = m_page.settings().usesPageCache();
+ 
++        m_page.settings().setUsesMemoryCache(false);
+         m_page.settings().setUsesPageCache(false);
+     } else {
++        m_page.settings().setUsesMemoryCache(m_savedSettings.usesMemoryCache);
+         m_page.settings().setUsesPageCache(m_savedSettings.usesPageCache);
+     }
+ 
+ #if ENABLE(ASYNC_SCROLLING)
+     if (ScrollingCoordinator* scrollingCoordinator = m_page.scrollingCoordinator())
+         scrollingCoordinator->replaySessionStateDidChange();
+ #endif
+ }
+ 
+ void ReplayController::setSessionState(SessionState state)
+diff --git a/Source/WebCore/replay/ReplayController.h b/Source/WebCore/replay/ReplayController.h
+index 077cc82..4edb225 100644
+--- a/Source/WebCore/replay/ReplayController.h
++++ b/Source/WebCore/replay/ReplayController.h
+@@ -152,24 +152,26 @@ private:
+ 
+     void loadSegmentAtIndex(size_t);
+     void unloadSegment(bool suppressNotifications = false);
+ 
+     EventLoopInputDispatcher& dispatcher() const;
+ 
+     void setSessionState(SessionState);
+     void setForceDeterministicSettings(bool);
+ 
+     struct SavedSettings {
++        bool usesMemoryCache;
+         bool usesPageCache;
+ 
+         SavedSettings()
+-            : usesPageCache(false)
++            : usesMemoryCache(false)
++            , usesPageCache(false)
+         { }
+     };
+ 
+     Page& m_page;
+ 
+     RefPtr<ReplaySessionSegment> m_loadedSegment;
+     RefPtr<ReplaySession> m_loadedSession;
+     const RefPtr<JSC::InputCursor> m_emptyCursor;
+     // The active cursor is set to nullptr when invalid.
+     RefPtr<JSC::InputCursor> m_activeCursor;
+diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
+index 8c0512e..eda4617 100644
+--- a/Source/WebKit2/ChangeLog
++++ b/Source/WebKit2/ChangeLog
+@@ -1,10 +1,24 @@
++2014-04-12  Brian J. Burg <burg@cs.washington.edu>
++
++        Web Replay: add page-level setting to bypass the MemoryCache
++        https://bugs.webkit.org/show_bug.cgi?id=130728
++
++        Reviewed by NOBODY (OOPS!).
++
++        Use the default session if the session id is not ephemeral. The default session id
++        and bypass cache session id are both considered to be non-ephemeral.
++
++        * Shared/SessionTracker.cpp:
++        (WebKit::SessionTracker::session):
++        (WebKit::SessionTracker::setSession):
++
+ 2014-06-11  Enrica Casucci  <enrica@apple.com>
+ 
+         WebKit2 iOS: Unable to open UI menu for "open in new tab" for links on yahoo.com.
+         https://bugs.webkit.org/show_bug.cgi?id=133749
+         <rdar://problem/17165992>
+ 
+         Reviewed by Brady Eidson.
+ 
+         The URL returned to the UIProcess as string needs to be encoded.
+ 
+diff --git a/Source/WebKit2/Shared/SessionTracker.cpp b/Source/WebKit2/Shared/SessionTracker.cpp
+index bdcffb9..2b812b5 100644
+--- a/Source/WebKit2/Shared/SessionTracker.cpp
++++ b/Source/WebKit2/Shared/SessionTracker.cpp
+@@ -62,35 +62,35 @@ const HashMap<SessionID, std::unique_ptr<NetworkStorageSession>>& SessionTracker
+     return staticSessionMap();
+ }
+ 
+ const String& SessionTracker::getIdentifierBase()
+ {
+     return identifierBase();
+ }
+ 
+ NetworkStorageSession* SessionTracker::session(SessionID sessionID)
+ {
+-    if (sessionID == SessionID::defaultSessionID())
+-        return &NetworkStorageSession::defaultStorageSession();
+-    return staticSessionMap().get(sessionID);
++    if (sessionID.isEphemeral())
++        return staticSessionMap().get(sessionID);
++    return &NetworkStorageSession::defaultStorageSession();
+ }
+ 
+ SessionID SessionTracker::sessionID(const NetworkStorageSession& session)
+ {
+     if (&session == &NetworkStorageSession::defaultStorageSession())
+         return SessionID::defaultSessionID();
+     return storageSessionToID().get(&session);
+ }
+ 
+ void SessionTracker::setSession(SessionID sessionID, std::unique_ptr<NetworkStorageSession> session)
+ {
+-    ASSERT(sessionID != SessionID::defaultSessionID());
++    ASSERT(sessionID.isEphemeral());
+     storageSessionToID().set(session.get(), sessionID);
+     staticSessionMap().set(sessionID, std::move(session));
+ }
+ 
+ void SessionTracker::destroySession(SessionID sessionID)
+ {
+     ASSERT(RunLoop::isMain());
+     if (staticSessionMap().contains(sessionID)) {
+         storageSessionToID().remove(session(sessionID));
+         staticSessionMap().remove(sessionID);
+-- 
+1.9.2
+
