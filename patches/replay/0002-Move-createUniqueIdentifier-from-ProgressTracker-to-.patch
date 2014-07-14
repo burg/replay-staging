@@ -1,4 +1,4 @@
-From eceb0dfc7fd76ef2aa6c2c1dba793872a3399f22 Mon Sep 17 00:00:00 2001
+From b2c594ffa4fb5305ca063a615d660838eb8c0368 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 12 Jun 2014 09:30:20 -0700
 Subject: [PATCH] Move createUniqueIdentifier() from ProgressTracker to
@@ -48,7 +48,7 @@ No new tests. No behavior was changed.
  12 files changed, 66 insertions(+), 39 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 3cfdfe5..df7054d 100644
+index 2013b3a..bea48d1 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,11 +1,45 @@
@@ -159,7 +159,7 @@ index 39ed463..de22b87 100644
      LOG(Network, "WebSocketChannel %p connect()", this);
      ASSERT(!m_handle);
 diff --git a/Source/WebCore/html/HTMLMediaElement.cpp b/Source/WebCore/html/HTMLMediaElement.cpp
-index d7f1ba6..9572e57 100644
+index 7b29991..9d8c778 100644
 --- a/Source/WebCore/html/HTMLMediaElement.cpp
 +++ b/Source/WebCore/html/HTMLMediaElement.cpp
 @@ -59,21 +59,20 @@
@@ -184,7 +184,7 @@ index d7f1ba6..9572e57 100644
  #include "Settings.h"
  #include "ShadowRoot.h"
  #include "TimeRanges.h"
-@@ -5667,21 +5666,21 @@ bool HTMLMediaElement::mediaPlayerShouldWaitForResponseToAuthenticationChallenge
+@@ -5687,21 +5686,21 @@ bool HTMLMediaElement::mediaPlayerShouldWaitForResponseToAuthenticationChallenge
      if (!frame)
          return false;
  
@@ -208,14 +208,14 @@ index d7f1ba6..9572e57 100644
  {
      if (Frame* frame = document().frame()) {
 diff --git a/Source/WebCore/inspector/InspectorResourceAgent.cpp b/Source/WebCore/inspector/InspectorResourceAgent.cpp
-index 046ff05..9be6610 100644
+index a47030d..3fd3762 100644
 --- a/Source/WebCore/inspector/InspectorResourceAgent.cpp
 +++ b/Source/WebCore/inspector/InspectorResourceAgent.cpp
-@@ -42,24 +42,24 @@
- #include "ExceptionCodePlaceholder.h"
+@@ -43,24 +43,24 @@
  #include "Frame.h"
  #include "FrameLoader.h"
  #include "HTTPHeaderMap.h"
+ #include "HTTPHeaderNames.h"
  #include "IconController.h"
  #include "InspectorClient.h"
  #include "InspectorPageAgent.h"
@@ -237,7 +237,7 @@ index 046ff05..9be6610 100644
  #include "ThreadableLoaderClient.h"
  #include "URL.h"
  #include "WebSocketFrame.h"
-@@ -436,21 +436,21 @@ void InspectorResourceAgent::didFailLoading(unsigned long identifier, DocumentLo
+@@ -437,21 +437,21 @@ void InspectorResourceAgent::didFailLoading(unsigned long identifier, DocumentLo
      }
  
      bool canceled = error.isCancellation();
@@ -261,12 +261,12 @@ index 046ff05..9be6610 100644
  
      RefPtr<Inspector::TypeBuilder::Network::Initiator> initiatorObject = buildInitiatorObject(loader->frame() ? loader->frame()->document() : nullptr);
 diff --git a/Source/WebCore/loader/DocumentLoader.cpp b/Source/WebCore/loader/DocumentLoader.cpp
-index 54b075d..628b639 100644
+index 285a6ba..9e9a6a9 100644
 --- a/Source/WebCore/loader/DocumentLoader.cpp
 +++ b/Source/WebCore/loader/DocumentLoader.cpp
-@@ -47,21 +47,20 @@
- #include "HTMLFormElement.h"
+@@ -48,21 +48,20 @@
  #include "HTMLFrameOwnerElement.h"
+ #include "HTTPHeaderNames.h"
  #include "HistoryItem.h"
  #include "IconController.h"
  #include "InspectorInstrumentation.h"
@@ -286,7 +286,7 @@ index 54b075d..628b639 100644
  #include <wtf/Assertions.h>
  #include <wtf/NeverDestroyed.h>
  #include <wtf/Ref.h>
-@@ -110,20 +109,22 @@ static bool areAllLoadersPageCacheAcceptable(const ResourceLoaderMap& loaders)
+@@ -111,20 +110,22 @@ static bool areAllLoadersPageCacheAcceptable(const ResourceLoaderMap& loaders)
          if (!cachedResource)
              return false;
  
@@ -309,7 +309,7 @@ index 54b075d..628b639 100644
      , m_originalRequestCopy(req)
      , m_request(req)
      , m_originalSubstituteDataWasValid(substituteData.isValid())
-@@ -1321,20 +1322,26 @@ void DocumentLoader::setMainResourceDataBufferingPolicy(DataBufferingPolicy data
+@@ -1325,20 +1326,26 @@ void DocumentLoader::setMainResourceDataBufferingPolicy(DataBufferingPolicy data
  void DocumentLoader::stopLoadingPlugIns()
  {
      cancelAll(m_plugInStreamLoaders);
@@ -336,7 +336,7 @@ index 54b075d..628b639 100644
      if (!m_gotFirstByte)
          return;
      ASSERT(loader->identifier());
-@@ -1413,21 +1420,21 @@ void DocumentLoader::startLoadingMainResource()
+@@ -1417,21 +1424,21 @@ void DocumentLoader::startLoadingMainResource()
      timing()->markFetchStart();
      willSendRequest(m_request, ResourceResponse());
  
@@ -359,12 +359,12 @@ index 54b075d..628b639 100644
      // FIXME: Remove PLATFORM(IOS)-guard once we upstream the iOS changes to ResourceRequest.h.
      m_request.setMainResourceRequest(true);
  #endif
-@@ -1440,21 +1447,21 @@ void DocumentLoader::startLoadingMainResource()
+@@ -1444,21 +1451,21 @@ void DocumentLoader::startLoadingMainResource()
          setRequest(ResourceRequest());
          // If the load was aborted by clearing m_request, it's possible the ApplicationCacheHost
          // is now in a state where starting an empty load will be inconsistent. Replace it with
          // a new ApplicationCacheHost.
-         m_applicationCacheHost = adoptPtr(new ApplicationCacheHost(this));
+         m_applicationCacheHost = adoptPtr(new ApplicationCacheHost(*this));
          maybeLoadEmpty();
          return;
      }
@@ -383,10 +383,10 @@ index 54b075d..628b639 100644
      // If there was a fragment identifier on m_request, the cache will have stripped it. m_request should include
      // the fragment identifier, so add that back in.
 diff --git a/Source/WebCore/loader/DocumentLoader.h b/Source/WebCore/loader/DocumentLoader.h
-index 9a10e5d..49f7a1c 100644
+index 41fd6f9..2124de2 100644
 --- a/Source/WebCore/loader/DocumentLoader.h
 +++ b/Source/WebCore/loader/DocumentLoader.h
-@@ -215,20 +215,22 @@ namespace WebCore {
+@@ -214,20 +214,22 @@ namespace WebCore {
          void continueIconLoadWithDecision(IconLoadDecision);
          void getIconLoadDecisionForIconURL(const String&);
          void getIconDataForIconURL(const String&);
@@ -409,7 +409,7 @@ index 9a10e5d..49f7a1c 100644
          void setDeferMainResourceDataLoad(bool defer) { m_deferMainResourceDataLoad = defer; }
          
          void didTellClientAboutLoad(const String& url)
-@@ -315,20 +317,22 @@ namespace WebCore {
+@@ -314,20 +316,22 @@ namespace WebCore {
  #endif
          void handleSubstituteDataLoadSoon();
          void handleSubstituteDataLoadNow(DocumentLoaderTimer*);
@@ -433,14 +433,14 @@ index 9a10e5d..49f7a1c 100644
          mutable DocumentWriter m_writer;
  
 diff --git a/Source/WebCore/loader/FrameLoader.cpp b/Source/WebCore/loader/FrameLoader.cpp
-index a148925..0ae8314 100644
+index b758cb8..984b6cb 100644
 --- a/Source/WebCore/loader/FrameLoader.cpp
 +++ b/Source/WebCore/loader/FrameLoader.cpp
-@@ -2978,25 +2978,22 @@ void FrameLoader::continueLoadAfterNewWindowPolicy(const ResourceRequest& reques
+@@ -2981,25 +2981,22 @@ void FrameLoader::continueLoadAfterNewWindowPolicy(const ResourceRequest& reques
          mainFrame->loader().setOpener(&frame.get());
          mainFrame->document()->setReferrerPolicy(frame->document()->referrerPolicy());
      }
-     mainFrame->loader().loadWithNavigationAction(request, NavigationAction(request), LockHistory::No, FrameLoadTypeStandard, formState);
+     mainFrame->loader().loadWithNavigationAction(request, NavigationAction(request), LockHistory::No, FrameLoadType::Standard, formState);
  }
  
  void FrameLoader::requestFromDelegate(ResourceRequest& request, unsigned long& identifier, ResourceError& error)
@@ -465,10 +465,10 @@ index a148925..0ae8314 100644
  
      request = newRequest;
 diff --git a/Source/WebCore/loader/PingLoader.cpp b/Source/WebCore/loader/PingLoader.cpp
-index d51cd52..d4c09e5 100644
+index fb69a75..224b9a1 100644
 --- a/Source/WebCore/loader/PingLoader.cpp
 +++ b/Source/WebCore/loader/PingLoader.cpp
-@@ -26,27 +26,27 @@
+@@ -26,28 +26,28 @@
   * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
   * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
   * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
@@ -484,6 +484,7 @@ index d51cd52..d4c09e5 100644
  #include "Frame.h"
  #include "FrameLoader.h"
  #include "FrameLoaderClient.h"
+ #include "HTTPHeaderNames.h"
  #include "InspectorInstrumentation.h"
 -#include "Page.h"
 -#include "ProgressTracker.h"
@@ -498,7 +499,7 @@ index d51cd52..d4c09e5 100644
  namespace WebCore {
  
  void PingLoader::loadImage(Frame& frame, const URL& url)
-@@ -109,21 +109,21 @@ void PingLoader::sendViolationReport(Frame& frame, const URL& reportURL, PassRef
+@@ -110,21 +110,21 @@ void PingLoader::sendViolationReport(Frame& frame, const URL& reportURL, PassRef
  
  void PingLoader::createPingLoader(Frame& frame, ResourceRequest& request)
  {
@@ -522,10 +523,10 @@ index d51cd52..d4c09e5 100644
      InspectorInstrumentation::continueAfterPingLoader(frame, identifier, frame.loader().activeDocumentLoader(), request, ResourceResponse());
  
 diff --git a/Source/WebCore/loader/ProgressTracker.cpp b/Source/WebCore/loader/ProgressTracker.cpp
-index 3338506..e4213c6 100644
+index ece0d4e..98a9166 100644
 --- a/Source/WebCore/loader/ProgressTracker.cpp
 +++ b/Source/WebCore/loader/ProgressTracker.cpp
-@@ -66,22 +66,20 @@ public:
+@@ -68,22 +68,20 @@ public:
      ProgressItem(long long length) 
          : bytesReceived(0)
          , estimatedLength(length)
@@ -543,12 +544,12 @@ index 3338506..e4213c6 100644
      , m_totalPageAndResourceBytesToLoad(0)
      , m_totalBytesReceived(0)
      , m_lastNotifiedProgressValue(0)
-     , m_progressNotificationInterval(0.02)
-     , m_progressNotificationTimeInterval(std::chrono::milliseconds(100))
      , m_finalProgressChangedSent(false)
      , m_progressValue(0)
      , m_numProgressTrackedFrames(0)
-@@ -285,25 +283,20 @@ void ProgressTracker::completeProgress(unsigned long identifier)
+     , m_progressHeartbeatTimer(this, &ProgressTracker::progressHeartbeatTimerFired)
+     , m_heartbeatsWithNoProgress(0)
+@@ -282,25 +280,20 @@ void ProgressTracker::completeProgress(unsigned long identifier)
  
      ProgressItem& item = *it->value;
      
@@ -575,7 +576,7 @@ index 3338506..e4213c6 100644
      return m_progressValue && m_progressValue < finalProgressValue && m_heartbeatsWithNoProgress < loadStalledHeartbeatCount;
  }
 diff --git a/Source/WebCore/loader/ProgressTracker.h b/Source/WebCore/loader/ProgressTracker.h
-index 4d82f30..75161e2 100644
+index 0f7aa0a..621dc98 100644
 --- a/Source/WebCore/loader/ProgressTracker.h
 +++ b/Source/WebCore/loader/ProgressTracker.h
 @@ -39,44 +39,40 @@ class Frame;
@@ -618,13 +619,13 @@ index 4d82f30..75161e2 100644
      long long m_totalBytesReceived;
      double m_lastNotifiedProgressValue;
      std::chrono::steady_clock::time_point m_lastNotifiedProgressTime;
-     double m_progressNotificationInterval;
-     std::chrono::milliseconds m_progressNotificationTimeInterval;
      bool m_finalProgressChangedSent;    
      double m_progressValue;
      RefPtr<Frame> m_originatingProgressFrame;
+     
+     int m_numProgressTrackedFrames;
 diff --git a/Source/WebCore/loader/ResourceLoader.cpp b/Source/WebCore/loader/ResourceLoader.cpp
-index b9e174b..ef775c8 100644
+index 9130d48..da5a60c 100644
 --- a/Source/WebCore/loader/ResourceLoader.cpp
 +++ b/Source/WebCore/loader/ResourceLoader.cpp
 @@ -32,23 +32,23 @@
@@ -681,7 +682,7 @@ index b9e174b..ef775c8 100644
          createdResourceIdentifier = true;
      }
  
-     if (m_options.sendLoadCallbacks == SendCallbacks) {
+     if (m_options.sendLoadCallbacks() == SendCallbacks) {
          if (createdResourceIdentifier)
              frameLoader()->notifier().assignIdentifierToInitialRequest(m_identifier, documentLoader(), request);
  
@@ -689,11 +690,10 @@ index b9e174b..ef775c8 100644
      }
  #if ENABLE(INSPECTOR)
 diff --git a/Source/WebCore/loader/appcache/ApplicationCacheGroup.cpp b/Source/WebCore/loader/appcache/ApplicationCacheGroup.cpp
-index 54c854b..a4204af 100644
+index c6a23f2..fd48b77 100644
 --- a/Source/WebCore/loader/appcache/ApplicationCacheGroup.cpp
 +++ b/Source/WebCore/loader/appcache/ApplicationCacheGroup.cpp
-@@ -31,33 +31,30 @@
- #include "ApplicationCacheResource.h"
+@@ -32,33 +32,30 @@
  #include "ApplicationCacheStorage.h"
  #include "Chrome.h"
  #include "ChromeClient.h"
@@ -702,6 +702,7 @@ index 54c854b..a4204af 100644
  #include "Frame.h"
  #include "FrameLoader.h"
  #include "FrameLoaderClient.h"
+ #include "HTTPHeaderNames.h"
  #include "InspectorInstrumentation.h"
 +#include "MainFrame.h"
  #include "ManifestParser.h"
@@ -727,10 +728,10 @@ index 54c854b..a4204af 100644
      , m_progressTotal(0)
      , m_progressDone(0)
      , m_frame(0)
-@@ -490,21 +487,21 @@ PassRefPtr<ResourceHandle> ApplicationCacheGroup::createResourceHandle(const URL
-                 request.setHTTPHeaderField("If-Modified-Since", lastModified);
+@@ -491,21 +488,21 @@ PassRefPtr<ResourceHandle> ApplicationCacheGroup::createResourceHandle(const URL
+                 request.setHTTPHeaderField(HTTPHeaderName::IfModifiedSince, lastModified);
              if (!eTag.isEmpty())
-                 request.setHTTPHeaderField("If-None-Match", eTag);
+                 request.setHTTPHeaderField(HTTPHeaderName::IfNoneMatch, eTag);
          }
      }
  
@@ -751,5 +752,5 @@ index 54c854b..a4204af 100644
  #if ENABLE(INSPECTOR)
      DocumentLoader* loader = (handle == m_manifestHandle) ? 0 : m_frame->loader().documentLoader();
 -- 
-1.9.2
+2.0.1
 

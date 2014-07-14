@@ -1,4 +1,4 @@
-From 912f7ab91abb22b5877748365c99c0df853e174a Mon Sep 17 00:00:00 2001
+From 25458445b9820e3af8ca89a715f8448dc3008658 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 11 Jun 2014 15:33:16 -0700
 Subject: [PATCH] Web Replay: add page-level setting to bypass the MemoryCache
@@ -62,7 +62,7 @@ and bypass cache session id are both considered to be non-ephemeral.
  11 files changed, 86 insertions(+), 11 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index dd33359..3cfdfe5 100644
+index d251758..2013b3a 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,50 @@
@@ -106,21 +106,21 @@ index dd33359..3cfdfe5 100644
 +        (WebCore::ReplayController::setForceDeterministicSettings):
 +        * replay/ReplayController.h:
 +
- 2014-06-11  peavo@outlook.com  <peavo@outlook.com>
+ 2014-07-08  Brady Eidson  <beidson@apple.com>
  
-         [Curl] Empty headers in request response.
-         https://bugs.webkit.org/show_bug.cgi?id=133483
+         DOMWindows should register themselves with the GamepadManager when they have event listeners
+         https://bugs.webkit.org/show_bug.cgi?id=134669
  
-         Reviewed by Brent Fulgham.
+         Reviewed by Dean Jackson.
  
-         When a request is taken from the cache, its cached response headers are empty, if the cache entry was created in the same session.
-         It is only when the cache entry is loaded from disc, that the response headers are properly set.
-         We need to set the cached response headers in both cases.
+         No new tests (No effect in a currently tested config)
+ 
+         By having DOMWindows register with the GamepadManager when they have/don’t have gamepad event
 diff --git a/Source/WebCore/loader/cache/CachedResourceLoader.cpp b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
-index 9fde92e..8c4c478 100644
+index bafd3d6..cef7312 100644
 --- a/Source/WebCore/loader/cache/CachedResourceLoader.cpp
 +++ b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
-@@ -484,37 +484,41 @@ CachedResourceHandle<CachedResource> CachedResourceLoader::requestResource(Cache
+@@ -486,37 +486,41 @@ CachedResourceHandle<CachedResource> CachedResourceLoader::requestResource(Cache
              if (resource->inCache())
                  memoryCache()->remove(resource.get());
              return 0;
@@ -164,7 +164,7 @@ index 9fde92e..8c4c478 100644
      memoryCache()->remove(resource);
      memoryCache()->add(newResource.get());
 diff --git a/Source/WebCore/loader/cache/MemoryCache.cpp b/Source/WebCore/loader/cache/MemoryCache.cpp
-index d32badf..8c251cc 100644
+index 9071eef..b45d151 100644
 --- a/Source/WebCore/loader/cache/MemoryCache.cpp
 +++ b/Source/WebCore/loader/cache/MemoryCache.cpp
 @@ -104,20 +104,23 @@ URL MemoryCache::removeFragmentIdentifierIfNeeded(const URL& originalURL)
@@ -192,7 +192,7 @@ index d32badf..8c251cc 100644
      }
      originMap->set(resource->cachePartition(), resource);
 diff --git a/Source/WebCore/page/Page.cpp b/Source/WebCore/page/Page.cpp
-index 11e8934..591246b 100644
+index 38bb451..14c8a71 100644
 --- a/Source/WebCore/page/Page.cpp
 +++ b/Source/WebCore/page/Page.cpp
 @@ -1147,22 +1147,22 @@ void Page::storageBlockingStateChanged()
@@ -220,7 +220,7 @@ index 11e8934..591246b 100644
      ASSERT(m_subframeCount >= 0);
  
      int subframeCount = 0;
-@@ -1582,20 +1582,23 @@ void Page::setUserContentController(UserContentController* userContentController
+@@ -1572,20 +1572,23 @@ void Page::setUserContentController(UserContentController* userContentController
  VisitedLinkStore& Page::visitedLinkStore()
  {
      if (m_visitedLinkStore)
@@ -278,7 +278,7 @@ index 5efd74a..883babb 100644
  
  #endif // SessionID_h
 diff --git a/Source/WebCore/page/Settings.cpp b/Source/WebCore/page/Settings.cpp
-index d7b0bee..8c5f30e 100644
+index e8653df..1e9fbd6 100644
 --- a/Source/WebCore/page/Settings.cpp
 +++ b/Source/WebCore/page/Settings.cpp
 @@ -170,20 +170,21 @@ Settings::Settings(Page* page)
@@ -304,7 +304,7 @@ index d7b0bee..8c5f30e 100644
      , m_timeWithoutMouseMovementBeforeHidingControls(3)
      , m_setImageLoadingSettingsTimer(this, &Settings::imageLoadingSettingsTimerFired)
 diff --git a/Source/WebCore/page/Settings.h b/Source/WebCore/page/Settings.h
-index 2e0d6ef..22f75de7 100644
+index ba283ea..297b200 100644
 --- a/Source/WebCore/page/Settings.h
 +++ b/Source/WebCore/page/Settings.h
 @@ -173,21 +173,24 @@ public:
@@ -333,7 +333,7 @@ index 2e0d6ef..22f75de7 100644
      static void setShouldUseHighResolutionTimers(bool);
      static bool shouldUseHighResolutionTimers() { return gShouldUseHighResolutionTimers; }
  #endif
-@@ -290,20 +293,21 @@ private:
+@@ -288,20 +291,21 @@ private:
  
      bool m_screenFontSubstitutionEnabled : 1;
      bool m_isJavaEnabled : 1;
@@ -356,7 +356,7 @@ index 2e0d6ef..22f75de7 100644
      bool m_scrollingPerformanceLoggingEnabled : 1;
  
 diff --git a/Source/WebCore/replay/ReplayController.cpp b/Source/WebCore/replay/ReplayController.cpp
-index 67b4247..e869cc4 100644
+index d76e4b7..3b2f3f4 100644
 --- a/Source/WebCore/replay/ReplayController.cpp
 +++ b/Source/WebCore/replay/ReplayController.cpp
 @@ -99,24 +99,27 @@ ReplayController::ReplayController(Page& page)
@@ -420,7 +420,7 @@ index 077cc82..4edb225 100644
      // The active cursor is set to nullptr when invalid.
      RefPtr<JSC::InputCursor> m_activeCursor;
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 8c0512e..eda4617 100644
+index 7228ba1..b2c6f97 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,24 @@
@@ -438,18 +438,18 @@ index 8c0512e..eda4617 100644
 +        (WebKit::SessionTracker::session):
 +        (WebKit::SessionTracker::setSession):
 +
- 2014-06-11  Enrica Casucci  <enrica@apple.com>
+ 2014-07-09  KwangHyuk Kim  <hyuki.kim@samsung.com>
  
-         WebKit2 iOS: Unable to open UI menu for "open in new tab" for links on yahoo.com.
-         https://bugs.webkit.org/show_bug.cgi?id=133749
-         <rdar://problem/17165992>
+         [EFL] Fix crash caused by invalid cursor image.
+         https://bugs.webkit.org/show_bug.cgi?id=134663
  
-         Reviewed by Brady Eidson.
+         Reviewed by Gyuyoung Kim.
  
-         The URL returned to the UIProcess as string needs to be encoded.
+         Remove calling of updateCursor since the custom cursor image is invalid once a mouse is out of the webview.
  
+         * UIProcess/API/efl/EwkView.cpp:
 diff --git a/Source/WebKit2/Shared/SessionTracker.cpp b/Source/WebKit2/Shared/SessionTracker.cpp
-index bdcffb9..2b812b5 100644
+index ac79a9d..0886af1 100644
 --- a/Source/WebKit2/Shared/SessionTracker.cpp
 +++ b/Source/WebKit2/Shared/SessionTracker.cpp
 @@ -62,35 +62,35 @@ const HashMap<SessionID, std::unique_ptr<NetworkStorageSession>>& SessionTracker
@@ -483,7 +483,7 @@ index bdcffb9..2b812b5 100644
 -    ASSERT(sessionID != SessionID::defaultSessionID());
 +    ASSERT(sessionID.isEphemeral());
      storageSessionToID().set(session.get(), sessionID);
-     staticSessionMap().set(sessionID, std::move(session));
+     staticSessionMap().set(sessionID, WTF::move(session));
  }
  
  void SessionTracker::destroySession(SessionID sessionID)
@@ -493,5 +493,5 @@ index bdcffb9..2b812b5 100644
          storageSessionToID().remove(session(sessionID));
          staticSessionMap().remove(sessionID);
 -- 
-1.9.2
+2.0.1
 
