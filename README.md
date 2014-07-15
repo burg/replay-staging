@@ -18,7 +18,7 @@ numberings changing in the original replay-staging repository.
 # Getting
 
     git clone git://github.com/burg/replay-staging.git
-    
+
 Then follow the steps below for updating.
 
 # Updating
@@ -31,8 +31,8 @@ to download the entire WebKit git repository (over 5GB in size).
     git submodule update --init --recursive
     git submodule update --recursive
     scripts/import-patches
-    
-    
+
+
 Now you should be able to go into the OpenSource directory and build
 WebKit as normal.
 [More details on building WebKit itself](http://www.webkit.org/building/build.html).
@@ -44,7 +44,7 @@ working copy, you can run the following command to export any commits
 between the merge-base and head of the submodule.
 
     scripts/import-patches
-    
+
 Note: this script requires the working copy to be clean, and will
 abort if there are any patches already applied to the WebKit submodule
 (i.e., HEAD is not merge-base).
@@ -94,7 +94,7 @@ fail to apply.
 
     patches/       # Base directory for all patches.
         replay/    # Contains replay infrastructure patches.
-	other_dir/ # See note [1]
+    other_dir/ # See note [1]
 ```
 
 [1] Forks of this repository should use a separate patch directory if
