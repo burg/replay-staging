@@ -1,0 +1,532 @@
+From 78f2176c44a52af02a348b4c4ff2c1ed0296b5b1 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Mon, 14 Jul 2014 13:36:05 -0700
+Subject: [PATCH] Web Replay: don't encode/decode primitive types that lack
+ explicit sizes https://bugs.webkit.org/show_bug.cgi?id=133430
+
+Reviewed by NOBODY (OOPS!).
+
+Source/JavaScriptCore:
+Don't support encode/decode of unsigned long, since its size is compiler-dependent.
+
+* replay/EncodedValue.cpp:
+(JSC::EncodedValue::convertTo<unsigned long>):
+(JSC::unsigned long>::encodeValue): Deleted.
+* replay/EncodedValue.h:
+
+Source/WebCore:
+Remove uses of unsigned long in encode/decode methods because the type lacks an
+explicit size. Move frame index serialization away from using unsigned long.
+
+* replay/ReplayController.cpp:
+(WebCore::logDispatchedDOMEvent): Fix the format string.
+* replay/SerializationMethods.cpp:
+(WebCore::frameIndexFromDocument):
+(WebCore::frameIndexFromFrame):
+(WebCore::documentFromFrameIndex):
+(WebCore::frameFromFrameIndex):
+(JSC::EncodingTraits<PluginData>::encodeValue):
+(JSC::EncodingTraits<PluginData>::decodeValue):
+* replay/SerializationMethods.h:
+* replay/WebInputs.json: Remove primitive types without explicit sizes.
+---
+ Source/JavaScriptCore/ChangeLog                | 14 +++++++++++
+ Source/JavaScriptCore/replay/EncodedValue.cpp  | 14 -----------
+ Source/JavaScriptCore/replay/EncodedValue.h    |  2 --
+ Source/WebCore/ChangeLog                       | 22 +++++++++++++++++
+ Source/WebCore/replay/ReplayController.cpp     |  4 +--
+ Source/WebCore/replay/SerializationMethods.cpp | 28 +++++++++++++--------
+ Source/WebCore/replay/SerializationMethods.h   |  8 +++---
+ Source/WebCore/replay/WebInputs.json           | 34 +++++++++++++-------------
+ 8 files changed, 77 insertions(+), 49 deletions(-)
+
+diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
+index 1960dad..6a4b00f 100644
+--- a/Source/JavaScriptCore/ChangeLog
++++ b/Source/JavaScriptCore/ChangeLog
+@@ -1,10 +1,24 @@
++2014-07-14  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Replay: don't encode/decode primitive types that lack explicit sizes
++        https://bugs.webkit.org/show_bug.cgi?id=133430
++
++        Reviewed by NOBODY (OOPS!).
++
++        Don't support encode/decode of unsigned long, since its size is compiler-dependent.
++
++        * replay/EncodedValue.cpp:
++        (JSC::EncodedValue::convertTo<unsigned long>):
++        (JSC::unsigned long>::encodeValue): Deleted.
++        * replay/EncodedValue.h:
++
+ 2014-07-08  Benjamin Poulain  <benjamin@webkit.org>
+ 
+         Restore the assertion changed with 170839
+ 
+         * assembler/ARMv7Assembler.h:
+         (JSC::ARMv7Assembler::pop):
+         (JSC::ARMv7Assembler::push):
+         Revert the Assembler part of 170839. The assertions do not match both encoding.
+ 
+         I'll add specific version of push and pop instead.
+diff --git a/Source/JavaScriptCore/replay/EncodedValue.cpp b/Source/JavaScriptCore/replay/EncodedValue.cpp
+index 0191d41..cee70e2 100644
+--- a/Source/JavaScriptCore/replay/EncodedValue.cpp
++++ b/Source/JavaScriptCore/replay/EncodedValue.cpp
+@@ -83,25 +83,20 @@ template<> EncodedValue ScalarEncodingTraits<int64_t>::encodeValue(const int64_t
+ template<> EncodedValue ScalarEncodingTraits<uint32_t>::encodeValue(const uint32_t& value)
+ {
+     return EncodedValue(InspectorBasicValue::create((double)value));
+ }
+ 
+ template<> EncodedValue ScalarEncodingTraits<uint64_t>::encodeValue(const uint64_t& value)
+ {
+     return EncodedValue(InspectorBasicValue::create((double)value));
+ }
+ 
+-template<> EncodedValue ScalarEncodingTraits<unsigned long>::encodeValue(const unsigned long& value)
+-{
+-    return EncodedValue(InspectorBasicValue::create((double)value));
+-}
+-
+ template<> bool EncodedValue::convertTo<bool>()
+ {
+     bool result;
+     bool castSucceeded = m_value->asBoolean(&result);
+     ASSERT_UNUSED(castSucceeded, castSucceeded);
+ 
+     return result;
+ }
+ 
+ template<> double EncodedValue::convertTo<double>()
+@@ -151,29 +146,20 @@ template<> uint32_t EncodedValue::convertTo<uint32_t>()
+ 
+ template<> uint64_t EncodedValue::convertTo<uint64_t>()
+ {
+     uint64_t result;
+     bool castSucceeded = m_value->asNumber(&result);
+     ASSERT_UNUSED(castSucceeded, castSucceeded);
+ 
+     return result;
+ }
+ 
+-template<> unsigned long EncodedValue::convertTo<unsigned long>()
+-{
+-    unsigned long result;
+-    bool castSucceeded = m_value->asNumber(&result);
+-    ASSERT_UNUSED(castSucceeded, castSucceeded);
+-
+-    return result;
+-}
+-
+ template<> String EncodedValue::convertTo<String>()
+ {
+     String result;
+     bool castSucceeded = m_value->asString(&result);
+     ASSERT_UNUSED(castSucceeded, castSucceeded);
+ 
+     return result;
+ }
+ 
+ template<>
+diff --git a/Source/JavaScriptCore/replay/EncodedValue.h b/Source/JavaScriptCore/replay/EncodedValue.h
+index de6bff7..4fb8a85 100644
+--- a/Source/JavaScriptCore/replay/EncodedValue.h
++++ b/Source/JavaScriptCore/replay/EncodedValue.h
+@@ -85,21 +85,20 @@ private:
+     RefPtr<Inspector::InspectorValue> m_value;
+ };
+ 
+ template<> JS_EXPORT_PRIVATE bool EncodedValue::convertTo<bool>();
+ template<> JS_EXPORT_PRIVATE double EncodedValue::convertTo<double>();
+ template<> JS_EXPORT_PRIVATE float EncodedValue::convertTo<float>();
+ template<> JS_EXPORT_PRIVATE int32_t EncodedValue::convertTo<int32_t>();
+ template<> JS_EXPORT_PRIVATE int64_t EncodedValue::convertTo<int64_t>();
+ template<> JS_EXPORT_PRIVATE uint32_t EncodedValue::convertTo<uint32_t>();
+ template<> JS_EXPORT_PRIVATE uint64_t EncodedValue::convertTo<uint64_t>();
+-template<> JS_EXPORT_PRIVATE unsigned long EncodedValue::convertTo<unsigned long>();
+ template<> JS_EXPORT_PRIVATE String EncodedValue::convertTo<String>();
+ 
+ template<typename T>
+ struct EncodingTraits {
+     typedef T DecodedType;
+ 
+     static EncodedValue encodeValue(const DecodedType&);
+ 
+     static bool decodeValue(EncodedValue&, DecodedType&);
+     static bool decodeValue(EncodedValue&, std::unique_ptr<DecodedType>&);
+@@ -149,21 +148,20 @@ struct ScalarEncodingTraits {
+     }
+ };
+ 
+ template<> struct EncodingTraits<bool> : public ScalarEncodingTraits<bool> { };
+ template<> struct EncodingTraits<double> : public ScalarEncodingTraits<double> { };
+ template<> struct EncodingTraits<float> : public ScalarEncodingTraits<float> { };
+ template<> struct EncodingTraits<int32_t> : public ScalarEncodingTraits<int32_t> { };
+ template<> struct EncodingTraits<int64_t> : public ScalarEncodingTraits<int64_t> { };
+ template<> struct EncodingTraits<uint32_t> : public ScalarEncodingTraits<uint32_t> { };
+ template<> struct EncodingTraits<uint64_t> : public ScalarEncodingTraits<uint64_t> { };
+-template<> struct EncodingTraits<unsigned long> : public ScalarEncodingTraits<unsigned long> { };
+ 
+ template<> struct EncodingTraits<String> : public ScalarEncodingTraits<String> {
+     static EncodedValue encodeValue(const String& value)
+     {
+         return EncodedValue::createString(value);
+     }
+ };
+ 
+ // Base cases for loading and storing values.
+ template<> JS_EXPORT_PRIVATE
+diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
+index bfca77b..cb91f2a 100644
+--- a/Source/WebCore/ChangeLog
++++ b/Source/WebCore/ChangeLog
+@@ -1,10 +1,32 @@
++2014-07-14  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Replay: don't encode/decode primitive types that lack explicit sizes
++        https://bugs.webkit.org/show_bug.cgi?id=133430
++
++        Reviewed by NOBODY (OOPS!).
++
++        Remove uses of unsigned long in encode/decode methods because the type lacks an
++        explicit size. Move frame index serialization away from using unsigned long.
++
++        * replay/ReplayController.cpp:
++        (WebCore::logDispatchedDOMEvent): Fix the format string.
++        * replay/SerializationMethods.cpp:
++        (WebCore::frameIndexFromDocument):
++        (WebCore::frameIndexFromFrame):
++        (WebCore::documentFromFrameIndex):
++        (WebCore::frameFromFrameIndex):
++        (JSC::EncodingTraits<PluginData>::encodeValue):
++        (JSC::EncodingTraits<PluginData>::decodeValue):
++        * replay/SerializationMethods.h:
++        * replay/WebInputs.json: Remove primitive types without explicit sizes.
++
+ 2014-06-12  Brian Burg  <burg@cs.washington.edu>
+ 
+         Web Replay: capture and replay ResourceLoader callbacks
+         https://bugs.webkit.org/show_bug.cgi?id=129391
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Our approach to ensuring deterministic page loading is to capture resource loader
+         callbacks during capturing, and then manually invoke loader callbacks during replay
+         in lieu of using the resource loader scheduler.
+diff --git a/Source/WebCore/replay/ReplayController.cpp b/Source/WebCore/replay/ReplayController.cpp
+index 3b2f3f4..a2a4935 100644
+--- a/Source/WebCore/replay/ReplayController.cpp
++++ b/Source/WebCore/replay/ReplayController.cpp
+@@ -60,28 +60,28 @@ namespace WebCore {
+ 
+ static void logDispatchedDOMEvent(const Event& event, bool eventIsUnrelated)
+ {
+ #if !LOG_DISABLED
+     EventTarget* target = event.target();
+     if (!target)
+         return;
+ 
+     // A DOM event is unrelated if it is being dispatched to a document that is neither capturing nor replaying.
+     if (Node* node = target->toNode()) {
+-        LOG(WebReplay, "%-20s --->%s DOM event: type=%s, target=%lu/node[%p] %s\n", "ReplayEvents",
++        LOG(WebReplay, "%-20s --->%s DOM event: type=%s, target=%u/node[%p] %s\n", "ReplayEvents",
+             (eventIsUnrelated) ? "Unrelated" : "Dispatching",
+             event.type().string().utf8().data(),
+             frameIndexFromDocument((node->inDocument()) ? &node->document() : node->ownerDocument()),
+             node,
+             node->nodeName().utf8().data());
+     } else if (DOMWindow* window = target->toDOMWindow()) {
+-        LOG(WebReplay, "%-20s --->%s DOM event: type=%s, target=%lu/window[%p] %s\n", "ReplayEvents",
++        LOG(WebReplay, "%-20s --->%s DOM event: type=%s, target=%u/window[%p] %s\n", "ReplayEvents",
+             (eventIsUnrelated) ? "Unrelated" : "Dispatching",
+             event.type().string().utf8().data(),
+             frameIndexFromDocument(window->document()),
+             window,
+             window->location()->href().utf8().data());
+     }
+ #else
+     UNUSED_PARAM(event);
+     UNUSED_PARAM(eventIsUnrelated);
+ #endif
+diff --git a/Source/WebCore/replay/SerializationMethods.cpp b/Source/WebCore/replay/SerializationMethods.cpp
+index 74353d3..a4bbcc2 100644
+--- a/Source/WebCore/replay/SerializationMethods.cpp
++++ b/Source/WebCore/replay/SerializationMethods.cpp
+@@ -75,56 +75,56 @@ using WebCore::PlatformWheelEventPhase;
+ #endif
+ 
+ #define IMPORT_FROM_WEBCORE_NAMESPACE(name) \
+ using WebCore::name; \
+ 
+ WEB_REPLAY_INPUT_NAMES_FOR_EACH(IMPORT_FROM_WEBCORE_NAMESPACE)
+ #undef IMPORT_FROM_WEBCORE_NAMESPACE
+ 
+ namespace WebCore {
+ 
+-unsigned long frameIndexFromDocument(const Document* document)
++uint32_t frameIndexFromDocument(const Document* document)
+ {
+     ASSERT(document);
+     ASSERT(document->frame());
+     return frameIndexFromFrame(document->frame());
+ }
+ 
+-unsigned long frameIndexFromFrame(const Frame* targetFrame)
++uint32_t frameIndexFromFrame(const Frame* targetFrame)
+ {
+     ASSERT(targetFrame);
+ 
+-    unsigned long currentIndex = 0;
++    uint32_t currentIndex = 0;
+     const Frame* mainFrame = &targetFrame->tree().top();
+     for (const Frame* frame = mainFrame; frame; ++currentIndex, frame = frame->tree().traverseNext(mainFrame)) {
+         if (frame == targetFrame)
+             return currentIndex;
+     }
+ 
+     ASSERT_NOT_REACHED();
+     return 0;
+ }
+ 
+-Document* documentFromFrameIndex(Page* page, unsigned long frameIndex)
++Document* documentFromFrameIndex(Page* page, uint32_t frameIndex)
+ {
+     Frame* frame = frameFromFrameIndex(page, frameIndex);
+     return frame ? frame->document() : nullptr;
+ }
+ 
+-Frame* frameFromFrameIndex(Page* page, unsigned long frameIndex)
++Frame* frameFromFrameIndex(Page* page, uint32_t frameIndex)
+ {
+     ASSERT(page);
+     ASSERT(frameIndex >= 0);
+ 
+     MainFrame* mainFrame = &page->mainFrame();
+     Frame* frame = mainFrame;
+-    unsigned long currentIndex = 0;
++    uint32_t currentIndex = 0;
+     for (; currentIndex < frameIndex && frame; ++currentIndex, frame = frame->tree().traverseNext(mainFrame)) { }
+ 
+     return frame;
+ }
+ 
+ } // namespace WebCore
+ 
+ #define ENCODE_TYPE_WITH_KEY(_encodedValue, _type, _key, _value) \
+     _encodedValue.put<_type>(ASCIILiteral(#_key), _value)
+ 
+@@ -331,21 +331,21 @@ bool EncodingTraits<PlatformKeyboardEvent>::decodeValue(EncodedValue& encodedVal
+     DECODE_TYPE_WITH_KEY(encodedValue, int, nativeVirtualKeyCode);
+     DECODE_TYPE_WITH_KEY(encodedValue, int, macCharCode);
+     DECODE_TYPE_WITH_KEY(encodedValue, bool, autoRepeat);
+     DECODE_TYPE_WITH_KEY(encodedValue, bool, keypad);
+     DECODE_TYPE_WITH_KEY(encodedValue, bool, systemKey);
+ #if USE(APPKIT)
+     DECODE_TYPE_WITH_KEY(encodedValue, bool, handledByInputMethod);
+     DECODE_TYPE_WITH_KEY(encodedValue, Vector<KeypressCommand>, commands);
+ #endif
+ 
+-    PlatformKeyboardEvent platformEvent = PlatformKeyboardEvent(type, text, unmodifiedText, keyIdentifier, windowsVirtualKeyCode, nativeVirtualKeyCode, macCharCode, autoRepeat, keypad, systemKey, modifiers, timestamp);
++    PlatformKeyboardEvent platformEvent = PlatformKeyboardEvent(type, text, unmodifiedText, keyIdentifier, WTF::safeCast<int>(windowsVirtualKeyCode), WTF::safeCast<int>(nativeVirtualKeyCode), WTF::safeCast<int>(macCharCode), autoRepeat, keypad, systemKey, modifiers, timestamp);
+ #if USE(APPKIT)
+     input = std::make_unique<PlatformKeyboardEventAppKit>(platformEvent, handledByInputMethod, commands);
+ #else
+     input = std::make_unique<PlatformKeyboardEvent>(platformEvent);
+ #endif
+     return true;
+ }
+ 
+ EncodedValue EncodingTraits<PlatformMouseEvent>::encodeValue(const PlatformMouseEvent& input)
+ {
+@@ -482,42 +482,50 @@ bool EncodingTraits<PlatformWheelEvent>::decodeValue(EncodedValue& encodedData,
+ #else
+     input = std::make_unique<PlatformWheelEvent>(event);
+ #endif
+     return true;
+ }
+ 
+ EncodedValue EncodingTraits<PluginData>::encodeValue(RefPtr<PluginData> input)
+ {
+     EncodedValue encodedData = EncodedValue::createObject();
+ 
++    Vector<uint32_t> castedMimePluginIndices(input->mimePluginIndices().size());
++    for (uint32_t index : input->mimePluginIndices())
++        castedMimePluginIndices.append(WTF::safeCast<uint32_t>(index));
++
+     ENCODE_TYPE_WITH_KEY(encodedData, Vector<PluginInfo>, plugins, input->plugins());
+     ENCODE_TYPE_WITH_KEY(encodedData, Vector<MimeClassInfo>, mimes, input->mimes());
+-    ENCODE_TYPE_WITH_KEY(encodedData, Vector<size_t>, mimePluginIndices, input->mimePluginIndices());
++    ENCODE_TYPE_WITH_KEY(encodedData, Vector<uint32_t>, mimePluginIndices, castedMimePluginIndices);
+ 
+     return encodedData;
+ }
+ 
+ class DeserializedPluginData : public PluginData {
+ public:
+     DeserializedPluginData(Vector<PluginInfo> plugins, Vector<MimeClassInfo> mimes, Vector<size_t> indices)
+         : PluginData(plugins, mimes, indices)
+     {
+     }
+ };
+ 
+ bool EncodingTraits<PluginData>::decodeValue(EncodedValue& encodedData, RefPtr<PluginData>& input)
+ {
+     DECODE_TYPE_WITH_KEY(encodedData, Vector<PluginInfo>, plugins);
+     DECODE_TYPE_WITH_KEY(encodedData, Vector<MimeClassInfo>, mimes);
+-    DECODE_TYPE_WITH_KEY(encodedData, Vector<size_t>, mimePluginIndices);
++    DECODE_TYPE_WITH_KEY(encodedData, Vector<uint32_t>, mimePluginIndices);
++
++    Vector<size_t> castedMimePluginIndices(mimePluginIndices.size());
++    for (uint32_t index : mimePluginIndices)
++        castedMimePluginIndices.append(WTF::safeCast<size_t>(index));
+ 
+-    input = adoptRef(new DeserializedPluginData(plugins, mimes, mimePluginIndices));
++    input = adoptRef(new DeserializedPluginData(plugins, mimes, castedMimePluginIndices));
+ 
+     return true;
+ }
+ 
+ template<>
+ EncodedValue EncodingTraits<PluginInfo>::encodeValue(const PluginInfo& input)
+ {
+     EncodedValue encodedData = EncodedValue::createObject();
+ 
+     ENCODE_TYPE_WITH_KEY(encodedData, String, name, input.name);
+diff --git a/Source/WebCore/replay/SerializationMethods.h b/Source/WebCore/replay/SerializationMethods.h
+index 91a5674..38a1d50 100644
+--- a/Source/WebCore/replay/SerializationMethods.h
++++ b/Source/WebCore/replay/SerializationMethods.h
+@@ -47,24 +47,24 @@ class PluginData;
+ class ResourceError;
+ class ResourceResponse;
+ class SecurityOrigin;
+ class SharedBuffer;
+ class URL;
+ 
+ #if USE(APPKIT)
+ struct KeypressCommand;
+ #endif
+ 
+-unsigned long frameIndexFromDocument(const Document*);
+-unsigned long frameIndexFromFrame(const Frame*);
+-Document* documentFromFrameIndex(Page*, unsigned long frameIndex);
+-Frame* frameFromFrameIndex(Page*, unsigned long frameIndex);
++uint32_t frameIndexFromDocument(const Document*);
++uint32_t frameIndexFromFrame(const Frame*);
++Document* documentFromFrameIndex(Page*, uint32_t frameIndex);
++Frame* frameFromFrameIndex(Page*, uint32_t frameIndex);
+ 
+ } // namespace WebCore
+ 
+ // Template specializations must be defined in the same namespace as the template declaration.
+ namespace JSC {
+ 
+ template<> struct EncodingTraits<WebCore::HTTPHeaderMap> {
+     typedef WebCore::HTTPHeaderMap DecodedType;
+ 
+     static EncodedValue encodeValue(const WebCore::HTTPHeaderMap& value);
+diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
+index 8e23bbf..d95e9ed 100644
+--- a/Source/WebCore/replay/WebInputs.json
++++ b/Source/WebCore/replay/WebInputs.json
+@@ -1,19 +1,19 @@
+ {
+     "types": {
+         "Global": [
+             { "name": "bool", "mode": "SCALAR" },
+             { "name": "double", "mode": "SCALAR" },
+-            { "name": "int", "mode": "SCALAR" },
+-            { "name": "unsigned", "mode": "SCALAR" },
+-            { "name": "unsigned long", "mode": "SCALAR" },
+-            { "name": "unsigned long long", "mode": "SCALAR" }
++            { "name": "uint32_t", "mode": "SCALAR", "description": "Unsigned 32-bit integer." },
++            { "name": "uint64_t", "mode": "SCALAR", "description": "Unsigned 64-bit integer." },
++            { "name": "int32_t", "mode": "SCALAR", "description": "Signed 32-bit integer." },
++            { "name": "int64_t", "mode": "SCALAR", "description": "Signed 64-bit integer." }
+         ],
+ 
+         "WTF": [
+             {
+                 "name": "String", "mode": "HEAVY_SCALAR",
+                 "header": "wtf/text/WTFString.h"
+             }
+         ],
+ 
+         "JavaScriptCore": [
+@@ -266,59 +266,59 @@
+             "members": [
+                 { "name": "direction", "type": "ScrollDirection" },
+                 { "name": "granularity", "type": "ScrollGranularity" }
+             ]
+         },
+         {
+             "name": "ResourceLoaderDidFail",
+             "description": "A resource loader failed to load its resource.",
+             "queue": "EVENT_LOOP",
+             "members": [
+-                { "name": "ordinal", "type": "unsigned long" },
+-                { "name": "frameIndex", "type": "int" },
++                { "name": "ordinal", "type": "uint64_t" },
++                { "name": "frameIndex", "type": "uint32_t" },
+                 { "name": "error", "type": "ResourceError" }
+             ]
+         },
+         {
+             "name": "ResourceLoaderDidFinishLoading",
+             "description": "A resource loader finished receiving a resource.",
+             "queue": "EVENT_LOOP",
+             "members": [
+-                { "name": "ordinal", "type": "unsigned long" },
+-                { "name": "frameIndex", "type": "int" },
++                { "name": "ordinal", "type": "uint64_t" },
++                { "name": "frameIndex", "type": "uint32_t" },
+                 { "name": "finishTime", "type": "double" }
+             ]
+         },
+         {
+             "name": "ResourceLoaderDidReceiveResponse",
+             "description": "A resource loader received an initial response.",
+             "queue": "EVENT_LOOP",
+             "members": [
+-                { "name": "ordinal", "type": "unsigned long" },
+-                { "name": "frameIndex", "type": "int" },
++                { "name": "ordinal", "type": "uint64_t" },
++                { "name": "frameIndex", "type": "uint32_t" },
+                 { "name": "response", "type": "ResourceResponse" }
+             ]
+         },
+         {
+             "name": "ResourceLoaderDidSendData",
+             "description": "A resource loader sent some data.",
+             "queue": "EVENT_LOOP",
+             "members": [
+-                { "name": "ordinal", "type": "unsigned long" },
+-                { "name": "frameIndex", "type": "int" },
+-                { "name": "bytesSent", "type": "unsigned long long" },
+-                { "name": "totalBytesToBeSent", "type": "unsigned long long" }
++                { "name": "ordinal", "type": "uint64_t" },
++                { "name": "frameIndex", "type": "uint32_t" },
++                { "name": "bytesSent", "type": "uint64_t" },
++                { "name": "totalBytesToBeSent", "type": "uint64_t" }
+             ]
+         },
+         {
+             "name": "ResourceLoaderDidReceiveData",
+             "description": "A resource loader received some data.",
+             "queue": "EVENT_LOOP",
+             "members": [
+-                { "name": "ordinal", "type": "unsigned long" },
+-                { "name": "frameIndex", "type": "int" },
++                { "name": "ordinal", "type": "uint64_t" },
++                { "name": "frameIndex", "type": "uint32_t" },
+                 { "name": "buffer", "type": "SharedBuffer" },
+-                { "name": "encodedLength", "type": "int" }
++                { "name": "encodedLength", "type": "uint64_t" }
+             ]
+         }
+     ]
+ }
+-- 
+2.0.1
+

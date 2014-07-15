@@ -1,4 +1,4 @@
-From b2c594ffa4fb5305ca063a615d660838eb8c0368 Mon Sep 17 00:00:00 2001
+From 2f9f303535be8e6c1eead22179526141c186746b Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 12 Jun 2014 09:30:20 -0700
 Subject: [PATCH] Move createUniqueIdentifier() from ProgressTracker to
