@@ -1,0 +1,1539 @@
+From 2532afb7c76bbfe53fd5977c8767618b023d9d91 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Tue, 15 Jul 2014 14:34:56 -0700
+Subject: [PATCH] Web Replay: make calls into FrameLoader::checkLoadComplete()
+ deterministic https://bugs.webkit.org/show_bug.cgi?id=129451
+
+Reviewed by NOBODY (OOPS!).
+
+Source/WebCore:
+To ensure deterministic JavaScript execution, calls to checkLoadComplete()
+that originate from asynchronous Timer firings should be captured and replayed.
+
+This patch introduces the ReplayableTimer class, which can be used as a drop-in
+replacement for one-shot timers. It will automatically capture or replay the
+timer depending on the replay session state. During capturing, it forwards calls
+to a real Timer instance and records when callbacks fire. During playback, the
+Timer instance is not used, and dispatch is initiated by EventLoopInputDispatcher.
+
+If replay is not active, the timer will forward all calls to a regular Timer instance.
+If !ENABLE(WEB_REPLAY), then an alternate implementation of ReplayableTimer is
+provided which unconditionally forwards Timer API calls to a real Timer instance.
+
+No new tests. Testing this relies on deterministic resource loading, DOM timers,
+and initial back/forward history, none of which have landed yet. Once they do land,
+nondeterminism of checkLoadComplete() will be caught by divergence assertions.
+
+* CMakeLists.txt:
+* WebCore.vcxproj/WebCore.vcxproj:
+* WebCore.vcxproj/WebCore.vcxproj.filters:
+* WebCore.vcxproj/copyForwardingHeaders.cmd:
+* WebCore.xcodeproj/project.pbxproj:
+* css/CSSFontSelector.cpp:
+(WebCore::CSSFontSelector::beginLoadingFontSoon):
+(WebCore::CSSFontSelector::beginLoadTimerFired):
+* css/CSSFontSelector.h: Use a ReplayableTimer for m_beginLoadingTimer.
+
+* dom/Document.cpp: Use a ReplayableTimer for m_loadEventDelayTimer. Keep
+a map of replayable timers active for the current document.
+(WebCore::Document::Document):
+(WebCore::Document::decrementLoadEventDelayCount):
+(WebCore::Document::loadEventDelayTimerFired):
+* dom/Document.h:
+(WebCore::Document::replayableTimers):
+
+* loader/FrameLoader.cpp: Use a ReplayableTimer for m_checkLoadTimer.
+(WebCore::FrameLoader::checkTimerFired):
+(WebCore::FrameLoader::startCheckCompleteTimer):
+* loader/FrameLoader.h:
+
+* replay/ReplayInputDispatchMethods.cpp:
+(WebCore::AsyncTimerFired::dispatch): Added.
+
+* replay/ReplayableTimer.cpp: Added.
+(WebCore::ReplayableTimerBase::ReplayableTimerBase):
+(WebCore::ReplayableTimerBase::~ReplayableTimerBase):
+(WebCore::ReplayableTimerBase::timerFired):
+(WebCore::ReplayableTimerBase::startOneShot):
+(WebCore::ReplayableTimerBase::stop):
+* replay/ReplayableTimer.h: Added.
+(WebCore::ReplayableTimerBase::isActive):
+(WebCore::ReplayableTimerBase::ordinal):
+(WebCore::ReplayableTimerBase::setOrdinal):
+(WebCore::ReplayableTimer::ReplayableTimer):
+(WebCore::ReplayableTimerBase::startOneShot):
+* replay/ReplayableTimers.cpp: Added.
+(WebCore::ReplayableTimers::ReplayableTimers):
+(WebCore::ReplayableTimers::registerTimer):
+(WebCore::ReplayableTimers::fireTimer):
+* replay/ReplayableTimers.h: Added.
+
+* replay/WebInputs.json:
+
+Source/WebKit:
+* CMakeLists.txt: Add replay/ directory to header include paths.
+
+Source/WebKit2:
+* CMakeLists.txt: Add replay/ directory to header include paths.
+---
+ Source/WebCore/CMakeLists.txt                      |   1 +
+ Source/WebCore/ChangeLog                           |  70 ++++++++++++
+ Source/WebCore/WebCore.vcxproj/WebCore.vcxproj     |   2 +
+ .../WebCore.vcxproj/WebCore.vcxproj.filters        |   6 +
+ .../WebCore.vcxproj/copyForwardingHeaders.cmd      |   1 +
+ Source/WebCore/WebCore.xcodeproj/project.pbxproj   |  20 +++-
+ Source/WebCore/css/CSSFontSelector.cpp             |   4 +-
+ Source/WebCore/css/CSSFontSelector.h               |   6 +-
+ Source/WebCore/dom/Document.cpp                    |   6 +-
+ Source/WebCore/dom/Document.h                      |  12 +-
+ Source/WebCore/loader/FrameLoader.cpp              |   4 +-
+ Source/WebCore/loader/FrameLoader.h                |   6 +-
+ .../WebCore/replay/ReplayInputDispatchMethods.cpp  |  11 ++
+ Source/WebCore/replay/ReplayableTimer.cpp          | 104 +++++++++++++++++
+ Source/WebCore/replay/ReplayableTimer.h            | 127 +++++++++++++++++++++
+ Source/WebCore/replay/ReplayableTimers.cpp         |  79 +++++++++++++
+ Source/WebCore/replay/ReplayableTimers.h           |  55 +++++++++
+ Source/WebCore/replay/WebInputs.json               |   9 ++
+ Source/WebKit/CMakeLists.txt                       |   1 +
+ Source/WebKit/ChangeLog                            |   9 ++
+ Source/WebKit2/CMakeLists.txt                      |   1 +
+ Source/WebKit2/ChangeLog                           |   9 ++
+ 22 files changed, 527 insertions(+), 16 deletions(-)
+ create mode 100644 Source/WebCore/replay/ReplayableTimer.cpp
+ create mode 100644 Source/WebCore/replay/ReplayableTimer.h
+ create mode 100644 Source/WebCore/replay/ReplayableTimers.cpp
+ create mode 100644 Source/WebCore/replay/ReplayableTimers.h
+
+diff --git a/Source/WebCore/CMakeLists.txt b/Source/WebCore/CMakeLists.txt
+index cce3367..4992c00 100644
+--- a/Source/WebCore/CMakeLists.txt
++++ b/Source/WebCore/CMakeLists.txt
+@@ -2486,20 +2486,21 @@ set(WebCore_SOURCES
+     rendering/svg/SVGTextLayoutAttributes.cpp
+     rendering/svg/SVGTextLayoutAttributesBuilder.cpp
+     rendering/svg/SVGTextLayoutEngine.cpp
+     rendering/svg/SVGTextLayoutEngineBaseline.cpp
+     rendering/svg/SVGTextLayoutEngineSpacing.cpp
+     rendering/svg/SVGTextMetrics.cpp
+     rendering/svg/SVGTextMetricsBuilder.cpp
+     rendering/svg/SVGTextQuery.cpp
+     rendering/svg/SVGTextRunRenderingContext.cpp
+ 
++    replay/ReplayableTimer.cpp
+     replay/UserInputBridge.cpp
+ 
+     storage/Storage.cpp
+     storage/StorageAreaImpl.cpp
+     storage/StorageAreaSync.cpp
+     storage/StorageEvent.cpp
+     storage/StorageEventDispatcher.cpp
+     storage/StorageMap.cpp
+     storage/StorageNamespace.cpp
+     storage/StorageNamespaceImpl.cpp
+diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
+index afb33d4..6ac3b81 100644
+--- a/Source/WebCore/ChangeLog
++++ b/Source/WebCore/ChangeLog
+@@ -1,10 +1,80 @@
++2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Replay: make calls into FrameLoader::checkLoadComplete() deterministic
++        https://bugs.webkit.org/show_bug.cgi?id=129451
++
++        Reviewed by NOBODY (OOPS!).
++
++        To ensure deterministic JavaScript execution, calls to checkLoadComplete()
++        that originate from asynchronous Timer firings should be captured and replayed.
++
++        This patch introduces the ReplayableTimer class, which can be used as a drop-in
++        replacement for one-shot timers. It will automatically capture or replay the
++        timer depending on the replay session state. During capturing, it forwards calls
++        to a real Timer instance and records when callbacks fire. During playback, the
++        Timer instance is not used, and dispatch is initiated by EventLoopInputDispatcher.
++
++        If replay is not active, the timer will forward all calls to a regular Timer instance.
++        If !ENABLE(WEB_REPLAY), then an alternate implementation of ReplayableTimer is
++        provided which unconditionally forwards Timer API calls to a real Timer instance.
++
++        No new tests. Testing this relies on deterministic resource loading, DOM timers,
++        and initial back/forward history, none of which have landed yet. Once they do land,
++        nondeterminism of checkLoadComplete() will be caught by divergence assertions.
++
++        * CMakeLists.txt:
++        * WebCore.vcxproj/WebCore.vcxproj:
++        * WebCore.vcxproj/WebCore.vcxproj.filters:
++        * WebCore.vcxproj/copyForwardingHeaders.cmd:
++        * WebCore.xcodeproj/project.pbxproj:
++        * css/CSSFontSelector.cpp:
++        (WebCore::CSSFontSelector::beginLoadingFontSoon):
++        (WebCore::CSSFontSelector::beginLoadTimerFired):
++        * css/CSSFontSelector.h: Use a ReplayableTimer for m_beginLoadingTimer.
++
++        * dom/Document.cpp: Use a ReplayableTimer for m_loadEventDelayTimer. Keep
++        a map of replayable timers active for the current document.
++        (WebCore::Document::Document):
++        (WebCore::Document::decrementLoadEventDelayCount):
++        (WebCore::Document::loadEventDelayTimerFired):
++        * dom/Document.h:
++        (WebCore::Document::replayableTimers):
++
++        * loader/FrameLoader.cpp: Use a ReplayableTimer for m_checkLoadTimer.
++        (WebCore::FrameLoader::checkTimerFired):
++        (WebCore::FrameLoader::startCheckCompleteTimer):
++        * loader/FrameLoader.h:
++
++        * replay/ReplayInputDispatchMethods.cpp:
++        (WebCore::AsyncTimerFired::dispatch): Added.
++
++        * replay/ReplayableTimer.cpp: Added.
++        (WebCore::ReplayableTimerBase::ReplayableTimerBase):
++        (WebCore::ReplayableTimerBase::~ReplayableTimerBase):
++        (WebCore::ReplayableTimerBase::timerFired):
++        (WebCore::ReplayableTimerBase::startOneShot):
++        (WebCore::ReplayableTimerBase::stop):
++        * replay/ReplayableTimer.h: Added.
++        (WebCore::ReplayableTimerBase::isActive):
++        (WebCore::ReplayableTimerBase::ordinal):
++        (WebCore::ReplayableTimerBase::setOrdinal):
++        (WebCore::ReplayableTimer::ReplayableTimer):
++        (WebCore::ReplayableTimerBase::startOneShot):
++        * replay/ReplayableTimers.cpp: Added.
++        (WebCore::ReplayableTimers::ReplayableTimers):
++        (WebCore::ReplayableTimers::registerTimer):
++        (WebCore::ReplayableTimers::fireTimer):
++        * replay/ReplayableTimers.h: Added.
++
++        * replay/WebInputs.json:
++
+ 2014-07-14  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         [WIP] Web Replay: capture and replay Reload, Navigate, and Stop commands
+         https://bugs.webkit.org/show_bug.cgi?id=129447
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Add support for capturing and replaying basic navigation commands that
+         come to WebCore from WK1/WK2 WebProcess. This handles most UI-driven
+         navigation commands, such as clicking the stop or reload buttons, or
+diff --git a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
+index 8af6b5d..1591174 100644
+--- a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
++++ b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
+@@ -12282,20 +12282,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug_WinCairo|x64'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|Win32'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|x64'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release_WinCairo|Win32'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release_WinCairo|x64'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Production|Win32'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Production|x64'">true</ExcludedFromBuild>
+     </ClCompile>
++    <ClCompile Include="..\replay\ReplayableTimer.cpp" />
+     <ClCompile Include="..\replay\UserInputBridge.cpp" />
+     <ClCompile Include="..\workers\SharedWorkerRepository.cpp" />
+     <ClCompile Include="..\xml\DOMParser.cpp" />
+     <ClCompile Include="..\xml\NativeXPathNSResolver.cpp" />
+     <ClCompile Include="..\xml\XMLErrors.cpp" />
+     <ClCompile Include="..\xml\XMLHttpRequest.cpp" />
+     <ClCompile Include="..\xml\XMLHttpRequestException.cpp" />
+     <ClCompile Include="..\xml\XMLHttpRequestProgressEventThrottle.cpp" />
+     <ClCompile Include="..\xml\XMLHttpRequestUpload.cpp" />
+     <ClCompile Include="..\xml\XMLSerializer.cpp" />
+@@ -20383,20 +20384,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+     <ClInclude Include="..\rendering\svg\SVGTextFragment.h" />
+     <ClInclude Include="..\rendering\svg\SVGTextLayoutAttributes.h" />
+     <ClInclude Include="..\rendering\svg\SVGTextLayoutAttributesBuilder.h" />
+     <ClInclude Include="..\rendering\svg\SVGTextLayoutEngine.h" />
+     <ClInclude Include="..\rendering\svg\SVGTextLayoutEngineBaseline.h" />
+     <ClInclude Include="..\rendering\svg\SVGTextLayoutEngineSpacing.h" />
+     <ClInclude Include="..\rendering\svg\SVGTextMetrics.h" />
+     <ClInclude Include="..\rendering\svg\SVGTextMetricsBuilder.h" />
+     <ClInclude Include="..\rendering\svg\SVGTextQuery.h" />
+     <ClInclude Include="..\rendering\svg\SVGTextRunRenderingContext.h" />
++    <ClInclude Include="..\replay\ReplayableTimer.h" />
+     <ClInclude Include="..\replay\UserInputBridge.h" />
+     <ClInclude Include="..\xml\DOMParser.h" />
+     <ClInclude Include="..\xml\NativeXPathNSResolver.h" />
+     <ClInclude Include="..\xml\XMLErrors.h" />
+     <ClInclude Include="..\xml\XMLHttpRequest.h" />
+     <ClInclude Include="..\xml\XMLHttpRequestException.h" />
+     <ClInclude Include="..\xml\XMLHttpRequestProgressEvent.h" />
+     <ClInclude Include="..\xml\XMLHttpRequestProgressEventThrottle.h" />
+     <ClInclude Include="..\xml\XMLHttpRequestUpload.h" />
+     <ClInclude Include="..\xml\XMLSerializer.h" />
+diff --git a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
+index 77be284..ac04c81 100644
+--- a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
++++ b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
+@@ -2924,20 +2924,23 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+     </ClCompile>
+     <ClCompile Include="..\rendering\svg\SVGTextQuery.cpp">
+       <Filter>rendering\svg</Filter>
+     </ClCompile>
+     <ClCompile Include="..\rendering\svg\SVGTextRunRenderingContext.cpp">
+       <Filter>rendering\svg</Filter>
+     </ClCompile>
+     <ClCompile Include="..\rendering\TextPainter.cpp">
+       <Filter>rendering</Filter>
+     </ClCompile>
++    <ClCompile Include="..\replay\ReplayableTimer.cpp">
++      <Filter>replay</Filter>
++    </ClCompile>
+     <ClCompile Include="..\replay\UserInputBridge.cpp">
+       <Filter>replay</Filter>
+     </ClCompile>
+     <ClCompile Include="..\xml\DOMParser.cpp">
+       <Filter>xml</Filter>
+     </ClCompile>
+     <ClCompile Include="..\xml\NativeXPathNSResolver.cpp">
+       <Filter>xml</Filter>
+     </ClCompile>
+     <ClCompile Include="..\xml\XMLErrors.cpp">
+@@ -9983,20 +9986,23 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+     </ClInclude>
+     <ClInclude Include="..\rendering\svg\SVGTextMetricsBuilder.h">
+       <Filter>rendering\svg</Filter>
+     </ClInclude>
+     <ClInclude Include="..\rendering\svg\SVGTextQuery.h">
+       <Filter>rendering\svg</Filter>
+     </ClInclude>
+     <ClInclude Include="..\rendering\svg\SVGTextRunRenderingContext.h">
+       <Filter>rendering\svg</Filter>
+     </ClInclude>
++    <ClInclude Include="..\replay\ReplayableTimer.h">
++      <Filter>replay</Filter>
++    </ClInclude>
+     <ClInclude Include="..\replay\UserInputBridge.h">
+       <Filter>replay</Filter>
+     </ClInclude>
+     <ClInclude Include="..\xml\DOMParser.h">
+       <Filter>xml</Filter>
+     </ClInclude>
+     <ClInclude Include="..\xml\NativeXPathNSResolver.h">
+       <Filter>xml</Filter>
+     </ClInclude>
+     <ClInclude Include="..\xml\XMLErrors.h">
+diff --git a/Source/WebCore/WebCore.vcxproj/copyForwardingHeaders.cmd b/Source/WebCore/WebCore.vcxproj/copyForwardingHeaders.cmd
+index fcd1d65..3bd845d 100644
+--- a/Source/WebCore/WebCore.vcxproj/copyForwardingHeaders.cmd
++++ b/Source/WebCore/WebCore.vcxproj/copyForwardingHeaders.cmd
+@@ -75,20 +75,21 @@ xcopy /y /d "%ProjectDir%..\page\animation\*.h" "%CONFIGURATIONBUILDDIR%\include
+ xcopy /y /d "%ProjectDir%..\page\win\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+ xcopy /y /d "%ProjectDir%..\bridge\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+ xcopy /y /d "%ProjectDir%..\bridge\jsc\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+ xcopy /y /d "%ProjectDir%..\plugins\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+ xcopy /y /d "%ProjectDir%..\plugins\win\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+ xcopy /y /d "%ProjectDir%..\rendering\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+ xcopy /y /d "%ProjectDir%..\rendering\line\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+ xcopy /y /d "%ProjectDir%..\rendering\style\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+ xcopy /y /d "%ProjectDir%..\rendering\shapes\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+ xcopy /y /d "%ProjectDir%..\rendering\svg\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
++xcopy /y /d "%ProjectDir%..\replay\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+ xcopy /y /d "%ProjectDir%..\editing\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+ xcopy /y /d "%ProjectDir%..\dom\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+ xcopy /y /d "%ProjectDir%..\xml\parser\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+ xcopy /y /d "%ProjectDir%..\xml\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+ xcopy /y /d "%ProjectDir%..\svg\animation\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+ xcopy /y /d "%ProjectDir%..\svg\graphics\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+ xcopy /y /d "%ProjectDir%..\svg\properties\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+ xcopy /y /d "%ProjectDir%..\svg\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+ xcopy /y /d "%ProjectDir%..\storage\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+ xcopy /y /d "%ProjectDir%..\style\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
+diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
+index ec7ce4c..4f625c9 100644
+--- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
++++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
+@@ -5531,20 +5531,24 @@
+ 		C375D7FD16639519006184AB /* TypeAhead.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C375D7FB16639519006184AB /* TypeAhead.cpp */; };
+ 		C375D7FE16639519006184AB /* TypeAhead.h in Headers */ = {isa = PBXBuildFile; fileRef = C375D7FC16639519006184AB /* TypeAhead.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C37CDEBD149EF2030042090D /* ColorChooserClient.h in Headers */ = {isa = PBXBuildFile; fileRef = C37CDEBC149EF2030042090D /* ColorChooserClient.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C3CF17A415B0063F00276D39 /* IdTargetObserver.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C3CF17A015B0063F00276D39 /* IdTargetObserver.cpp */; };
+ 		C3CF17A515B0063F00276D39 /* IdTargetObserver.h in Headers */ = {isa = PBXBuildFile; fileRef = C3CF17A115B0063F00276D39 /* IdTargetObserver.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C3CF17A615B0063F00276D39 /* IdTargetObserverRegistry.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C3CF17A215B0063F00276D39 /* IdTargetObserverRegistry.cpp */; };
+ 		C3CF17A715B0063F00276D39 /* IdTargetObserverRegistry.h in Headers */ = {isa = PBXBuildFile; fileRef = C3CF17A315B0063F00276D39 /* IdTargetObserverRegistry.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C400D10918F1C8F60090D863 /* EventLoopInput.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C400D10818F1C8F60090D863 /* EventLoopInput.cpp */; };
+ 		C4CD629A18383766007EBAF1 /* FrameSnapshotting.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4CD629818383766007EBAF1 /* FrameSnapshotting.cpp */; };
+ 		C4CD629B18383766007EBAF1 /* FrameSnapshotting.h in Headers */ = {isa = PBXBuildFile; fileRef = C4CD629918383766007EBAF1 /* FrameSnapshotting.h */; settings = {ATTRIBUTES = (Private, ); }; };
++		C4D4F52B1975C88B003EF5BC /* ReplayableTimer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4D4F5271975C88B003EF5BC /* ReplayableTimer.cpp */; };
++		C4D4F52C1975C88B003EF5BC /* ReplayableTimer.h in Headers */ = {isa = PBXBuildFile; fileRef = C4D4F5281975C88B003EF5BC /* ReplayableTimer.h */; settings = {ATTRIBUTES = (Private, ); }; };
++		C4D4F52D1975C88B003EF5BC /* ReplayableTimers.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4D4F5291975C88B003EF5BC /* ReplayableTimers.cpp */; };
++		C4D4F52E1975C88B003EF5BC /* ReplayableTimers.h in Headers */ = {isa = PBXBuildFile; fileRef = C4D4F52A1975C88B003EF5BC /* ReplayableTimers.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C50B561612119D23008B46E0 /* GroupSettings.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C50B561412119D23008B46E0 /* GroupSettings.cpp */; };
+ 		C50B561712119D23008B46E0 /* GroupSettings.h in Headers */ = {isa = PBXBuildFile; fileRef = C50B561512119D23008B46E0 /* GroupSettings.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C50D0E820FF4272900AC2644 /* StorageNamespace.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C50D0E800FF4272900AC2644 /* StorageNamespace.cpp */; };
+ 		C50D0E830FF4272900AC2644 /* StorageNamespace.h in Headers */ = {isa = PBXBuildFile; fileRef = C50D0E810FF4272900AC2644 /* StorageNamespace.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C5102D940FD9AA2D00FAFF04 /* StorageSyncManager.h in Headers */ = {isa = PBXBuildFile; fileRef = C5102D920FD9AA2D00FAFF04 /* StorageSyncManager.h */; };
+ 		C5102D950FD9AA2D00FAFF04 /* StorageSyncManager.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C5102D930FD9AA2D00FAFF04 /* StorageSyncManager.cpp */; };
+ 		C5102ECF0FD9EF8C00FAFF04 /* StorageAreaSync.h in Headers */ = {isa = PBXBuildFile; fileRef = C5102ECD0FD9EF8C00FAFF04 /* StorageAreaSync.h */; };
+ 		C5102ED00FD9EF8C00FAFF04 /* StorageAreaSync.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C5102ECE0FD9EF8C00FAFF04 /* StorageAreaSync.cpp */; };
+ 		C5137CF211A58378004ADB99 /* JSDOMStringList.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */; };
+ 		C5137CF311A58378004ADB99 /* JSDOMStringList.h in Headers */ = {isa = PBXBuildFile; fileRef = C5137CF111A58378004ADB99 /* JSDOMStringList.h */; };
+@@ -12953,20 +12957,24 @@
+ 		C375D7FC16639519006184AB /* TypeAhead.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TypeAhead.h; sourceTree = "<group>"; };
+ 		C37CDEBC149EF2030042090D /* ColorChooserClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ColorChooserClient.h; sourceTree = "<group>"; };
+ 		C3CF17A015B0063F00276D39 /* IdTargetObserver.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = IdTargetObserver.cpp; sourceTree = "<group>"; };
+ 		C3CF17A115B0063F00276D39 /* IdTargetObserver.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = IdTargetObserver.h; sourceTree = "<group>"; };
+ 		C3CF17A215B0063F00276D39 /* IdTargetObserverRegistry.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = IdTargetObserverRegistry.cpp; sourceTree = "<group>"; };
+ 		C3CF17A315B0063F00276D39 /* IdTargetObserverRegistry.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = IdTargetObserverRegistry.h; sourceTree = "<group>"; };
+ 		C3E61C653A64807A83E76FB8 /* MathMLMencloseElement.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MathMLMencloseElement.cpp; sourceTree = "<group>"; };
+ 		C400D10818F1C8F60090D863 /* EventLoopInput.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = EventLoopInput.cpp; sourceTree = "<group>"; };
+ 		C4CD629818383766007EBAF1 /* FrameSnapshotting.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = FrameSnapshotting.cpp; sourceTree = "<group>"; };
+ 		C4CD629918383766007EBAF1 /* FrameSnapshotting.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FrameSnapshotting.h; sourceTree = "<group>"; };
++		C4D4F5271975C88B003EF5BC /* ReplayableTimer.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReplayableTimer.cpp; sourceTree = "<group>"; };
++		C4D4F5281975C88B003EF5BC /* ReplayableTimer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ReplayableTimer.h; sourceTree = "<group>"; };
++		C4D4F5291975C88B003EF5BC /* ReplayableTimers.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReplayableTimers.cpp; sourceTree = "<group>"; };
++		C4D4F52A1975C88B003EF5BC /* ReplayableTimers.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ReplayableTimers.h; sourceTree = "<group>"; };
+ 		C50B561412119D23008B46E0 /* GroupSettings.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GroupSettings.cpp; sourceTree = "<group>"; };
+ 		C50B561512119D23008B46E0 /* GroupSettings.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GroupSettings.h; sourceTree = "<group>"; };
+ 		C50D0E800FF4272900AC2644 /* StorageNamespace.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = StorageNamespace.cpp; sourceTree = "<group>"; };
+ 		C50D0E810FF4272900AC2644 /* StorageNamespace.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = StorageNamespace.h; sourceTree = "<group>"; };
+ 		C5102D920FD9AA2D00FAFF04 /* StorageSyncManager.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = StorageSyncManager.h; sourceTree = "<group>"; };
+ 		C5102D930FD9AA2D00FAFF04 /* StorageSyncManager.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = StorageSyncManager.cpp; sourceTree = "<group>"; };
+ 		C5102ECD0FD9EF8C00FAFF04 /* StorageAreaSync.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = StorageAreaSync.h; sourceTree = "<group>"; };
+ 		C5102ECE0FD9EF8C00FAFF04 /* StorageAreaSync.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = StorageAreaSync.cpp; sourceTree = "<group>"; };
+ 		C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = JSDOMStringList.cpp; sourceTree = "<group>"; };
+ 		C5137CF111A58378004ADB99 /* JSDOMStringList.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSDOMStringList.h; sourceTree = "<group>"; };
+@@ -18383,30 +18391,34 @@
+ 				99CC0B3A18BE9849006CEBCC /* CapturingInputCursor.h */,
+ 				C400D10818F1C8F60090D863 /* EventLoopInput.cpp */,
+ 				99E45A1618A063BE0026D88F /* EventLoopInput.h */,
+ 				99CC0B3B18BE9849006CEBCC /* EventLoopInputDispatcher.cpp */,
+ 				99CC0B3C18BE9849006CEBCC /* EventLoopInputDispatcher.h */,
+ 				99CC0B3D18BE9849006CEBCC /* FunctorInputCursor.h */,
+ 				99C7CCB418C6B8990032E413 /* MemoizedDOMResult.cpp */,
+ 				99C7CCB218C663E40032E413 /* MemoizedDOMResult.h */,
+ 				99CC0B3E18BE9849006CEBCC /* ReplayController.cpp */,
+ 				99CC0B3F18BE9849006CEBCC /* ReplayController.h */,
+-				99CC0B4018BE9849006CEBCC /* ReplayingInputCursor.cpp */,
+-				99CC0B4118BE9849006CEBCC /* ReplayingInputCursor.h */,
+ 				99CC0B4218BE9849006CEBCC /* ReplayInputCreationMethods.cpp */,
+ 				99CC0B4318BE9849006CEBCC /* ReplayInputDispatchMethods.cpp */,
+ 				990A19F418ADA48400183FD1 /* ReplayInputTypes.cpp */,
+ 				990A19F518ADA48400183FD1 /* ReplayInputTypes.h */,
+ 				99CC0B4418BE9849006CEBCC /* ReplaySession.cpp */,
+ 				99CC0B4518BE9849006CEBCC /* ReplaySession.h */,
+ 				99CC0B4618BE9849006CEBCC /* ReplaySessionSegment.cpp */,
+ 				99CC0B4718BE9849006CEBCC /* ReplaySessionSegment.h */,
++				C4D4F5271975C88B003EF5BC /* ReplayableTimer.cpp */,
++				C4D4F5281975C88B003EF5BC /* ReplayableTimer.h */,
++				C4D4F5291975C88B003EF5BC /* ReplayableTimers.cpp */,
++				C4D4F52A1975C88B003EF5BC /* ReplayableTimers.h */,
++				99CC0B4018BE9849006CEBCC /* ReplayingInputCursor.cpp */,
++				99CC0B4118BE9849006CEBCC /* ReplayingInputCursor.h */,
+ 				99CC0B4818BE9849006CEBCC /* SegmentedInputStorage.cpp */,
+ 				99CC0B4918BE9849006CEBCC /* SegmentedInputStorage.h */,
+ 				99CC0B4A18BE9849006CEBCC /* SerializationMethods.cpp */,
+ 				99CC0B4B18BE9849006CEBCC /* SerializationMethods.h */,
+ 				9920398018B95BC600B39AF9 /* UserInputBridge.cpp */,
+ 				9920398118B95BC600B39AF9 /* UserInputBridge.h */,
+ 				99CC0B4C18BE9849006CEBCC /* WebInputs.json */,
+ 			);
+ 			path = replay;
+ 			sourceTree = "<group>";
+@@ -24106,20 +24118,21 @@
+ 				316FE0800E6CCC2800BF6088 /* DOMWebKitCSSKeyframesRule.h in Headers */,
+ 				316FE0820E6CCC2800BF6088 /* DOMWebKitCSSKeyframesRuleInternal.h in Headers */,
+ 				498391500F1E76B400C23782 /* DOMWebKitCSSMatrix.h in Headers */,
+ 				498391520F1E76B400C23782 /* DOMWebKitCSSMatrixInternal.h in Headers */,
+ 				8AD0A59614C88358000D83C5 /* DOMWebKitCSSRegionRule.h in Headers */,
+ 				8AD0A59814C88358000D83C5 /* DOMWebKitCSSRegionRuleInternal.h in Headers */,
+ 				31611E610E1C4E1400F6A579 /* DOMWebKitCSSTransformValue.h in Headers */,
+ 				31611E630E1C4E1400F6A579 /* DOMWebKitCSSTransformValueInternal.h in Headers */,
+ 				3F2B33EB165AF15600E3987C /* DOMWebKitCSSViewportRule.h in Headers */,
+ 				3F2B33ED165AF15600E3987C /* DOMWebKitCSSViewportRuleInternal.h in Headers */,
++				C4D4F52C1975C88B003EF5BC /* ReplayableTimer.h in Headers */,
+ 				8A195932147EA16E00D1EA61 /* DOMWebKitNamedFlow.h in Headers */,
+ 				8A195934147EA16E00D1EA61 /* DOMWebKitNamedFlowInternal.h in Headers */,
+ 				31C0FF4C0E4CEFDD007D6FE5 /* DOMWebKitTransitionEvent.h in Headers */,
+ 				31C0FF4E0E4CEFDD007D6FE5 /* DOMWebKitTransitionEventInternal.h in Headers */,
+ 				85C7F5E70AAFBAFB004014DD /* DOMWheelEvent.h in Headers */,
+ 				85989DD10ACC8BBD00A0BC51 /* DOMWheelEventInternal.h in Headers */,
+ 				1403B99709EB13AF00797C7F /* DOMWindow.h in Headers */,
+ 				FC9A0F75164094CF003D6B8D /* DOMWindowCSS.h in Headers */,
+ 				51FA2D78152132B300C1BA0B /* DOMWindowExtension.h in Headers */,
+ 				51D719B7181106E00016DC51 /* DOMWindowIndexedDatabase.h in Headers */,
+@@ -26586,20 +26599,21 @@
+ 				31288E730E3005D6003619AE /* WebKitCSSKeyframeRule.h in Headers */,
+ 				31288E750E3005D6003619AE /* WebKitCSSKeyframesRule.h in Headers */,
+ 				498391590F1E776900C23782 /* WebKitCSSMatrix.h in Headers */,
+ 				8AA61D00144D595B00F37350 /* WebKitCSSRegionRule.h in Headers */,
+ 				BC9ADD230CC4032600098C4C /* WebKitCSSTransformValue.h in Headers */,
+ 				3FFFF9A9159D9A550020BBD5 /* WebKitCSSViewportRule.h in Headers */,
+ 				A5DEBDA416FB908700836FE0 /* WebKitPlaybackTargetAvailabilityEvent.h in Headers */,
+ 				494BD7950F55C8EE00747828 /* WebKitPoint.h in Headers */,
+ 				31C0FF250E4CEB6E007D6FE5 /* WebKitTransitionEvent.h in Headers */,
+ 				0FCF332F0F2B9A25004B6795 /* WebLayer.h in Headers */,
++				C4D4F52E1975C88B003EF5BC /* ReplayableTimers.h in Headers */,
+ 				E1A3162D134BC32D007C9A4F /* WebNSAttributedStringExtras.h in Headers */,
+ 				A502C5DF13049B3500FC7D53 /* WebSafeGCActivityCallbackIOS.h in Headers */,
+ 				CE95208A1811B475007A5392 /* WebSafeIncrementalSweeperIOS.h in Headers */,
+ 				1CAF34810A6C405200ABE06E /* WebScriptObject.h in Headers */,
+ 				1A569D1B0D7E2B82007C3983 /* WebScriptObject.h in Headers */,
+ 				1CAF34830A6C405200ABE06E /* WebScriptObjectPrivate.h in Headers */,
+ 				97AABD1B14FA09D5007457AE /* WebSocket.h in Headers */,
+ 				97AABD1E14FA09D5007457AE /* WebSocketChannel.h in Headers */,
+ 				97AABD1F14FA09D5007457AE /* WebSocketChannelClient.h in Headers */,
+ 				4A38BF5114FE1C0900612512 /* WebSocketDeflateFramer.h in Headers */,
+@@ -28119,20 +28133,21 @@
+ 				073AB4B717F92ECF006E0D6F /* JSCapabilityRange.cpp in Sources */,
+ 				93F9B7A00BA6032600854064 /* JSCDATASection.cpp in Sources */,
+ 				93BA59B20F2AA5FE008E8E99 /* JSCDATASectionCustom.cpp in Sources */,
+ 				FDA15EA112B03EE1003A583A /* JSChannelMergerNode.cpp in Sources */,
+ 				FDA15EA312B03EE1003A583A /* JSChannelSplitterNode.cpp in Sources */,
+ 				65DF31F309D1CC60000BE325 /* JSCharacterData.cpp in Sources */,
+ 				BCC065870F3CE2A700CD2D87 /* JSClientRect.cpp in Sources */,
+ 				BCC065890F3CE2A700CD2D87 /* JSClientRectList.cpp in Sources */,
+ 				5C4304B5191AEF46000E2BC0 /* JSEXTShaderTextureLOD.cpp in Sources */,
+ 				BCA83E4F0D7CE1E9003421A8 /* JSDataTransfer.cpp in Sources */,
++				C4D4F52B1975C88B003EF5BC /* ReplayableTimer.cpp in Sources */,
+ 				BCA83E520D7CE205003421A8 /* JSDataTransferCustom.cpp in Sources */,
+ 				51FB5505113E3E9100821176 /* JSCloseEvent.cpp in Sources */,
+ 				A584FE3B1864E2D800843B10 /* JSCommandLineAPIHost.cpp in Sources */,
+ 				A584FE381864DAC100843B10 /* JSCommandLineAPIHostCustom.cpp in Sources */,
+ 				93F9B6E00BA0FB7200854064 /* JSComment.cpp in Sources */,
+ 				79AC9218109945C80021266E /* JSCompositionEvent.cpp in Sources */,
+ 				CD2F4A2318D89F700063746D /* AudioHardwareListener.cpp in Sources */,
+ 				FDA15EBD12B03F0B003A583A /* JSConvolverNode.cpp in Sources */,
+ 				FE6FD48D0F676E9300092873 /* JSCoordinates.cpp in Sources */,
+ 				930705D809E0C9B700B17FE4 /* JSCounter.cpp in Sources */,
+@@ -28882,20 +28897,21 @@
+ 				078E093317D16B0600420AA1 /* MediaStreamCenter.cpp in Sources */,
+ 				078E093117D1684200420AA1 /* MediaStreamCenterMac.cpp in Sources */,
+ 				078E090017D14CEE00420AA1 /* MediaStreamEvent.cpp in Sources */,
+ 				0711589117DF6F6600EDFE2B /* MediaStreamPrivate.cpp in Sources */,
+ 				078E090117D14CEE00420AA1 /* MediaStreamRegistry.cpp in Sources */,
+ 				078E093617D16B2100420AA1 /* MediaStreamSource.cpp in Sources */,
+ 				070363D6181A146500C074A5 /* MediaStreamSourceStates.cpp in Sources */,
+ 				078E090217D14CEE00420AA1 /* MediaStreamTrack.cpp in Sources */,
+ 				078E090317D14CEE00420AA1 /* MediaStreamTrackEvent.cpp in Sources */,
+ 				07FFDE68181AED420072D409 /* MediaStreamTrackPrivate.cpp in Sources */,
++				C4D4F52D1975C88B003EF5BC /* ReplayableTimers.cpp in Sources */,
+ 				076306D217E1478D005A7C4E /* MediaStreamTrackSourcesRequest.cpp in Sources */,
+ 				CD641EBF1819B36000EE4C41 /* MediaTimeMac.cpp in Sources */,
+ 				0705853A17FE0770005F2BCB /* MediaTrackConstraint.cpp in Sources */,
+ 				0705852317FDC140005F2BCB /* MediaTrackConstraints.cpp in Sources */,
+ 				0705853817FE044F005F2BCB /* MediaTrackConstraintSet.cpp in Sources */,
+ 				BCB16C170979C3BD00467741 /* MemoryCache.cpp in Sources */,
+ 				657EDA081385CB97004E0645 /* MemoryPressureHandler.cpp in Sources */,
+ 				93309DF9099E64920056E581 /* MergeIdenticalElementsCommand.cpp in Sources */,
+ 				E1ADECCF0E76AD8B004A1A5E /* MessageChannel.cpp in Sources */,
+ 				75793E830D0CE0B3007FC0AC /* MessageEvent.cpp in Sources */,
+diff --git a/Source/WebCore/css/CSSFontSelector.cpp b/Source/WebCore/css/CSSFontSelector.cpp
+index f7815ef..5d4cc75 100644
+--- a/Source/WebCore/css/CSSFontSelector.cpp
++++ b/Source/WebCore/css/CSSFontSelector.cpp
+@@ -577,24 +577,24 @@ void CSSFontSelector::clearDocument()
+ void CSSFontSelector::beginLoadingFontSoon(CachedFont* font)
+ {
+     if (!m_document)
+         return;
+ 
+     m_fontsToBeginLoading.append(font);
+     // Increment the request count now, in order to prevent didFinishLoad from being dispatched
+     // after this font has been requested but before it began loading. Balanced by
+     // decrementRequestCount() in beginLoadTimerFired() and in clearDocument().
+     m_document->cachedResourceLoader()->incrementRequestCount(font);
+-    m_beginLoadingTimer.startOneShot(0);
++    m_beginLoadingTimer.startOneShot(0, m_document);
+ }
+ 
+-void CSSFontSelector::beginLoadTimerFired(Timer<WebCore::CSSFontSelector>&)
++void CSSFontSelector::beginLoadTimerFired(ReplayableTimer<WebCore::CSSFontSelector>&)
+ {
+     Vector<CachedResourceHandle<CachedFont>> fontsToBeginLoading;
+     fontsToBeginLoading.swap(m_fontsToBeginLoading);
+ 
+     // CSSFontSelector could get deleted via beginLoadIfNeeded() or loadDone() unless protected.
+     Ref<CSSFontSelector> protect(*this);
+ 
+     CachedResourceLoader* cachedResourceLoader = m_document->cachedResourceLoader();
+     for (size_t i = 0; i < fontsToBeginLoading.size(); ++i) {
+         fontsToBeginLoading[i]->beginLoadIfNeeded(cachedResourceLoader);
+diff --git a/Source/WebCore/css/CSSFontSelector.h b/Source/WebCore/css/CSSFontSelector.h
+index e1e5a05..698b409 100644
+--- a/Source/WebCore/css/CSSFontSelector.h
++++ b/Source/WebCore/css/CSSFontSelector.h
+@@ -21,22 +21,22 @@
+  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #ifndef CSSFontSelector_h
+ #define CSSFontSelector_h
+ 
+ #include "CachedResourceHandle.h"
+ #include "FontSelector.h"
++#include "ReplayableTimer.h"
+ #include "SimpleFontData.h"
+-#include "Timer.h"
+ #include <memory>
+ #include <wtf/Forward.h>
+ #include <wtf/HashMap.h>
+ #include <wtf/HashSet.h>
+ #include <wtf/RefPtr.h>
+ #include <wtf/text/StringHash.h>
+ 
+ namespace WebCore {
+ 
+ class CSSFontFace;
+@@ -79,28 +79,28 @@ public:
+ 
+     Document* document() const { return m_document; }
+ 
+     void beginLoadingFontSoon(CachedFont*);
+ 
+ private:
+     CSSFontSelector(Document*);
+ 
+     void dispatchInvalidationCallbacks();
+ 
+-    void beginLoadTimerFired(Timer<CSSFontSelector>&);
++    void beginLoadTimerFired(ReplayableTimer<CSSFontSelector>&);
+ 
+     Document* m_document;
+     HashMap<String, std::unique_ptr<Vector<RefPtr<CSSFontFace>>>, CaseFoldingHash> m_fontFaces;
+     HashMap<String, std::unique_ptr<Vector<RefPtr<CSSFontFace>>>, CaseFoldingHash> m_locallyInstalledFontFaces;
+     HashMap<String, std::unique_ptr<HashMap<unsigned, RefPtr<CSSSegmentedFontFace>>>, CaseFoldingHash> m_fonts;
+     HashSet<FontSelectorClient*> m_clients;
+ 
+     Vector<CachedResourceHandle<CachedFont>> m_fontsToBeginLoading;
+-    Timer<CSSFontSelector> m_beginLoadingTimer;
++    ReplayableTimer<CSSFontSelector> m_beginLoadingTimer;
+ 
+     unsigned m_uniqueId;
+     unsigned m_version;
+ };
+ 
+ } // namespace WebCore
+ 
+ #endif // CSSFontSelector_h
+diff --git a/Source/WebCore/dom/Document.cpp b/Source/WebCore/dom/Document.cpp
+index 5b53aa3..ef5b396 100644
+--- a/Source/WebCore/dom/Document.cpp
++++ b/Source/WebCore/dom/Document.cpp
+@@ -214,20 +214,21 @@
+ 
+ #if ENABLE(CSP_NEXT)
+ #include "DOMSecurityPolicy.h"
+ #endif
+ 
+ #if ENABLE(VIDEO_TRACK)
+ #include "CaptionUserPreferences.h"
+ #endif
+ 
+ #if ENABLE(WEB_REPLAY)
++#include "ReplayableTimers.h"
+ #include "WebReplayInputs.h"
+ #include <replay/EmptyInputCursor.h>
+ #include <replay/InputCursor.h>
+ #endif
+ 
+ using namespace WTF;
+ using namespace Unicode;
+ 
+ namespace WebCore {
+ 
+@@ -503,20 +504,21 @@ Document::Document(Frame* frame, const URL& url, unsigned documentClasses, unsig
+     , m_visualUpdatesSuppressionTimer(this, &Document::visualUpdatesSuppressionTimerFired)
+     , m_sharedObjectPoolClearTimer(this, &Document::sharedObjectPoolClearTimerFired)
+ #ifndef NDEBUG
+     , m_didDispatchViewportPropertiesChanged(false)
+ #endif
+ #if ENABLE(TEMPLATE_ELEMENT)
+     , m_templateDocumentHost(nullptr)
+ #endif
+ #if ENABLE(WEB_REPLAY)
+     , m_inputCursor(EmptyInputCursor::create())
++    , m_replayableTimers(std::make_unique<ReplayableTimers>())
+ #endif
+     , m_didAssociateFormControlsTimer(this, &Document::didAssociateFormControlsTimerFired)
+     , m_disabledFieldsetElementsCount(0)
+     , m_hasInjectedPlugInsScript(false)
+     , m_renderTreeBeingDestroyed(false)
+     , m_hasStyleWithViewportUnits(false)
+ {
+     allDocuments().add(this);
+ 
+     // We depend on the url getting immediately set in subframes, but we
+@@ -5564,24 +5566,24 @@ Element* Document::pointerLockElement() const
+     return nullptr;
+ }
+ #endif
+ 
+ void Document::decrementLoadEventDelayCount()
+ {
+     ASSERT(m_loadEventDelayCount);
+     --m_loadEventDelayCount;
+ 
+     if (frame() && !m_loadEventDelayCount && !m_loadEventDelayTimer.isActive())
+-        m_loadEventDelayTimer.startOneShot(0);
++        m_loadEventDelayTimer.startOneShot(0, this);
+ }
+ 
+-void Document::loadEventDelayTimerFired(Timer<Document>&)
++void Document::loadEventDelayTimerFired(ReplayableTimer<Document>&)
+ {
+     if (frame())
+         frame()->loader().checkCompleted();
+ }
+ 
+ #if ENABLE(REQUEST_ANIMATION_FRAME)
+ int Document::requestAnimationFrame(PassRefPtr<RequestAnimationFrameCallback> callback)
+ {
+     if (!m_scriptedAnimationController) {
+ #if USE(REQUEST_ANIMATION_FRAME_DISPLAY_MONITOR)
+diff --git a/Source/WebCore/dom/Document.h b/Source/WebCore/dom/Document.h
+index 794ccd7..1c53c30 100644
+--- a/Source/WebCore/dom/Document.h
++++ b/Source/WebCore/dom/Document.h
+@@ -34,20 +34,21 @@
+ #include "DocumentEventQueue.h"
+ #include "DocumentStyleSheetCollection.h"
+ #include "DocumentTiming.h"
+ #include "FocusDirection.h"
+ #include "IconURL.h"
+ #include "MutationObserver.h"
+ #include "PageVisibilityState.h"
+ #include "PlatformScreen.h"
+ #include "ReferrerPolicy.h"
+ #include "RenderPtr.h"
++#include "ReplayableTimer.h"
+ #include "ScriptExecutionContext.h"
+ #include "StringWithDirection.h"
+ #include "StyleResolveTree.h"
+ #include "Timer.h"
+ #include "TreeScope.h"
+ #include "UserActionElementSet.h"
+ #include "ViewportArguments.h"
+ #include <chrono>
+ #include <memory>
+ #include <wtf/Deque.h>
+@@ -186,20 +187,24 @@ class TextAutosizer;
+ #endif
+ 
+ #if ENABLE(CSP_NEXT)
+ class DOMSecurityPolicy;
+ #endif
+ 
+ #if ENABLE(FONT_LOAD_EVENTS)
+ class FontLoader;
+ #endif
+ 
++#if ENABLE(WEB_REPLAY)
++class ReplayableTimers;
++#endif
++
+ typedef int ExceptionCode;
+ 
+ #if PLATFORM(IOS)
+ class DeviceMotionClient;
+ class DeviceMotionController;
+ class DeviceOrientationClient;
+ class DeviceOrientationController;
+ #endif
+ 
+ #if ENABLE(IOS_TEXT_AUTOSIZING)
+@@ -477,20 +482,22 @@ public:
+     void setHasXMLDeclaration(bool hasXMLDeclaration) { m_hasXMLDeclaration = hasXMLDeclaration ? 1 : 0; }
+ 
+     String documentURI() const { return m_documentURI; }
+     void setDocumentURI(const String&);
+ 
+     virtual URL baseURI() const override;
+ 
+ #if ENABLE(WEB_REPLAY)
+     JSC::InputCursor& inputCursor() const { return *m_inputCursor; }
+     void setInputCursor(PassRefPtr<JSC::InputCursor>);
++
++    ReplayableTimers& replayableTimers() const { return *m_replayableTimers; }
+ #endif
+ 
+     void visibilityStateChanged();
+     String visibilityState() const;
+     bool hidden() const;
+ 
+ #if ENABLE(CSP_NEXT)
+     DOMSecurityPolicy* securityPolicy();
+ #endif
+ 
+@@ -1324,21 +1331,21 @@ private:
+     virtual double timerAlignmentInterval() const override;
+ 
+     void updateTitle(const StringWithDirection&);
+     void updateFocusAppearanceTimerFired(Timer<Document>&);
+     void updateBaseURL();
+ 
+     void buildAccessKeyMap(TreeScope* root);
+ 
+     void createStyleResolver();
+ 
+-    void loadEventDelayTimerFired(Timer<Document>&);
++    void loadEventDelayTimerFired(ReplayableTimer<Document>&);
+ 
+     void pendingTasksTimerFired(Timer<Document>&);
+ 
+     template <typename CharacterType>
+     void displayBufferModifiedByEncodingInternal(CharacterType*, unsigned) const;
+ 
+     PageVisibilityState pageVisibilityState() const;
+ 
+     PassRefPtr<HTMLCollection> ensureCachedCollection(CollectionType);
+ 
+@@ -1570,21 +1577,21 @@ private:
+     RenderFullScreen* m_fullScreenRenderer;
+     Timer<Document> m_fullScreenChangeDelayTimer;
+     Deque<RefPtr<Node>> m_fullScreenChangeEventTargetQueue;
+     Deque<RefPtr<Node>> m_fullScreenErrorEventTargetQueue;
+     bool m_isAnimatingFullScreen;
+     LayoutRect m_savedPlaceholderFrameRect;
+     RefPtr<RenderStyle> m_savedPlaceholderRenderStyle;
+ #endif
+ 
+     int m_loadEventDelayCount;
+-    Timer<Document> m_loadEventDelayTimer;
++    ReplayableTimer<Document> m_loadEventDelayTimer;
+ 
+     ViewportArguments m_viewportArguments;
+ 
+     ReferrerPolicy m_referrerPolicy;
+ 
+     bool m_directionSetOnDocumentElement;
+     bool m_writingModeSetOnDocumentElement;
+ 
+ #if ENABLE(WEB_TIMING)
+     DocumentTiming m_documentTiming;
+@@ -1680,20 +1687,21 @@ private:
+     RefPtr<Document> m_templateDocument;
+     Document* m_templateDocumentHost; // Manually managed weakref (backpointer from m_templateDocument).
+ #endif
+ 
+ #if ENABLE(FONT_LOAD_EVENTS)
+     RefPtr<FontLoader> m_fontloader;
+ #endif
+ 
+ #if ENABLE(WEB_REPLAY)
+     RefPtr<JSC::InputCursor> m_inputCursor;
++    std::unique_ptr<ReplayableTimers> m_replayableTimers;
+ #endif
+ 
+     Timer<Document> m_didAssociateFormControlsTimer;
+     HashSet<RefPtr<Element>> m_associatedFormControls;
+     unsigned m_disabledFieldsetElementsCount;
+ 
+     bool m_hasInjectedPlugInsScript;
+     bool m_renderTreeBeingDestroyed;
+ 
+     bool m_hasStyleWithViewportUnits;
+diff --git a/Source/WebCore/loader/FrameLoader.cpp b/Source/WebCore/loader/FrameLoader.cpp
+index 984b6cb..27edf31 100644
+--- a/Source/WebCore/loader/FrameLoader.cpp
++++ b/Source/WebCore/loader/FrameLoader.cpp
+@@ -841,41 +841,41 @@ void FrameLoader::checkCompleted()
+ 
+     checkCallImplicitClose(); // if we didn't do it before
+ 
+     m_frame.navigationScheduler().startTimer();
+ 
+     completed();
+     if (m_frame.page())
+         checkLoadComplete();
+ }
+ 
+-void FrameLoader::checkTimerFired(Timer<FrameLoader>&)
++void FrameLoader::checkTimerFired(ReplayableTimer<FrameLoader>&)
+ {
+     Ref<Frame> protect(m_frame);
+ 
+     if (Page* page = m_frame.page()) {
+         if (page->defersLoading())
+             return;
+     }
+     if (m_shouldCallCheckCompleted)
+         checkCompleted();
+     if (m_shouldCallCheckLoadComplete)
+         checkLoadComplete();
+ }
+ 
+ void FrameLoader::startCheckCompleteTimer()
+ {
+     if (!(m_shouldCallCheckCompleted || m_shouldCallCheckLoadComplete))
+         return;
+     if (m_checkTimer.isActive())
+         return;
+-    m_checkTimer.startOneShot(0);
++    m_checkTimer.startOneShot(0, m_frame.document());
+ }
+ 
+ void FrameLoader::scheduleCheckCompleted()
+ {
+     m_shouldCallCheckCompleted = true;
+     startCheckCompleteTimer();
+ }
+ 
+ void FrameLoader::scheduleCheckLoadComplete()
+ {
+diff --git a/Source/WebCore/loader/FrameLoader.h b/Source/WebCore/loader/FrameLoader.h
+index 9f90775..4a3b099 100644
+--- a/Source/WebCore/loader/FrameLoader.h
++++ b/Source/WebCore/loader/FrameLoader.h
+@@ -31,24 +31,24 @@
+ 
+ #ifndef FrameLoader_h
+ #define FrameLoader_h
+ 
+ #include "CachePolicy.h"
+ #include "FrameLoaderStateMachine.h"
+ #include "FrameLoaderTypes.h"
+ #include "IconURL.h"
+ #include "LayoutMilestones.h"
+ #include "MixedContentChecker.h"
++#include "ReplayableTimer.h"
+ #include "ResourceHandleTypes.h"
+ #include "ResourceLoadNotifier.h"
+ #include "SecurityContext.h"
+-#include "Timer.h"
+ #include <wtf/Forward.h>
+ #include <wtf/HashSet.h>
+ 
+ namespace WebCore {
+ 
+ class Archive;
+ class CachedFrameBase;
+ class CachedPage;
+ class CachedResource;
+ class Chrome;
+@@ -293,21 +293,21 @@ public:
+     void forcePageTransitionIfNeeded();
+ 
+ private:
+     enum FormSubmissionCacheLoadPolicy {
+         MayAttemptCacheOnlyLoadForFormSubmissionItem,
+         MayNotAttemptCacheOnlyLoadForFormSubmissionItem
+     };
+ 
+     bool allChildrenAreComplete() const; // immediate children, not all descendants
+ 
+-    void checkTimerFired(Timer<FrameLoader>&);
++    void checkTimerFired(ReplayableTimer<FrameLoader>&);
+     
+     void loadSameDocumentItem(HistoryItem*);
+     void loadDifferentDocumentItem(HistoryItem*, FrameLoadType, FormSubmissionCacheLoadPolicy);
+     
+     void loadProvisionalItemFromCachedPage();
+ 
+     void updateFirstPartyForCookies();
+     void setFirstPartyForCookies(const URL&);
+     
+     void addExtraFieldsToRequest(ResourceRequest&, FrameLoadType, bool isMainResource);
+@@ -417,21 +417,21 @@ private:
+     bool m_wasUnloadEventEmitted;
+     PageDismissalType m_pageDismissalEventBeingDispatched;
+     bool m_isComplete;
+ 
+     RefPtr<SerializedScriptValue> m_pendingStateObject;
+ 
+     bool m_needsClear;
+ 
+     URL m_submittedFormURL;
+ 
+-    Timer<FrameLoader> m_checkTimer;
++    ReplayableTimer<FrameLoader> m_checkTimer;
+     bool m_shouldCallCheckCompleted;
+     bool m_shouldCallCheckLoadComplete;
+ 
+     Frame* m_opener;
+     HashSet<Frame*> m_openedFrames;
+ 
+     bool m_loadingFromCachedPage;
+     bool m_suppressOpenerInNewFrame;
+ 
+     bool m_currentNavigationHasShownBeforeUnloadConfirmPanel;
+diff --git a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
+index 43e1fcf..cd67cf0 100644
+--- a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
++++ b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
+@@ -22,30 +22,33 @@
+  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #include "config.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include "AllReplayInputs.h"
++#include "Document.h"
+ #include "DocumentLoader.h"
+ #include "MainFrame.h"
+ #include "NavigationScheduler.h"
+ #include "Page.h"
+ #include "ReplayController.h"
++#include "ReplayableTimers.h"
+ #include "ResourceError.h"
+ #include "ResourceLoader.h"
+ #include "SerializationMethods.h"
+ #include "URL.h"
+ #include "UserInputBridge.h"
++#include <cinttypes>
+ 
+ namespace WebCore {
+ 
+ static ResourceLoader* resourceLoaderForOrdinal(Page& page, unsigned long ordinal, int frameIndex)
+ {
+     Frame* frame = frameFromFrameIndex(&page, frameIndex);
+     ASSERT(frame);
+ 
+     const Vector<unsigned long>& usedIdentifiers = frame->mainFrame().loader().activeDocumentLoader()->usedIdentifiers();
+     ASSERT(ordinal < usedIdentifiers.size());
+@@ -163,13 +166,21 @@ void ResourceLoaderDidReceiveResponse::dispatch(ReplayController& controller)
+     // FIXME: signal error if the callback couldn't be fired.
+ }
+ 
+ void ResourceLoaderDidSendData::dispatch(ReplayController& controller)
+ {
+     if (ResourceLoader* loader = resourceLoaderForOrdinal(controller.page(), ordinal(), frameIndex()))
+         loader->didSendData(m_bytesSent, m_totalBytesToBeSent);
+     // FIXME: signal error if the callback couldn't be fired.
+ }
+ 
++// Other event loop inputs.
++void AsyncTimerFired::dispatch(ReplayController& controller)
++{
++    Document* document = documentFromFrameIndex(&controller.page(), m_frameIndex);
++    if (!document || !document->replayableTimers().fireTimer(m_ordinal))
++        LOG_ERROR("%-30s REPLAY DIVERGENCE! Couldn't find async timer %d/%" PRIu64 ".\n", "[ReplayController]", m_frameIndex, m_ordinal);
++}
++
+ } // namespace WebCore
+ 
+ #endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/WebCore/replay/ReplayableTimer.cpp b/Source/WebCore/replay/ReplayableTimer.cpp
+new file mode 100644
+index 0000000..fd46096
+--- /dev/null
++++ b/Source/WebCore/replay/ReplayableTimer.cpp
+@@ -0,0 +1,104 @@
++/*
++ * Copyright (C) 2013, 2014 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE COMPUTER, INC. ``AS IS'' AND ANY
++ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE COMPUTER, INC. OR
++ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#include "config.h"
++#include "ReplayableTimer.h"
++
++#if ENABLE(WEB_REPLAY)
++
++#include "CapturingInputCursor.h"
++#include "Document.h"
++#include "Logging.h"
++#include "ReplayableTimers.h"
++#include "SerializationMethods.h"
++#include "WebReplayInputs.h"
++#include <replay/InputCursor.h>
++
++namespace WebCore {
++
++ReplayableTimerBase::ReplayableTimerBase()
++    : m_timer(this, &ReplayableTimerBase::timerFired)
++    , m_document(nullptr)
++    , m_ordinal(0)
++{
++}
++
++ReplayableTimerBase::~ReplayableTimerBase()
++{
++}
++
++void ReplayableTimerBase::timerFired(Timer<ReplayableTimerBase>&)
++{
++    ASSERT(m_document);
++    Document* document = m_document;
++    m_document = nullptr;
++
++    InputCursor& cursor = document->inputCursor();
++    ASSERT(!cursor.isReplaying());
++
++    if (cursor.isCapturing()) {
++        LOG(WebReplay, "ReplayableTimer(%p)::timerFired m_document=%p", this, document);
++        cursor.appendInput<AsyncTimerFired>(frameIndexFromDocument(document), m_ordinal);
++    }
++
++    fired();
++}
++
++void ReplayableTimerBase::startOneShot(double interval, Document* document)
++{
++    ASSERT(document);
++    m_document = document;
++
++    if (!m_ordinal)
++        document->replayableTimers().registerTimer(this);
++
++    InputCursor& cursor = document->inputCursor();
++#if !LOG_DISABLED
++    if (cursor.isCapturing() || cursor.isReplaying())
++        LOG(WebReplay, "ReplayableTimer(%p)::startOneShot interval=%f, document=%p", this, interval, document);
++#endif
++    if (!cursor.isReplaying())
++        m_timer.startOneShot(interval);
++}
++
++void ReplayableTimerBase::stop()
++{
++    if (!m_document)
++        return;
++
++    InputCursor& cursor = m_document->inputCursor();
++#if !LOG_DISABLED
++    if (cursor.isCapturing() || cursor.isReplaying())
++        LOG(WebReplay, "ReplayableTimer(%p)::stop m_document=%p", this, m_document);
++#endif
++    if (!cursor.isReplaying())
++        m_timer.stop();
++
++    m_document = nullptr;
++}
++
++} // namespace WebCore
++
++#endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/WebCore/replay/ReplayableTimer.h b/Source/WebCore/replay/ReplayableTimer.h
+new file mode 100644
+index 0000000..28ece9a
+--- /dev/null
++++ b/Source/WebCore/replay/ReplayableTimer.h
+@@ -0,0 +1,127 @@
++/*
++ * Copyright (C) 2006 Apple Computer, Inc.  All rights reserved.
++ * Copyright (C) 2013, 2014 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE COMPUTER, INC. ``AS IS'' AND ANY
++ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE COMPUTER, INC. OR
++ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#ifndef ReplayableTimer_h
++#define ReplayableTimer_h
++
++#include "Timer.h"
++#include <wtf/Noncopyable.h>
++
++#if ENABLE(WEB_REPLAY)
++#include <replay/InputCursor.h>
++#endif
++
++namespace WebCore {
++
++class Document;
++class ReplayableTimers;
++
++#if ENABLE(WEB_REPLAY)
++
++class ReplayableTimerBase {
++    WTF_MAKE_NONCOPYABLE(ReplayableTimerBase);
++
++friend class ReplayableTimers;
++
++public:
++    ReplayableTimerBase();
++    virtual ~ReplayableTimerBase();
++
++    void startOneShot(double interval, Document*);
++
++    void stop();
++    bool isActive() const { return m_document; }
++
++    uint64_t ordinal() const { return m_ordinal; }
++protected:
++    virtual void fired() =0;
++private:
++    void timerFired(Timer<ReplayableTimerBase>&);
++
++    // Called by ReplayableTimers::registerTimer
++    void setOrdinal(uint64_t ordinal) { m_ordinal = ordinal; }
++
++    Timer<ReplayableTimerBase> m_timer;
++    Document* m_document;
++    // Timers are often initialized without an associated document, but are always
++    // always fired when one is available. Assign timer ordinals on first fire.
++    uint64_t m_ordinal;
++};
++
++template <typename TimerFiredClass> class ReplayableTimer : public ReplayableTimerBase {
++public:
++    typedef void (TimerFiredClass::*TimerFiredFunction)(ReplayableTimer&);
++
++    ReplayableTimer(TimerFiredClass* object, TimerFiredFunction function)
++        : m_function(std::bind(function, object, std::ref(*this)))
++    {
++    }
++
++protected:
++    virtual void fired() override
++    {
++        m_function();
++    }
++
++    std::function<void ()> m_function;
++};
++
++#else // !ENABLE(WEB_REPLAY)
++
++// Preserve API compatibility with custom timer subclasses that should be deterministic.
++class ReplayableTimerBase : public TimerBase {
++public:
++    void startOneShot(double interval, Document*)
++    {
++        TimerBase::startOneShot(interval);
++    }
++};
++
++// This is the same definition as in Timer.h, but takes arguments
++// so that clients need not manually instantiate different Timers based on guards.
++template <typename TimerFiredClass> class ReplayableTimer : public ReplayableTimerBase {
++public:
++    typedef void (TimerFiredClass::*TimerFiredFunction)(ReplayableTimer&);
++
++    ReplayableTimer(TimerFiredClass* object , TimerFiredFunction function)
++        : m_function(std::bind(function, object, std::ref(*this)))
++    {
++    }
++
++protected:
++    virtual void fired() override
++    {
++        m_function();
++    }
++
++    std::function<void ()> m_function;
++};
++
++#endif // !ENABLE(WEB_REPLAY)
++
++} // namespace WebCore
++
++#endif // ReplayableTimer_h
+diff --git a/Source/WebCore/replay/ReplayableTimers.cpp b/Source/WebCore/replay/ReplayableTimers.cpp
+new file mode 100644
+index 0000000..3364b4e
+--- /dev/null
++++ b/Source/WebCore/replay/ReplayableTimers.cpp
+@@ -0,0 +1,79 @@
++/*
++ * Copyright (C) 2013, 2014 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
++ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
++ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
++ * THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#include "config.h"
++#include "ReplayableTimers.h"
++
++#if ENABLE(WEB_REPLAY)
++
++#include "Logging.h"
++#include "ReplayableTimer.h"
++
++namespace WebCore {
++
++ReplayableTimers::ReplayableTimers()
++    : m_map(TimerMap())
++    , m_nextOrdinal(1)
++{
++}
++
++unsigned long ReplayableTimers::registerTimer(ReplayableTimerBase* timer)
++{
++    ASSERT(timer);
++
++    bool needsOrdinal = false;
++    if (!timer->ordinal())
++        needsOrdinal = true;
++    else {
++        TimerMap::const_iterator it = m_map.find(timer->ordinal());
++        needsOrdinal |= it == m_map.end() || it->value != timer;
++    }
++
++    if (!needsOrdinal)
++        return timer->ordinal();
++
++    unsigned long ordinal = m_nextOrdinal++;
++    TimerMap::AddResult result = m_map.set(ordinal, timer);
++    ASSERT_UNUSED(result, result.isNewEntry);
++
++    LOG(WebReplay, "%-20s Registering async timer %p/%lu.\n", "ReplayableTimers", (void*)this, ordinal);
++    return ordinal;
++}
++
++bool ReplayableTimers::fireTimer(unsigned long ordinal)
++{
++    ASSERT(ordinal);
++
++    TimerMap::iterator result = m_map.find(ordinal);
++    if (result == m_map.end())
++        return false;
++
++    result->value->fired();
++    return true;
++}
++
++} // namespace WebCore
++
++#endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/WebCore/replay/ReplayableTimers.h b/Source/WebCore/replay/ReplayableTimers.h
+new file mode 100644
+index 0000000..3f7fc11
+--- /dev/null
++++ b/Source/WebCore/replay/ReplayableTimers.h
+@@ -0,0 +1,55 @@
++/*
++ * Copyright (C) 2013, 2014 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
++ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
++ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
++ * THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#ifndef ReplayableTimers_h
++#define ReplayableTimers_h
++
++#if ENABLE(WEB_REPLAY)
++
++#include <wtf/HashMap.h>
++#include <wtf/Noncopyable.h>
++
++namespace WebCore {
++
++class ReplayableTimerBase;
++
++class ReplayableTimers {
++    WTF_MAKE_NONCOPYABLE(ReplayableTimers);
++public:
++    ReplayableTimers();
++
++    unsigned long registerTimer(ReplayableTimerBase*);
++    bool fireTimer(unsigned long ordinal);
++private:
++    typedef HashMap<unsigned long, ReplayableTimerBase*> TimerMap;
++    TimerMap m_map;
++    unsigned long m_nextOrdinal;
++};
++
++} // namespace WebCore
++
++#endif // ENABLE(WEB_REPLAY)
++
++#endif // ReplayableTimers_h
+diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
+index a6297b5..881305b 100644
+--- a/Source/WebCore/replay/WebInputs.json
++++ b/Source/WebCore/replay/WebInputs.json
+@@ -208,20 +208,29 @@
+             },
+             {
+                 "name": "URL", "mode": "HEAVY_SCALAR",
+                 "header": "platform/URL.h"
+             }
+         ]
+     },
+ 
+     "inputs": [
+         {
++            "name": "AsyncTimerFired",
++            "description": "A ReplayableTimer instance fired that was associated with the specified frame.",
++            "queue": "EVENT_LOOP",
++            "members": [
++                { "name": "frameIndex", "type": "uint32_t" },
++                { "name": "ordinal", "type": "uint64_t" }
++            ]
++        },
++        {
+             "name": "BeginSegmentSentinel",
+             "description": "A sentinel input to signal the start of a segment.",
+             "queue": "EVENT_LOOP",
+             "members": [ ]
+         },
+         {
+             "name": "DocumentLastModifiedDate",
+             "description": "A fallback value used for the document's last modified date if the Last-Modified header can't be found or used.",
+             "queue": "SCRIPT_MEMOIZED",
+             "members": [
+diff --git a/Source/WebKit/CMakeLists.txt b/Source/WebKit/CMakeLists.txt
+index e8d692e..f60bc77 100644
+--- a/Source/WebKit/CMakeLists.txt
++++ b/Source/WebKit/CMakeLists.txt
+@@ -48,20 +48,21 @@ set(WebKit_INCLUDE_DIRECTORIES
+     "${WEBCORE_DIR}/platform/mediastream"
+     "${WEBCORE_DIR}/platform/mock"
+     "${WEBCORE_DIR}/platform/network"
+     "${WEBCORE_DIR}/platform/sql"
+     "${WEBCORE_DIR}/platform/text"
+     "${WEBCORE_DIR}/plugins"
+     "${WEBCORE_DIR}/rendering"
+     "${WEBCORE_DIR}/rendering/line"
+     "${WEBCORE_DIR}/rendering/shapes"
+     "${WEBCORE_DIR}/rendering/style"
++    "${WEBCORE_DIR}/replay"
+     "${WEBCORE_DIR}/storage"
+     "${WEBCORE_DIR}/style"
+     "${WEBCORE_DIR}/svg"
+     "${WEBCORE_DIR}/svg/animation"
+     "${WEBCORE_DIR}/svg/graphics"
+     "${WEBCORE_DIR}/svg/properties"
+     "${WEBCORE_DIR}/workers"
+     "${JAVASCRIPTCORE_DIR}"
+     "${JAVASCRIPTCORE_DIR}/API"
+     "${JAVASCRIPTCORE_DIR}/assembler"
+diff --git a/Source/WebKit/ChangeLog b/Source/WebKit/ChangeLog
+index 1a5d822..6e41285 100644
+--- a/Source/WebKit/ChangeLog
++++ b/Source/WebKit/ChangeLog
+@@ -1,10 +1,19 @@
++2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Replay: make calls into FrameLoader::checkLoadComplete() deterministic
++        https://bugs.webkit.org/show_bug.cgi?id=129451
++
++        Reviewed by NOBODY (OOPS!).
++
++        * CMakeLists.txt: Add replay/ directory to header include paths.
++
+ 2014-07-08  Brent Fulgham  <bfulgham@apple.com>
+ 
+         [Win] Implement auto-version as a Perl program
+         https://bugs.webkit.org/show_bug.cgi?id=134745
+         <rdar://problem/17597801>
+ 
+         Reviewed by David Kilzer.
+ 
+         Modify build commands to use new Perl version of the
+         auto-version script.
+diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
+index aad0b25..3b002cb 100644
+--- a/Source/WebKit2/CMakeLists.txt
++++ b/Source/WebKit2/CMakeLists.txt
+@@ -100,20 +100,21 @@ set(WebKit2_INCLUDE_DIRECTORIES
+     "${WEBCORE_DIR}/platform/graphics/transforms"
+     "${WEBCORE_DIR}/platform/mediastream"
+     "${WEBCORE_DIR}/platform/network"
+     "${WEBCORE_DIR}/platform/sql"
+     "${WEBCORE_DIR}/platform/text"
+     "${WEBCORE_DIR}/plugins"
+     "${WEBCORE_DIR}/rendering"
+     "${WEBCORE_DIR}/rendering/line"
+     "${WEBCORE_DIR}/rendering/shapes"
+     "${WEBCORE_DIR}/rendering/style"
++    "${WEBCORE_DIR}/replay"
+     "${WEBCORE_DIR}/storage"
+     "${WEBCORE_DIR}/style"
+     "${WEBCORE_DIR}/svg"
+     "${WEBCORE_DIR}/svg/graphics"
+     "${WEBCORE_DIR}/svg/properties"
+     "${JAVASCRIPTCORE_DIR}"
+     "${JAVASCRIPTCORE_DIR}/ForwardingHeaders"
+     "${JAVASCRIPTCORE_DIR}/API"
+     "${JAVASCRIPTCORE_DIR}/assembler"
+     "${JAVASCRIPTCORE_DIR}/bytecode"
+diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
+index 77a17b7..c956a96 100644
+--- a/Source/WebKit2/ChangeLog
++++ b/Source/WebKit2/ChangeLog
+@@ -1,10 +1,19 @@
++2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Replay: make calls into FrameLoader::checkLoadComplete() deterministic
++        https://bugs.webkit.org/show_bug.cgi?id=129451
++
++        Reviewed by NOBODY (OOPS!).
++
++        * CMakeLists.txt: Add replay/ directory to header include paths.
++
+ 2014-07-14  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         Web Replay: capture and replay Reload, Navigate, and Stop commands
+         https://bugs.webkit.org/show_bug.cgi?id=129447
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Update resource logging formatters for ResourceLoadPriority. It is now
+         an enum with uint64_t-sized storage rather than int.
+ 
+-- 
+2.0.1
+
