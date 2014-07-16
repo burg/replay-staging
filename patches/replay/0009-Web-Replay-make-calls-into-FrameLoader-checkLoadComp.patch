@@ -1,4 +1,4 @@
-From 4115f76a37462be212af9801259c58d6424b7a6f Mon Sep 17 00:00:00 2001
+From ff3fbd608386f8b1757859403c2232b33698acaa Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 14:34:56 -0700
 Subject: [PATCH] Web Replay: make calls into FrameLoader::checkLoadComplete()
@@ -131,7 +131,7 @@ index 1487471..3ad53aa 100644
      storage/StorageNamespace.cpp
      storage/StorageNamespaceImpl.cpp
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 0a2b6d7..9c574ba 100644
+index 97c1abe..defd7b3 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,80 @@
@@ -1401,7 +1401,7 @@ index 0000000..3f7fc11
 +
 +#endif // ReplayableTimers_h
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
-index a6297b5..881305b 100644
+index 385f45a..d76bbee 100644
 --- a/Source/WebCore/replay/WebInputs.json
 +++ b/Source/WebCore/replay/WebInputs.json
 @@ -208,20 +208,29 @@

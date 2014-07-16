@@ -1,4 +1,4 @@
-From 8d3e51e2933eda4e449e3942abed74d127256cc8 Mon Sep 17 00:00:00 2001
+From 61c1b141aaa7461d4c1c82bbf8f1b40ee8bdabb0 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 12 Jun 2014 16:49:07 -0700
 Subject: [PATCH] Web Replay: capture and replay ResourceLoader callbacks
@@ -106,7 +106,7 @@ from taking over and fulfilling the loads nondeterministically.
  17 files changed, 594 insertions(+), 8 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 13da778..337aeaf 100644
+index 2a3b398..667b358 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,91 @@
@@ -942,7 +942,7 @@ index 6454a48..15df745 100644
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebCore/replay/SerializationMethods.cpp b/Source/WebCore/replay/SerializationMethods.cpp
-index 240ab14..74353d3 100644
+index 6a9d2c0..a4bbcc2 100644
 --- a/Source/WebCore/replay/SerializationMethods.cpp
 +++ b/Source/WebCore/replay/SerializationMethods.cpp
 @@ -27,42 +27,52 @@
@@ -998,7 +998,7 @@ index 240ab14..74353d3 100644
  
  #define IMPORT_FROM_WEBCORE_NAMESPACE(name) \
  using WebCore::name; \
-@@ -132,20 +142,54 @@ Frame* frameFromFrameIndex(Page* page, unsigned long frameIndex)
+@@ -132,20 +142,54 @@ Frame* frameFromFrameIndex(Page* page, uint32_t frameIndex)
  
  #define DECODE_OPTIONAL_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _lvalue) \
      bool _key ## WasDecoded = _encodedValue.get<_type>(ASCIILiteral(#_key), _lvalue)
@@ -1053,7 +1053,7 @@ index 240ab14..74353d3 100644
      ENCODE_TYPE_WITH_KEY(encodedData, Vector<String>, extensions, input.extensions);
  
      return encodedData;
-@@ -493,31 +537,156 @@ bool EncodingTraits<PluginInfo>::decodeValue(EncodedValue& encodedData, PluginIn
+@@ -501,31 +545,156 @@ bool EncodingTraits<PluginInfo>::decodeValue(EncodedValue& encodedData, PluginIn
      DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, String, name, info.name);
      DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, String, file, info.file);
      DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, String, desc, info.desc);
@@ -1211,7 +1211,7 @@ index 240ab14..74353d3 100644
      return true;
  }
 diff --git a/Source/WebCore/replay/SerializationMethods.h b/Source/WebCore/replay/SerializationMethods.h
-index 024208b..91a5674 100644
+index e7ec315..38a1d50 100644
 --- a/Source/WebCore/replay/SerializationMethods.h
 +++ b/Source/WebCore/replay/SerializationMethods.h
 @@ -31,42 +31,53 @@
@@ -1241,10 +1241,10 @@ index 024208b..91a5674 100644
  struct KeypressCommand;
  #endif
  
- unsigned long frameIndexFromDocument(const Document*);
- unsigned long frameIndexFromFrame(const Frame*);
- Document* documentFromFrameIndex(Page*, unsigned long frameIndex);
- Frame* frameFromFrameIndex(Page*, unsigned long frameIndex);
+ uint32_t frameIndexFromDocument(const Document*);
+ uint32_t frameIndexFromFrame(const Frame*);
+ Document* documentFromFrameIndex(Page*, uint32_t frameIndex);
+ Frame* frameFromFrameIndex(Page*, uint32_t frameIndex);
  
  } // namespace WebCore
  
@@ -1324,7 +1324,7 @@ index 024208b..91a5674 100644
  
  #endif // SerializationMethods_h
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
-index da5be3e..8e23bbf 100644
+index 9d8af6e..b793e6f 100644
 --- a/Source/WebCore/replay/WebInputs.json
 +++ b/Source/WebCore/replay/WebInputs.json
 @@ -114,24 +114,36 @@
@@ -1381,8 +1381,8 @@ index da5be3e..8e23bbf 100644
 +            "description": "A resource loader failed to load its resource.",
 +            "queue": "EVENT_LOOP",
 +            "members": [
-+                { "name": "ordinal", "type": "unsigned long" },
-+                { "name": "frameIndex", "type": "int" },
++                { "name": "ordinal", "type": "uint64_t" },
++                { "name": "frameIndex", "type": "uint32_t" },
 +                { "name": "error", "type": "ResourceError" }
 +            ]
 +        },
@@ -1391,8 +1391,8 @@ index da5be3e..8e23bbf 100644
 +            "description": "A resource loader finished receiving a resource.",
 +            "queue": "EVENT_LOOP",
 +            "members": [
-+                { "name": "ordinal", "type": "unsigned long" },
-+                { "name": "frameIndex", "type": "int" },
++                { "name": "ordinal", "type": "uint64_t" },
++                { "name": "frameIndex", "type": "uint32_t" },
 +                { "name": "finishTime", "type": "double" }
 +            ]
 +        },
@@ -1401,8 +1401,8 @@ index da5be3e..8e23bbf 100644
 +            "description": "A resource loader received an initial response.",
 +            "queue": "EVENT_LOOP",
 +            "members": [
-+                { "name": "ordinal", "type": "unsigned long" },
-+                { "name": "frameIndex", "type": "int" },
++                { "name": "ordinal", "type": "uint64_t" },
++                { "name": "frameIndex", "type": "uint32_t" },
 +                { "name": "response", "type": "ResourceResponse" }
 +            ]
 +        },
@@ -1411,10 +1411,10 @@ index da5be3e..8e23bbf 100644
 +            "description": "A resource loader sent some data.",
 +            "queue": "EVENT_LOOP",
 +            "members": [
-+                { "name": "ordinal", "type": "unsigned long" },
-+                { "name": "frameIndex", "type": "int" },
-+                { "name": "bytesSent", "type": "unsigned long long" },
-+                { "name": "totalBytesToBeSent", "type": "unsigned long long" }
++                { "name": "ordinal", "type": "uint64_t" },
++                { "name": "frameIndex", "type": "uint32_t" },
++                { "name": "bytesSent", "type": "uint64_t" },
++                { "name": "totalBytesToBeSent", "type": "uint64_t" }
 +            ]
 +        },
 +        {
@@ -1422,10 +1422,10 @@ index da5be3e..8e23bbf 100644
 +            "description": "A resource loader received some data.",
 +            "queue": "EVENT_LOOP",
 +            "members": [
-+                { "name": "ordinal", "type": "unsigned long" },
-+                { "name": "frameIndex", "type": "int" },
++                { "name": "ordinal", "type": "uint64_t" },
++                { "name": "frameIndex", "type": "uint32_t" },
 +                { "name": "buffer", "type": "SharedBuffer" },
-+                { "name": "encodedLength", "type": "int" }
++                { "name": "encodedLength", "type": "int32_t" }
 +            ]
          }
      ]

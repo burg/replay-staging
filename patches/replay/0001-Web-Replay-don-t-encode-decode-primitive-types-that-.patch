@@ -1,4 +1,4 @@
-From d87dcefd14dfa6e9bd95494c6b5f5898b90a4748 Mon Sep 17 00:00:00 2001
+From 5029446a01f0ef2dec42a3136bf8c6f54148137f Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Mon, 14 Jul 2014 13:36:05 -0700
 Subject: [PATCH] Web Replay: don't encode/decode primitive types that lack
@@ -30,15 +30,15 @@ explicit size. Move frame index serialization away from using unsigned long.
 * replay/SerializationMethods.h:
 * replay/WebInputs.json: Remove primitive types without explicit sizes.
 ---
- Source/JavaScriptCore/ChangeLog                | 14 +++++++++++
- Source/JavaScriptCore/replay/EncodedValue.cpp  | 14 -----------
+ Source/JavaScriptCore/ChangeLog                | 14 +++++++++++++
+ Source/JavaScriptCore/replay/EncodedValue.cpp  | 14 -------------
  Source/JavaScriptCore/replay/EncodedValue.h    |  2 --
- Source/WebCore/ChangeLog                       | 22 +++++++++++++++++
- Source/WebCore/replay/ReplayController.cpp     |  4 +--
- Source/WebCore/replay/SerializationMethods.cpp | 28 +++++++++++++--------
- Source/WebCore/replay/SerializationMethods.h   |  8 +++---
- Source/WebCore/replay/WebInputs.json           | 34 +++++++++++++-------------
- 8 files changed, 77 insertions(+), 49 deletions(-)
+ Source/WebCore/ChangeLog                       | 22 ++++++++++++++++++++
+ Source/WebCore/replay/ReplayController.cpp     |  4 ++--
+ Source/WebCore/replay/SerializationMethods.cpp | 28 +++++++++++++++++---------
+ Source/WebCore/replay/SerializationMethods.h   |  8 ++++----
+ Source/WebCore/replay/WebInputs.json           |  8 ++++----
+ 8 files changed, 64 insertions(+), 36 deletions(-)
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
 index fe7dc53..a400421 100644
@@ -178,7 +178,7 @@ index de6bff7..4fb8a85 100644
  // Base cases for loading and storing values.
  template<> JS_EXPORT_PRIVATE
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 337aeaf..591e0cc 100644
+index f49e200..8c9afde 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,32 @@
@@ -204,18 +204,18 @@ index 337aeaf..591e0cc 100644
 +        * replay/SerializationMethods.h:
 +        * replay/WebInputs.json: Remove primitive types without explicit sizes.
 +
- 2014-06-12  Brian Burg  <burg@cs.washington.edu>
+ 2014-07-16  Jer Noble  <jer.noble@apple.com>
  
-         Web Replay: capture and replay ResourceLoader callbacks
-         https://bugs.webkit.org/show_bug.cgi?id=129391
+         [MSE] http/tests/media/media-source/mediasource-buffered.html is flakey
+         https://bugs.webkit.org/show_bug.cgi?id=134949
  
-         Reviewed by NOBODY (OOPS!).
+         Reviewed by Eric Carlson.
  
-         Our approach to ensuring deterministic page loading is to capture resource loader
-         callbacks during capturing, and then manually invoke loader callbacks during replay
-         in lieu of using the resource loader scheduler.
+         Depending on which SourceBuffer is successfully parsed first, the order of activeSourceBuffers
+         may change from run to run, breaking the http/tests/media/media-source/mediasource-buffered.html
+         test. Make the order of activeSourceBuffers the same as (a subset of) sourceBuffers, by replacing
 diff --git a/Source/WebCore/replay/ReplayController.cpp b/Source/WebCore/replay/ReplayController.cpp
-index 3b2f3f4..a2a4935 100644
+index d76e4b7..b4faefb 100644
 --- a/Source/WebCore/replay/ReplayController.cpp
 +++ b/Source/WebCore/replay/ReplayController.cpp
 @@ -60,28 +60,28 @@ namespace WebCore {
@@ -250,10 +250,10 @@ index 3b2f3f4..a2a4935 100644
      UNUSED_PARAM(eventIsUnrelated);
  #endif
 diff --git a/Source/WebCore/replay/SerializationMethods.cpp b/Source/WebCore/replay/SerializationMethods.cpp
-index 74353d3..a4bbcc2 100644
+index 240ab14..6a9d2c0 100644
 --- a/Source/WebCore/replay/SerializationMethods.cpp
 +++ b/Source/WebCore/replay/SerializationMethods.cpp
-@@ -75,56 +75,56 @@ using WebCore::PlatformWheelEventPhase;
+@@ -65,56 +65,56 @@ using WebCore::PlatformWheelEventPhase;
  #endif
  
  #define IMPORT_FROM_WEBCORE_NAMESPACE(name) \
@@ -316,7 +316,7 @@ index 74353d3..a4bbcc2 100644
  #define ENCODE_TYPE_WITH_KEY(_encodedValue, _type, _key, _value) \
      _encodedValue.put<_type>(ASCIILiteral(#_key), _value)
  
-@@ -331,21 +331,21 @@ bool EncodingTraits<PlatformKeyboardEvent>::decodeValue(EncodedValue& encodedVal
+@@ -287,21 +287,21 @@ bool EncodingTraits<PlatformKeyboardEvent>::decodeValue(EncodedValue& encodedVal
      DECODE_TYPE_WITH_KEY(encodedValue, int, nativeVirtualKeyCode);
      DECODE_TYPE_WITH_KEY(encodedValue, int, macCharCode);
      DECODE_TYPE_WITH_KEY(encodedValue, bool, autoRepeat);
@@ -339,7 +339,7 @@ index 74353d3..a4bbcc2 100644
  
  EncodedValue EncodingTraits<PlatformMouseEvent>::encodeValue(const PlatformMouseEvent& input)
  {
-@@ -482,42 +482,50 @@ bool EncodingTraits<PlatformWheelEvent>::decodeValue(EncodedValue& encodedData,
+@@ -438,42 +438,50 @@ bool EncodingTraits<PlatformWheelEvent>::decodeValue(EncodedValue& encodedData,
  #else
      input = std::make_unique<PlatformWheelEvent>(event);
  #endif
@@ -394,14 +394,14 @@ index 74353d3..a4bbcc2 100644
  
      ENCODE_TYPE_WITH_KEY(encodedData, String, name, input.name);
 diff --git a/Source/WebCore/replay/SerializationMethods.h b/Source/WebCore/replay/SerializationMethods.h
-index 91a5674..38a1d50 100644
+index 024208b..e7ec315 100644
 --- a/Source/WebCore/replay/SerializationMethods.h
 +++ b/Source/WebCore/replay/SerializationMethods.h
-@@ -47,24 +47,24 @@ class PluginData;
- class ResourceError;
- class ResourceResponse;
+@@ -43,24 +43,24 @@ class PlatformKeyboardEvent;
+ class PlatformMouseEvent;
+ class PlatformWheelEvent;
+ class PluginData;
  class SecurityOrigin;
- class SharedBuffer;
  class URL;
  
  #if USE(APPKIT)
@@ -422,12 +422,12 @@ index 91a5674..38a1d50 100644
  // Template specializations must be defined in the same namespace as the template declaration.
  namespace JSC {
  
- template<> struct EncodingTraits<WebCore::HTTPHeaderMap> {
-     typedef WebCore::HTTPHeaderMap DecodedType;
+ #if USE(APPKIT)
+ template<> struct EncodingTraits<WebCore::KeypressCommand> {
+     typedef WebCore::KeypressCommand DecodedType;
  
-     static EncodedValue encodeValue(const WebCore::HTTPHeaderMap& value);
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
-index 8e23bbf..d95e9ed 100644
+index da5be3e..9d8af6e 100644
 --- a/Source/WebCore/replay/WebInputs.json
 +++ b/Source/WebCore/replay/WebInputs.json
 @@ -1,19 +1,19 @@
@@ -454,79 +454,6 @@ index 8e23bbf..d95e9ed 100644
          ],
  
          "JavaScriptCore": [
-@@ -266,59 +266,59 @@
-             "members": [
-                 { "name": "direction", "type": "ScrollDirection" },
-                 { "name": "granularity", "type": "ScrollGranularity" }
-             ]
-         },
-         {
-             "name": "ResourceLoaderDidFail",
-             "description": "A resource loader failed to load its resource.",
-             "queue": "EVENT_LOOP",
-             "members": [
--                { "name": "ordinal", "type": "unsigned long" },
--                { "name": "frameIndex", "type": "int" },
-+                { "name": "ordinal", "type": "uint64_t" },
-+                { "name": "frameIndex", "type": "uint32_t" },
-                 { "name": "error", "type": "ResourceError" }
-             ]
-         },
-         {
-             "name": "ResourceLoaderDidFinishLoading",
-             "description": "A resource loader finished receiving a resource.",
-             "queue": "EVENT_LOOP",
-             "members": [
--                { "name": "ordinal", "type": "unsigned long" },
--                { "name": "frameIndex", "type": "int" },
-+                { "name": "ordinal", "type": "uint64_t" },
-+                { "name": "frameIndex", "type": "uint32_t" },
-                 { "name": "finishTime", "type": "double" }
-             ]
-         },
-         {
-             "name": "ResourceLoaderDidReceiveResponse",
-             "description": "A resource loader received an initial response.",
-             "queue": "EVENT_LOOP",
-             "members": [
--                { "name": "ordinal", "type": "unsigned long" },
--                { "name": "frameIndex", "type": "int" },
-+                { "name": "ordinal", "type": "uint64_t" },
-+                { "name": "frameIndex", "type": "uint32_t" },
-                 { "name": "response", "type": "ResourceResponse" }
-             ]
-         },
-         {
-             "name": "ResourceLoaderDidSendData",
-             "description": "A resource loader sent some data.",
-             "queue": "EVENT_LOOP",
-             "members": [
--                { "name": "ordinal", "type": "unsigned long" },
--                { "name": "frameIndex", "type": "int" },
--                { "name": "bytesSent", "type": "unsigned long long" },
--                { "name": "totalBytesToBeSent", "type": "unsigned long long" }
-+                { "name": "ordinal", "type": "uint64_t" },
-+                { "name": "frameIndex", "type": "uint32_t" },
-+                { "name": "bytesSent", "type": "uint64_t" },
-+                { "name": "totalBytesToBeSent", "type": "uint64_t" }
-             ]
-         },
-         {
-             "name": "ResourceLoaderDidReceiveData",
-             "description": "A resource loader received some data.",
-             "queue": "EVENT_LOOP",
-             "members": [
--                { "name": "ordinal", "type": "unsigned long" },
--                { "name": "frameIndex", "type": "int" },
-+                { "name": "ordinal", "type": "uint64_t" },
-+                { "name": "frameIndex", "type": "uint32_t" },
-                 { "name": "buffer", "type": "SharedBuffer" },
--                { "name": "encodedLength", "type": "int" }
-+                { "name": "encodedLength", "type": "uint64_t" }
-             ]
-         }
-     ]
- }
 -- 
 2.0.1
 

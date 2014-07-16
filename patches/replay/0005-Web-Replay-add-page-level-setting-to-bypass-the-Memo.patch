@@ -1,4 +1,4 @@
-From ca208db20409edaf6906e30f1222856aa81e2adf Mon Sep 17 00:00:00 2001
+From 2245f9933d62860e62b0543b55ab111f4771a1f3 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 11 Jun 2014 15:33:16 -0700
 Subject: [PATCH] Web Replay: add page-level setting to bypass the MemoryCache
@@ -62,7 +62,7 @@ and bypass cache session id are both considered to be non-ephemeral.
  11 files changed, 105 insertions(+), 11 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index f49e200..c426f36 100644
+index 8c9afde..8587031 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,58 @@
@@ -114,16 +114,16 @@ index f49e200..c426f36 100644
 +        (WebCore::ReplayController::setForceDeterministicSettings):
 +        * replay/ReplayController.h:
 +
- 2014-07-16  Jer Noble  <jer.noble@apple.com>
+ 2014-07-14  Brian J. Burg  <burg@cs.washington.edu>
  
-         [MSE] http/tests/media/media-source/mediasource-buffered.html is flakey
-         https://bugs.webkit.org/show_bug.cgi?id=134949
+         Web Replay: don't encode/decode primitive types that lack explicit sizes
+         https://bugs.webkit.org/show_bug.cgi?id=133430
  
-         Reviewed by Eric Carlson.
+         Reviewed by NOBODY (OOPS!).
  
-         Depending on which SourceBuffer is successfully parsed first, the order of activeSourceBuffers
-         may change from run to run, breaking the http/tests/media/media-source/mediasource-buffered.html
-         test. Make the order of activeSourceBuffers the same as (a subset of) sourceBuffers, by replacing
+         Remove uses of unsigned long in encode/decode methods because the type lacks an
+         explicit size. Move frame index serialization away from using unsigned long.
+ 
 diff --git a/Source/WebCore/loader/cache/CachedResourceLoader.cpp b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
 index bafd3d6..cef7312 100644
 --- a/Source/WebCore/loader/cache/CachedResourceLoader.cpp
@@ -417,7 +417,7 @@ index ba283ea..74d9ac0 100644
      bool m_scrollingPerformanceLoggingEnabled : 1;
  
 diff --git a/Source/WebCore/replay/ReplayController.cpp b/Source/WebCore/replay/ReplayController.cpp
-index d76e4b7..3b2f3f4 100644
+index b4faefb..a2a4935 100644
 --- a/Source/WebCore/replay/ReplayController.cpp
 +++ b/Source/WebCore/replay/ReplayController.cpp
 @@ -99,24 +99,27 @@ ReplayController::ReplayController(Page& page)

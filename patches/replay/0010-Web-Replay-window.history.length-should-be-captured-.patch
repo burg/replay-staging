@@ -1,4 +1,4 @@
-From e91eed2a7ab5e2f8f6e05311b8bd9255edd971f8 Mon Sep 17 00:00:00 2001
+From fce5e9b41f73e820cecd6178d4405b05c1106a13 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 15:34:16 -0700
 Subject: [PATCH] Web Replay: window.history.length should be captured at main
@@ -165,7 +165,7 @@ index 0000000..a88d9c1
 +</body>
 +</html>
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 9c574ba..02f4bd6 100644
+index defd7b3..7d7ac28 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,66 @@
@@ -838,7 +838,7 @@ index df16473..fae5319 100644
  
  #endif // SerializationMethods_h
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
-index 881305b..d7209fc 100644
+index d76bbee..bcf3002 100644
 --- a/Source/WebCore/replay/WebInputs.json
 +++ b/Source/WebCore/replay/WebInputs.json
 @@ -36,20 +36,24 @@

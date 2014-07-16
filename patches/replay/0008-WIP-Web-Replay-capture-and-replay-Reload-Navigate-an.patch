@@ -1,4 +1,4 @@
-From 748bfd3fe7734ee2558aa19a35188bde6550d9f3 Mon Sep 17 00:00:00 2001
+From ee61474e7661d5b1ab1b9e0b065ebc2c3012a823 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 11:45:23 -0700
 Subject: [PATCH] [WIP] Web Replay: capture and replay Reload, Navigate, and
@@ -102,12 +102,12 @@ an enum with uint64_t-sized storage rather than int.
  14 files changed, 513 insertions(+), 11 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 591e0cc..0a2b6d7 100644
+index 667b358..97c1abe 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
-@@ -1,12 +1,85 @@
- 2014-07-14  Brian J. Burg  <burg@cs.washington.edu>
- 
+@@ -1,10 +1,83 @@
++2014-07-14  Brian J. Burg  <burg@cs.washington.edu>
++
 +        [WIP] Web Replay: capture and replay Reload, Navigate, and Stop commands
 +        https://bugs.webkit.org/show_bug.cgi?id=129447
 +
@@ -179,18 +179,16 @@ index 591e0cc..0a2b6d7 100644
 +        ResourceLoadPriority, ResourceRequest, ResourceRequestCachePolicy. Add
 +        new inputs LoadURLRequest, ReloadFrame, StopLoadingFrame.
 +
-+2014-07-14  Brian J. Burg  <burg@cs.washington.edu>
-+
-         Web Replay: don't encode/decode primitive types that lack explicit sizes
-         https://bugs.webkit.org/show_bug.cgi?id=133430
+ 2014-06-12  Brian Burg  <burg@cs.washington.edu>
+ 
+         Web Replay: capture and replay ResourceLoader callbacks
+         https://bugs.webkit.org/show_bug.cgi?id=129391
  
          Reviewed by NOBODY (OOPS!).
  
-         Remove uses of unsigned long in encode/decode methods because the type lacks an
-         explicit size. Move frame index serialization away from using unsigned long.
- 
-         * replay/ReplayController.cpp:
-         (WebCore::logDispatchedDOMEvent): Fix the format string.
+         Our approach to ensuring deterministic page loading is to capture resource loader
+         callbacks during capturing, and then manually invoke loader callbacks during replay
+         in lieu of using the resource loader scheduler.
 diff --git a/Source/WebCore/loader/FrameLoadRequest.h b/Source/WebCore/loader/FrameLoadRequest.h
 index 1a2bbf8..1e2f9a8 100644
 --- a/Source/WebCore/loader/FrameLoadRequest.h
@@ -955,7 +953,7 @@ index 45845af..bc8145b 100644
  
  } // namespace WebCore
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
-index d95e9ed..a6297b5 100644
+index b793e6f..385f45a 100644
 --- a/Source/WebCore/replay/WebInputs.json
 +++ b/Source/WebCore/replay/WebInputs.json
 @@ -31,20 +31,25 @@
@@ -1121,7 +1119,7 @@ index d95e9ed..a6297b5 100644
                  { "name": "ordinal", "type": "uint64_t" },
                  { "name": "frameIndex", "type": "uint32_t" },
                  { "name": "buffer", "type": "SharedBuffer" },
-                 { "name": "encodedLength", "type": "uint64_t" }
+                 { "name": "encodedLength", "type": "int32_t" }
              ]
 +        },
 +        {

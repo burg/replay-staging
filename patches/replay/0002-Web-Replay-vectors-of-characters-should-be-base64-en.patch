@@ -1,4 +1,4 @@
-From 595551da5aa751ae48060dd0705dea409ed0372d Mon Sep 17 00:00:00 2001
+From d56852d1f30e8e1a5b604c13ddb6cd19ac74e82c Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 11:25:22 -0700
 Subject: [PATCH] Web Replay: vectors of characters should be base64-encoded
