@@ -1,4 +1,4 @@
-From 2f9f303535be8e6c1eead22179526141c186746b Mon Sep 17 00:00:00 2001
+From d3ae048306b3b5dd67972d9c9f6533186eaa0621 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 12 Jun 2014 09:30:20 -0700
 Subject: [PATCH] Move createUniqueIdentifier() from ProgressTracker to
@@ -48,7 +48,7 @@ No new tests. No behavior was changed.
  12 files changed, 66 insertions(+), 39 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 2013b3a..bea48d1 100644
+index c426f36..13da778 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,11 +1,45 @@
@@ -159,7 +159,7 @@ index 39ed463..de22b87 100644
      LOG(Network, "WebSocketChannel %p connect()", this);
      ASSERT(!m_handle);
 diff --git a/Source/WebCore/html/HTMLMediaElement.cpp b/Source/WebCore/html/HTMLMediaElement.cpp
-index 7b29991..9d8c778 100644
+index 5c0edea..45967d2 100644
 --- a/Source/WebCore/html/HTMLMediaElement.cpp
 +++ b/Source/WebCore/html/HTMLMediaElement.cpp
 @@ -59,21 +59,20 @@
@@ -184,7 +184,7 @@ index 7b29991..9d8c778 100644
  #include "Settings.h"
  #include "ShadowRoot.h"
  #include "TimeRanges.h"
-@@ -5687,21 +5686,21 @@ bool HTMLMediaElement::mediaPlayerShouldWaitForResponseToAuthenticationChallenge
+@@ -5692,21 +5691,21 @@ bool HTMLMediaElement::mediaPlayerShouldWaitForResponseToAuthenticationChallenge
      if (!frame)
          return false;
  
@@ -261,7 +261,7 @@ index a47030d..3fd3762 100644
  
      RefPtr<Inspector::TypeBuilder::Network::Initiator> initiatorObject = buildInitiatorObject(loader->frame() ? loader->frame()->document() : nullptr);
 diff --git a/Source/WebCore/loader/DocumentLoader.cpp b/Source/WebCore/loader/DocumentLoader.cpp
-index 285a6ba..9e9a6a9 100644
+index 1d25887..d36f25d 100644
 --- a/Source/WebCore/loader/DocumentLoader.cpp
 +++ b/Source/WebCore/loader/DocumentLoader.cpp
 @@ -48,21 +48,20 @@
@@ -357,7 +357,7 @@ index 285a6ba..9e9a6a9 100644
  
  #if PLATFORM(IOS)
      // FIXME: Remove PLATFORM(IOS)-guard once we upstream the iOS changes to ResourceRequest.h.
-     m_request.setMainResourceRequest(true);
+     m_request.deprecatedSetMainResourceRequest(true);
  #endif
 @@ -1444,21 +1451,21 @@ void DocumentLoader::startLoadingMainResource()
          setRequest(ResourceRequest());
@@ -433,10 +433,10 @@ index 41fd6f9..2124de2 100644
          mutable DocumentWriter m_writer;
  
 diff --git a/Source/WebCore/loader/FrameLoader.cpp b/Source/WebCore/loader/FrameLoader.cpp
-index b758cb8..984b6cb 100644
+index bbf7add..72cd568 100644
 --- a/Source/WebCore/loader/FrameLoader.cpp
 +++ b/Source/WebCore/loader/FrameLoader.cpp
-@@ -2981,25 +2981,22 @@ void FrameLoader::continueLoadAfterNewWindowPolicy(const ResourceRequest& reques
+@@ -2983,25 +2983,22 @@ void FrameLoader::continueLoadAfterNewWindowPolicy(const ResourceRequest& reques
          mainFrame->loader().setOpener(&frame.get());
          mainFrame->document()->setReferrerPolicy(frame->document()->referrerPolicy());
      }

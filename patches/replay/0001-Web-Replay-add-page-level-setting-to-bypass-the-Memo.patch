@@ -1,4 +1,4 @@
-From f0d58d5be41ec1a86257aafee1dbe9e9270e8de0 Mon Sep 17 00:00:00 2001
+From ca208db20409edaf6906e30f1222856aa81e2adf Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 11 Jun 2014 15:33:16 -0700
 Subject: [PATCH] Web Replay: add page-level setting to bypass the MemoryCache
@@ -48,24 +48,24 @@ and bypass cache session id are both considered to be non-ephemeral.
 (WebKit::SessionTracker::session):
 (WebKit::SessionTracker::setSession):
 ---
- Source/WebCore/ChangeLog                           | 40 ++++++++++++++++++++++
- .../WebCore/loader/cache/CachedResourceLoader.cpp  |  6 +++-
+ Source/WebCore/ChangeLog                           | 48 ++++++++++++++++++++++
+ .../WebCore/loader/cache/CachedResourceLoader.cpp  |  6 ++-
  Source/WebCore/loader/cache/MemoryCache.cpp        |  3 ++
- Source/WebCore/page/Page.cpp                       |  7 ++--
- Source/WebCore/page/SessionID.h                    |  5 +--
- Source/WebCore/page/Settings.cpp                   |  1 +
- Source/WebCore/page/Settings.h                     |  6 +++-
+ Source/WebCore/page/Page.cpp                       |  7 +++-
+ Source/WebCore/page/SessionID.h                    |  5 ++-
+ Source/WebCore/page/Settings.cpp                   | 12 ++++++
+ Source/WebCore/page/Settings.h                     |  6 ++-
  Source/WebCore/replay/ReplayController.cpp         |  3 ++
- Source/WebCore/replay/ReplayController.h           |  4 ++-
- Source/WebKit2/ChangeLog                           | 14 ++++++++
- Source/WebKit2/Shared/SessionTracker.cpp           |  8 ++---
- 11 files changed, 86 insertions(+), 11 deletions(-)
+ Source/WebCore/replay/ReplayController.h           |  4 +-
+ Source/WebKit2/ChangeLog                           | 14 +++++++
+ Source/WebKit2/Shared/SessionTracker.cpp           |  8 ++--
+ 11 files changed, 105 insertions(+), 11 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index d251758..2013b3a 100644
+index f49e200..c426f36 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
-@@ -1,10 +1,50 @@
+@@ -1,10 +1,58 @@
 +2014-04-12  Brian J. Burg  <burg@cs.washington.edu>
 +
 +        Web Replay: add page-level setting to bypass the MemoryCache
@@ -82,6 +82,13 @@ index d251758..2013b3a 100644
 +        act as if the memory cache is disabled if the resource has this special session id.
 +        This new session id is considered non-ephemeral; it uses the same network session
 +        as the default session id, but doesn't add entries to MemoryCache.
++
++        When the flag is set to false, existing cached resources are evicted. Otherwise, resources of the captured page will already be cached if the page was recently
++        loaded.
++
++        This strategy is used instead of simply disabling the memory cache, because the
++        cache is shared as a static singleton, but replay affects a single Page. If we 
++        relied on a disabled memory cache, another page could mistakenly turn it back on.
 +
 +        No new tests, as this functionality will be exercised by network replay tests.
 +
@@ -100,22 +107,23 @@ index d251758..2013b3a 100644
 +        * page/Settings.cpp:
 +        (WebCore::Settings::Settings):
 +        * page/Settings.h:
-+        (WebCore::Settings::setUsesMemoryCache): Added.
++        (WebCore::Settings::setUsesMemoryCache): Added. Evict all resources from the
++        memory cache if the flag is set to false.
 +        (WebCore::Settings::usesMemoryCache): Added.
 +        * replay/ReplayController.cpp: Also flip usesMemoryCache.
 +        (WebCore::ReplayController::setForceDeterministicSettings):
 +        * replay/ReplayController.h:
 +
- 2014-07-08  Brady Eidson  <beidson@apple.com>
+ 2014-07-16  Jer Noble  <jer.noble@apple.com>
  
-         DOMWindows should register themselves with the GamepadManager when they have event listeners
-         https://bugs.webkit.org/show_bug.cgi?id=134669
+         [MSE] http/tests/media/media-source/mediasource-buffered.html is flakey
+         https://bugs.webkit.org/show_bug.cgi?id=134949
  
-         Reviewed by Dean Jackson.
+         Reviewed by Eric Carlson.
  
-         No new tests (No effect in a currently tested config)
- 
-         By having DOMWindows register with the GamepadManager when they have/don’t have gamepad event
+         Depending on which SourceBuffer is successfully parsed first, the order of activeSourceBuffers
+         may change from run to run, breaking the http/tests/media/media-source/mediasource-buffered.html
+         test. Make the order of activeSourceBuffers the same as (a subset of) sourceBuffers, by replacing
 diff --git a/Source/WebCore/loader/cache/CachedResourceLoader.cpp b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
 index bafd3d6..cef7312 100644
 --- a/Source/WebCore/loader/cache/CachedResourceLoader.cpp
@@ -278,10 +286,32 @@ index 5efd74a..883babb 100644
  
  #endif // SessionID_h
 diff --git a/Source/WebCore/page/Settings.cpp b/Source/WebCore/page/Settings.cpp
-index e8653df..1e9fbd6 100644
+index e8653df..74925e4 100644
 --- a/Source/WebCore/page/Settings.cpp
 +++ b/Source/WebCore/page/Settings.cpp
-@@ -170,20 +170,21 @@ Settings::Settings(Page* page)
+@@ -34,20 +34,21 @@
+ #include "Database.h"
+ #include "Document.h"
+ #include "Font.h"
+ #include "FontGenericFamilies.h"
+ #include "FrameTree.h"
+ #include "FrameView.h"
+ #include "HTMLMediaElement.h"
+ #include "HistoryItem.h"
+ #include "InspectorInstrumentation.h"
+ #include "MainFrame.h"
++#include "MemoryCache.h"
+ #include "Page.h"
+ #include "PageCache.h"
+ #include "StorageMap.h"
+ #include "TextAutosizer.h"
+ #include <limits>
+ #include <wtf/NeverDestroyed.h>
+ #include <wtf/StdLibExtras.h>
+ 
+ namespace WebCore {
+ 
+@@ -170,20 +171,21 @@ Settings::Settings(Page* page)
      SETTINGS_INITIALIZER_LIST
      , m_screenFontSubstitutionEnabled(shouldEnableScreenFontSubstitutionByDefault())
      , m_isJavaEnabled(false)
@@ -303,8 +333,39 @@ index e8653df..1e9fbd6 100644
      , m_scrollingPerformanceLoggingEnabled(false)
      , m_timeWithoutMouseMovementBeforeHidingControls(3)
      , m_setImageLoadingSettingsTimer(this, &Settings::imageLoadingSettingsTimerFired)
+@@ -475,20 +477,30 @@ double Settings::domTimerAlignmentInterval() const
+     return m_page->timerAlignmentInterval();
+ }
+ 
+ void Settings::setLayoutInterval(std::chrono::milliseconds layoutInterval)
+ {
+     // FIXME: It seems weird that this function may disregard the specified layout interval.
+     // We should either expose layoutScheduleThreshold or better communicate this invariant.
+     m_layoutInterval = std::max(layoutInterval, layoutScheduleThreshold);
+ }
+ 
++void Settings::setUsesMemoryCache(bool usesMemoryCache)
++{
++    if (m_usesPageCache == usesMemoryCache)
++        return;
++
++    m_usesMemoryCache = usesMemoryCache;
++    if (!m_usesMemoryCache)
++        memoryCache()->evictResources();
++}
++
+ void Settings::setUsesPageCache(bool usesPageCache)
+ {
+     if (m_usesPageCache == usesPageCache)
+         return;
+         
+     m_usesPageCache = usesPageCache;
+     if (!m_usesPageCache) {
+         int first = -m_page->backForward().backCount();
+         int last = m_page->backForward().forwardCount();
+         for (int i = first; i <= last; i++)
 diff --git a/Source/WebCore/page/Settings.h b/Source/WebCore/page/Settings.h
-index ba283ea..297b200 100644
+index ba283ea..74d9ac0 100644
 --- a/Source/WebCore/page/Settings.h
 +++ b/Source/WebCore/page/Settings.h
 @@ -173,21 +173,24 @@ public:
@@ -320,7 +381,7 @@ index ba283ea..297b200 100644
      bool usesPageCache() const { return m_usesPageCache; }
 -        
 +
-+    void setUsesMemoryCache(bool usesMemoryCache) { m_usesMemoryCache = usesMemoryCache; }
++    void setUsesMemoryCache(bool);
 +    bool usesMemoryCache() const { return m_usesMemoryCache; }
 +
      void setFontRenderingMode(FontRenderingMode mode);
@@ -420,7 +481,7 @@ index 077cc82..4edb225 100644
      // The active cursor is set to nullptr when invalid.
      RefPtr<JSC::InputCursor> m_activeCursor;
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 7228ba1..b2c6f97 100644
+index ab33575..288d64a 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,24 @@
@@ -438,16 +499,16 @@ index 7228ba1..b2c6f97 100644
 +        (WebKit::SessionTracker::session):
 +        (WebKit::SessionTracker::setSession):
 +
- 2014-07-09  KwangHyuk Kim  <hyuki.kim@samsung.com>
+ 2014-07-16  Dan Bernstein  <mitz@apple.com>
  
-         [EFL] Fix crash caused by invalid cursor image.
-         https://bugs.webkit.org/show_bug.cgi?id=134663
+         REGRESSION (r170653): Web Content service’s Info.plist has wrong format
+         https://bugs.webkit.org/show_bug.cgi?id=134973
  
-         Reviewed by Gyuyoung Kim.
+         Reviewed by Alexey Proskuryakov.
  
-         Remove calling of updateCursor since the custom cursor image is invalid once a mouse is out of the webview.
- 
-         * UIProcess/API/efl/EwkView.cpp:
+         * WebKit2.xcodeproj/project.pbxproj: Updated the Add CFBundle Localization Info.plist Key
+         script build phases to convert Info.plist back to binary format if the
+         PLIST_FILE_OUTPUT_FORMAT build setting requires it.
 diff --git a/Source/WebKit2/Shared/SessionTracker.cpp b/Source/WebKit2/Shared/SessionTracker.cpp
 index ac79a9d..0886af1 100644
 --- a/Source/WebKit2/Shared/SessionTracker.cpp

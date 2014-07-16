@@ -1,4 +1,4 @@
-From 2532afb7c76bbfe53fd5977c8767618b023d9d91 Mon Sep 17 00:00:00 2001
+From 4115f76a37462be212af9801259c58d6424b7a6f Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 14:34:56 -0700
 Subject: [PATCH] Web Replay: make calls into FrameLoader::checkLoadComplete()
@@ -105,7 +105,7 @@ Source/WebKit2:
  create mode 100644 Source/WebCore/replay/ReplayableTimers.h
 
 diff --git a/Source/WebCore/CMakeLists.txt b/Source/WebCore/CMakeLists.txt
-index cce3367..4992c00 100644
+index 1487471..3ad53aa 100644
 --- a/Source/WebCore/CMakeLists.txt
 +++ b/Source/WebCore/CMakeLists.txt
 @@ -2486,20 +2486,21 @@ set(WebCore_SOURCES
@@ -131,7 +131,7 @@ index cce3367..4992c00 100644
      storage/StorageNamespace.cpp
      storage/StorageNamespaceImpl.cpp
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index afb33d4..6ac3b81 100644
+index 0a2b6d7..9c574ba 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,80 @@
@@ -216,10 +216,10 @@ index afb33d4..6ac3b81 100644
          come to WebCore from WK1/WK2 WebProcess. This handles most UI-driven
          navigation commands, such as clicking the stop or reload buttons, or
 diff --git a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
-index 8af6b5d..1591174 100644
+index 627602b..f466121 100644
 --- a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
 +++ b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
-@@ -12282,20 +12282,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -12283,20 +12283,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug_WinCairo|x64'">true</ExcludedFromBuild>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|Win32'">true</ExcludedFromBuild>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|x64'">true</ExcludedFromBuild>
@@ -241,7 +241,7 @@ index 8af6b5d..1591174 100644
      <ClCompile Include="..\xml\XMLHttpRequestProgressEventThrottle.cpp" />
      <ClCompile Include="..\xml\XMLHttpRequestUpload.cpp" />
      <ClCompile Include="..\xml\XMLSerializer.cpp" />
-@@ -20383,20 +20384,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -20384,20 +20385,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
      <ClInclude Include="..\rendering\svg\SVGTextFragment.h" />
      <ClInclude Include="..\rendering\svg\SVGTextLayoutAttributes.h" />
      <ClInclude Include="..\rendering\svg\SVGTextLayoutAttributesBuilder.h" />
@@ -264,7 +264,7 @@ index 8af6b5d..1591174 100644
      <ClInclude Include="..\xml\XMLHttpRequestUpload.h" />
      <ClInclude Include="..\xml\XMLSerializer.h" />
 diff --git a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
-index 77be284..ac04c81 100644
+index c2aa741..b071208 100644
 --- a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
 +++ b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
 @@ -2924,20 +2924,23 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
@@ -291,7 +291,7 @@ index 77be284..ac04c81 100644
        <Filter>xml</Filter>
      </ClCompile>
      <ClCompile Include="..\xml\XMLErrors.cpp">
-@@ -9983,20 +9986,23 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -9986,20 +9989,23 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
      </ClInclude>
      <ClInclude Include="..\rendering\svg\SVGTextMetricsBuilder.h">
        <Filter>rendering\svg</Filter>
@@ -342,7 +342,7 @@ index fcd1d65..3bd845d 100644
  xcopy /y /d "%ProjectDir%..\storage\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
  xcopy /y /d "%ProjectDir%..\style\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index ec7ce4c..4f625c9 100644
+index db2554e..b19ae3f 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 @@ -5531,20 +5531,24 @@
@@ -395,7 +395,7 @@ index ec7ce4c..4f625c9 100644
  		C5102ECE0FD9EF8C00FAFF04 /* StorageAreaSync.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = StorageAreaSync.cpp; sourceTree = "<group>"; };
  		C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = JSDOMStringList.cpp; sourceTree = "<group>"; };
  		C5137CF111A58378004ADB99 /* JSDOMStringList.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSDOMStringList.h; sourceTree = "<group>"; };
-@@ -18383,30 +18391,34 @@
+@@ -18382,30 +18390,34 @@
  				99CC0B3A18BE9849006CEBCC /* CapturingInputCursor.h */,
  				C400D10818F1C8F60090D863 /* EventLoopInput.cpp */,
  				99E45A1618A063BE0026D88F /* EventLoopInput.h */,
@@ -432,7 +432,7 @@ index ec7ce4c..4f625c9 100644
  			);
  			path = replay;
  			sourceTree = "<group>";
-@@ -24106,20 +24118,21 @@
+@@ -24104,20 +24116,21 @@
  				316FE0800E6CCC2800BF6088 /* DOMWebKitCSSKeyframesRule.h in Headers */,
  				316FE0820E6CCC2800BF6088 /* DOMWebKitCSSKeyframesRuleInternal.h in Headers */,
  				498391500F1E76B400C23782 /* DOMWebKitCSSMatrix.h in Headers */,
@@ -454,7 +454,7 @@ index ec7ce4c..4f625c9 100644
  				FC9A0F75164094CF003D6B8D /* DOMWindowCSS.h in Headers */,
  				51FA2D78152132B300C1BA0B /* DOMWindowExtension.h in Headers */,
  				51D719B7181106E00016DC51 /* DOMWindowIndexedDatabase.h in Headers */,
-@@ -26586,20 +26599,21 @@
+@@ -26584,20 +26597,21 @@
  				31288E730E3005D6003619AE /* WebKitCSSKeyframeRule.h in Headers */,
  				31288E750E3005D6003619AE /* WebKitCSSKeyframesRule.h in Headers */,
  				498391590F1E776900C23782 /* WebKitCSSMatrix.h in Headers */,
@@ -476,7 +476,7 @@ index ec7ce4c..4f625c9 100644
  				97AABD1E14FA09D5007457AE /* WebSocketChannel.h in Headers */,
  				97AABD1F14FA09D5007457AE /* WebSocketChannelClient.h in Headers */,
  				4A38BF5114FE1C0900612512 /* WebSocketDeflateFramer.h in Headers */,
-@@ -28119,20 +28133,21 @@
+@@ -28117,20 +28131,21 @@
  				073AB4B717F92ECF006E0D6F /* JSCapabilityRange.cpp in Sources */,
  				93F9B7A00BA6032600854064 /* JSCDATASection.cpp in Sources */,
  				93BA59B20F2AA5FE008E8E99 /* JSCDATASectionCustom.cpp in Sources */,
@@ -498,7 +498,7 @@ index ec7ce4c..4f625c9 100644
  				FDA15EBD12B03F0B003A583A /* JSConvolverNode.cpp in Sources */,
  				FE6FD48D0F676E9300092873 /* JSCoordinates.cpp in Sources */,
  				930705D809E0C9B700B17FE4 /* JSCounter.cpp in Sources */,
-@@ -28882,20 +28897,21 @@
+@@ -28880,20 +28895,21 @@
  				078E093317D16B0600420AA1 /* MediaStreamCenter.cpp in Sources */,
  				078E093117D1684200420AA1 /* MediaStreamCenterMac.cpp in Sources */,
  				078E090017D14CEE00420AA1 /* MediaStreamEvent.cpp in Sources */,
@@ -828,10 +828,10 @@ index 794ccd7..1c53c30 100644
  
      bool m_hasStyleWithViewportUnits;
 diff --git a/Source/WebCore/loader/FrameLoader.cpp b/Source/WebCore/loader/FrameLoader.cpp
-index 984b6cb..27edf31 100644
+index 72cd568..67b416e 100644
 --- a/Source/WebCore/loader/FrameLoader.cpp
 +++ b/Source/WebCore/loader/FrameLoader.cpp
-@@ -841,41 +841,41 @@ void FrameLoader::checkCompleted()
+@@ -843,41 +843,41 @@ void FrameLoader::checkCompleted()
  
      checkCallImplicitClose(); // if we didn't do it before
  
@@ -1461,7 +1461,7 @@ index e8d692e..f60bc77 100644
      "${JAVASCRIPTCORE_DIR}/API"
      "${JAVASCRIPTCORE_DIR}/assembler"
 diff --git a/Source/WebKit/ChangeLog b/Source/WebKit/ChangeLog
-index 1a5d822..6e41285 100644
+index fbaa0f6..fc2172e 100644
 --- a/Source/WebKit/ChangeLog
 +++ b/Source/WebKit/ChangeLog
 @@ -1,10 +1,19 @@
@@ -1474,16 +1474,16 @@ index 1a5d822..6e41285 100644
 +
 +        * CMakeLists.txt: Add replay/ directory to header include paths.
 +
- 2014-07-08  Brent Fulgham  <bfulgham@apple.com>
+ 2014-07-09  Brent Fulgham  <bfulgham@apple.com>
  
-         [Win] Implement auto-version as a Perl program
-         https://bugs.webkit.org/show_bug.cgi?id=134745
-         <rdar://problem/17597801>
+         [Win] Remove uses of 'bash' in build system
+         https://bugs.webkit.org/show_bug.cgi?id=134782
+         <rdar://problem/17615533>
  
-         Reviewed by David Kilzer.
+         Reviewed by Dean Jackson.
  
-         Modify build commands to use new Perl version of the
-         auto-version script.
+         Remove uses of 'bash' by replacing Windows-specific bash scripts
+         with Perl equivalents.
 diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
 index aad0b25..3b002cb 100644
 --- a/Source/WebKit2/CMakeLists.txt
@@ -1511,7 +1511,7 @@ index aad0b25..3b002cb 100644
      "${JAVASCRIPTCORE_DIR}/assembler"
      "${JAVASCRIPTCORE_DIR}/bytecode"
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 77a17b7..c956a96 100644
+index 6ae4cc0..680829f 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,19 @@
