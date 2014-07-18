@@ -1,4 +1,4 @@
-From fce5e9b41f73e820cecd6178d4405b05c1106a13 Mon Sep 17 00:00:00 2001
+From 69c8f9825b79dc60bd1934710a200ceaaa7d696b Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 15:34:16 -0700
 Subject: [PATCH] Web Replay: window.history.length should be captured at main
@@ -74,18 +74,18 @@ LayoutTests:
  Source/WebCore/history/BackForwardList.h           |   1 +
  Source/WebCore/replay/ReplayController.cpp         |   8 +-
  .../WebCore/replay/ReplayInputCreationMethods.cpp  |  15 ++-
- .../WebCore/replay/ReplayInputDispatchMethods.cpp  |  17 ++++
+ .../WebCore/replay/ReplayInputDispatchMethods.cpp  |  19 ++++
  Source/WebCore/replay/SerializationMethods.cpp     | 103 +++++++++++++++++++++
  Source/WebCore/replay/SerializationMethods.h       |  16 ++++
  Source/WebCore/replay/WebInputs.json               |  13 +++
  Source/WebKit2/ChangeLog                           |  11 +++
  .../WebProcess/WebPage/WebBackForwardListProxy.h   |   2 +-
- 17 files changed, 303 insertions(+), 3 deletions(-)
+ 17 files changed, 305 insertions(+), 3 deletions(-)
  create mode 100644 LayoutTests/inspector/replay/history-length-single-segment-expected.txt
  create mode 100644 LayoutTests/inspector/replay/history-length-single-segment.html
 
 diff --git a/LayoutTests/ChangeLog b/LayoutTests/ChangeLog
-index 9d9a288..1662702 100644
+index e0ba751..ea9400e 100644
 --- a/LayoutTests/ChangeLog
 +++ b/LayoutTests/ChangeLog
 @@ -1,10 +1,20 @@
@@ -99,16 +99,16 @@ index 9d9a288..1662702 100644
 +        * inspector/replay/history-length-single-segment-expected.txt: Added.
 +        * inspector/replay/history-length-single-segment.html: Added.
 +
- 2014-07-16  Mike West  <mkwst@chromium.org>
+ 2014-07-18  Alexey Proskuryakov  <ap@apple.com>
  
-         CSP: Drop 'script-nonce' directive.
-         https://bugs.webkit.org/show_bug.cgi?id=134926
+         media/video-seek-with-negative-playback.html is flaky on Mac
+         https://bugs.webkit.org/show_bug.cgi?id=135071
  
-         Reviewed by Darin Adler.
+         * platform/mac/TestExpectations: Marked it as such.
  
-         Dropping the nonce tests, as we're removing the functionality.
+ 2014-07-18  Zalan Bujtas  <zalan@apple.com>
  
-         * http/tests/security/contentSecurityPolicy/1.1/scriptnonce-allowed-expected.txt: Removed.
+         Add timeout for transition end. Speculative layout test fix.
 diff --git a/LayoutTests/inspector/replay/history-length-single-segment-expected.txt b/LayoutTests/inspector/replay/history-length-single-segment-expected.txt
 new file mode 100644
 index 0000000..b797ffd
@@ -165,7 +165,7 @@ index 0000000..a88d9c1
 +</body>
 +</html>
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index defd7b3..7d7ac28 100644
+index 009bb9a..b461ca0 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,66 @@
@@ -471,7 +471,7 @@ index 0ed3e23..67f8762 100644
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
-index cd67cf0..6403864 100644
+index cd67cf0..2e8ec05 100644
 --- a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
 +++ b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
 @@ -22,29 +22,34 @@
@@ -509,7 +509,7 @@ index cd67cf0..6403864 100644
  static ResourceLoader* resourceLoaderForOrdinal(Page& page, unsigned long ordinal, int frameIndex)
  {
      Frame* frame = frameFromFrameIndex(&page, frameIndex);
-@@ -91,20 +96,32 @@ void StopLoadingFrame::dispatch(ReplayController& controller)
+@@ -91,20 +96,34 @@ void StopLoadingFrame::dispatch(ReplayController& controller)
      ASSERT(frame);
  
      controller.page().userInputBridge().stopLoadingFrame(frame, InputSource::Synthetic);
@@ -522,6 +522,8 @@ index cd67cf0..6403864 100644
  
 +void InitializeHistory::dispatch(ReplayController& controller)
 +{
++    // return; // HACK
++
 +    // FIXME: Load the empty document, so that when we prune the back-forward list it
 +    // is the single remaining entry. <https://webkit.org/b/131989>
 +    controller.page().backForward().clear();
@@ -897,7 +899,7 @@ index d76bbee..bcf3002 100644
              ]
          },
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 680829f..575aaad 100644
+index 347bb12..a347f48 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,12 +1,23 @@

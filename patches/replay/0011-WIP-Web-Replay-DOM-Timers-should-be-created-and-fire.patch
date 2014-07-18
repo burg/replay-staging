@@ -1,4 +1,4 @@
-From 37a3292359bd5b131ab670bca3e0f52f900ab4c3 Mon Sep 17 00:00:00 2001
+From 29b7f178a9d9d108af2c0cff7882779adb336c62 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 16 Jul 2014 14:58:22 -0700
 Subject: [PATCH] [WIP] Web Replay: DOM Timers should be created and fired
@@ -52,14 +52,14 @@ Move the singleShot parameter to DOMTimer::start since it isn't used here now.
 * replay/WebInputs.json: Add DOMTimerFired and DOMTimerCreated.
 ---
  Source/WebCore/ChangeLog                           |  52 +++++++
- Source/WebCore/page/DOMTimer.cpp                   | 151 +++++++++++++++++++--
+ Source/WebCore/page/DOMTimer.cpp                   | 157 ++++++++++++++++++---
  Source/WebCore/page/DOMTimer.h                     |  16 ++-
  .../WebCore/replay/ReplayInputDispatchMethods.cpp  |  11 ++
  Source/WebCore/replay/WebInputs.json               |  18 +++
- 5 files changed, 231 insertions(+), 17 deletions(-)
+ 5 files changed, 233 insertions(+), 21 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 7d7ac28..778e283 100644
+index b461ca0..d23d307 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,62 @@
@@ -126,10 +126,10 @@ index 7d7ac28..778e283 100644
          the contents of the back-forward list at each main frame navigation.
          This can be done before the initial navigation that's kicked off when
 diff --git a/Source/WebCore/page/DOMTimer.cpp b/Source/WebCore/page/DOMTimer.cpp
-index 0712556..510bade 100644
+index 0712556..c7f43d5 100644
 --- a/Source/WebCore/page/DOMTimer.cpp
 +++ b/Source/WebCore/page/DOMTimer.cpp
-@@ -36,77 +36,197 @@
+@@ -36,77 +36,196 @@
  #include <wtf/StdLibExtras.h>
  
  #if PLATFORM(IOS)
@@ -302,7 +302,6 @@ index 0712556..510bade 100644
 +    DOMTimer* timer = nullptr;
 +#if ENABLE(WEB_REPLAY)
 +    do {
-+        ASSERT(context);
 +        if (!context->isDocument())
 +            break;
 +
@@ -338,7 +337,7 @@ index 0712556..510bade 100644
  {
      // timeout IDs have to be positive, and 0 and -1 are unsafe to
      // even look up since they are the empty and deleted value
-@@ -132,22 +252,27 @@ void DOMTimer::fired()
+@@ -132,27 +251,29 @@ void DOMTimer::fired()
  #endif
      timerNestingLevel = m_nestingLevel;
      ASSERT(!isSuspended());
@@ -350,24 +349,53 @@ index 0712556..510bade 100644
      InspectorInstrumentationCookie cookie = InspectorInstrumentation::willFireTimer(context, m_timeoutId);
  
 -    // Simple case for non-one-shot timers.
--    if (isActive()) {
-+    // For non-schedulable timers, simply fire the action.
-+    if (!m_shouldScheduleNormally) {
-+        // Don't delete the timer if it's not scheduled normally. The action may be reused later
-+        // if it is a non-one-shot timer. It will be cleaned by destroyContext().
-+        m_action->execute(context);
-+    } else if (isActive()) {
-+        // Simple case for non-one-shot timers.
-         double minimumInterval = context->minimumTimerInterval();
-         if (repeatInterval() && repeatInterval() < minimumInterval) {
-             m_nestingLevel++;
-             if (m_nestingLevel >= maxTimerNestingLevel)
-                 augmentRepeatInterval(minimumInterval - repeatInterval());
+     if (isActive()) {
+-        double minimumInterval = context->minimumTimerInterval();
+-        if (repeatInterval() && repeatInterval() < minimumInterval) {
+-            m_nestingLevel++;
+-            if (m_nestingLevel >= maxTimerNestingLevel)
+-                augmentRepeatInterval(minimumInterval - repeatInterval());
++        if (m_shouldScheduleNormally) {
++            // Simple case for non-one-shot timers.
++            double minimumInterval = context->minimumTimerInterval();
++            if (repeatInterval() && repeatInterval() < minimumInterval) {
++                m_nestingLevel++;
++                if (m_nestingLevel >= maxTimerNestingLevel)
++                    augmentRepeatInterval(minimumInterval - repeatInterval());
++            }
          }
  
          // No access to member variables after this point, it can delete the timer.
          m_action->execute(context);
  
+         InspectorInstrumentation::didFireTimer(cookie);
+ 
+         return;
+     }
+ 
+@@ -205,20 +326,22 @@ void DOMTimer::contextDestroyed()
+ void DOMTimer::didStop()
+ {
+     // Need to release JS objects potentially protected by ScheduledAction
+     // because they can form circular references back to the ScriptExecutionContext
+     // which will cause a memory leak.
+     m_action = nullptr;
+ }
+ 
+ void DOMTimer::adjustMinimumTimerInterval(double oldMinimumTimerInterval)
+ {
++    if (!m_shouldScheduleNormally)
++        return;
+     if (m_nestingLevel < maxTimerNestingLevel)
+         return;
+ 
+     double newMinimumInterval = scriptExecutionContext()->minimumTimerInterval();
+     double newClampedInterval = intervalClampedToMinimum(m_originalInterval, newMinimumInterval);
+ 
+     if (repeatInterval()) {
+         augmentRepeatInterval(newClampedInterval - repeatInterval());
+         return;
+     }
 diff --git a/Source/WebCore/page/DOMTimer.h b/Source/WebCore/page/DOMTimer.h
 index 9f1cbaa..7fcfbb4 100644
 --- a/Source/WebCore/page/DOMTimer.h
@@ -436,7 +464,7 @@ index 9f1cbaa..7fcfbb4 100644
  #endif // DOMTimer_h
  
 diff --git a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
-index 6403864..6e9e680 100644
+index 2e8ec05..9ae501d 100644
 --- a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
 +++ b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
 @@ -23,20 +23,21 @@
@@ -461,7 +489,7 @@ index 6403864..6e9e680 100644
  #include "Page.h"
  #include "ReplayController.h"
  #include "ReplayableTimers.h"
-@@ -191,13 +192,23 @@ void ResourceLoaderDidSendData::dispatch(ReplayController& controller)
+@@ -193,13 +194,23 @@ void ResourceLoaderDidSendData::dispatch(ReplayController& controller)
  }
  
  // Other event loop inputs.

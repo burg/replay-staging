@@ -1,4 +1,4 @@
-From d56852d1f30e8e1a5b604c13ddb6cd19ac74e82c Mon Sep 17 00:00:00 2001
+From 7a714c17270a83a43cb43274255fb6a2f4274173 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 11:25:22 -0700
 Subject: [PATCH] Web Replay: vectors of characters should be base64-encoded
@@ -21,7 +21,7 @@ vector as a binary blob.
  3 files changed, 33 insertions(+)
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index a400421..c1e8e89 100644
+index dfc4abb..3f3939f 100644
 --- a/Source/JavaScriptCore/ChangeLog
 +++ b/Source/JavaScriptCore/ChangeLog
 @@ -1,10 +1,26 @@

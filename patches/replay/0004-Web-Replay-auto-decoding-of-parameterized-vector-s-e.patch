@@ -1,4 +1,4 @@
-From 3d588ab6b32e464132f6d2112e3733f149a75a42 Mon Sep 17 00:00:00 2001
+From 36d3cf3f8ba7396f8334a750cc2583f8bebf8b83 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 15:32:44 -0700
 Subject: [PATCH] Web Replay: auto-decoding of parameterized vector's elements
@@ -36,7 +36,7 @@ RefCounted objects. Updated test to cover this scenario.
  6 files changed, 105 insertions(+), 4 deletions(-)
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index a5a5efb..96727ed 100644
+index 8ec9b7d..8a97bed 100644
 --- a/Source/JavaScriptCore/ChangeLog
 +++ b/Source/JavaScriptCore/ChangeLog
 @@ -1,12 +1,40 @@

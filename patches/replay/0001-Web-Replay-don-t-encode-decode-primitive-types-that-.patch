@@ -1,4 +1,4 @@
-From 5029446a01f0ef2dec42a3136bf8c6f54148137f Mon Sep 17 00:00:00 2001
+From 1d84718744f341c14cdc0171d6f59bffc9593ed9 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Mon, 14 Jul 2014 13:36:05 -0700
 Subject: [PATCH] Web Replay: don't encode/decode primitive types that lack
@@ -41,7 +41,7 @@ explicit size. Move frame index serialization away from using unsigned long.
  8 files changed, 64 insertions(+), 36 deletions(-)
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index fe7dc53..a400421 100644
+index 5ceeb96..dfc4abb 100644
 --- a/Source/JavaScriptCore/ChangeLog
 +++ b/Source/JavaScriptCore/ChangeLog
 @@ -1,10 +1,24 @@
@@ -59,16 +59,16 @@ index fe7dc53..a400421 100644
 +        (JSC::unsigned long>::encodeValue): Deleted.
 +        * replay/EncodedValue.h:
 +
- 2014-07-15  Benjamin Poulain  <benjamin@webkit.org>
+ 2014-07-18  Filip Pizlo  <fpizlo@apple.com>
  
-         Reduce the overhead of updating the AssemblerBuffer
-         https://bugs.webkit.org/show_bug.cgi?id=134659
+         Exception fuzzing should work on iOS
+         https://bugs.webkit.org/show_bug.cgi?id=135070
  
-         Reviewed by Gavin Barraclough.
+         Reviewed by Mark Hahnenberg.
  
-         In r164548, the linker was changed to allow the LinkBuffer to survive its MacroAssembler.
-         That feature is useful for JSC to get offsets inside a linked buffer in order to jump directly
-         there.
+         * tests/exceptionFuzz.yaml:
+ 
+ 2014-07-18  Filip Pizlo  <fpizlo@apple.com>
 diff --git a/Source/JavaScriptCore/replay/EncodedValue.cpp b/Source/JavaScriptCore/replay/EncodedValue.cpp
 index 0191d41..cee70e2 100644
 --- a/Source/JavaScriptCore/replay/EncodedValue.cpp
@@ -178,7 +178,7 @@ index de6bff7..4fb8a85 100644
  // Base cases for loading and storing values.
  template<> JS_EXPORT_PRIVATE
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index f49e200..8c9afde 100644
+index 697aff4..7c485d5 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,32 @@
@@ -204,16 +204,16 @@ index f49e200..8c9afde 100644
 +        * replay/SerializationMethods.h:
 +        * replay/WebInputs.json: Remove primitive types without explicit sizes.
 +
- 2014-07-16  Jer Noble  <jer.noble@apple.com>
+ 2014-07-18  Beth Dakin  <bdakin@apple.com>
  
-         [MSE] http/tests/media/media-source/mediasource-buffered.html is flakey
-         https://bugs.webkit.org/show_bug.cgi?id=134949
+         Fixed position elements are misplaced when a WK1 view has contentInsets set
+         https://bugs.webkit.org/show_bug.cgi?id=135031
+         -and corresponding-
+         <rdar://problem/17682335>
  
-         Reviewed by Eric Carlson.
+         Reviewed by Tim Horton.
  
-         Depending on which SourceBuffer is successfully parsed first, the order of activeSourceBuffers
-         may change from run to run, breaking the http/tests/media/media-source/mediasource-buffered.html
-         test. Make the order of activeSourceBuffers the same as (a subset of) sourceBuffers, by replacing
+         [NSScrollView documentVisibleRect] includes content that is within the inset-area 
 diff --git a/Source/WebCore/replay/ReplayController.cpp b/Source/WebCore/replay/ReplayController.cpp
 index d76e4b7..b4faefb 100644
 --- a/Source/WebCore/replay/ReplayController.cpp

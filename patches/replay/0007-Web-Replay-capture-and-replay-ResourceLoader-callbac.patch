@@ -1,4 +1,4 @@
-From 61c1b141aaa7461d4c1c82bbf8f1b40ee8bdabb0 Mon Sep 17 00:00:00 2001
+From b3a6ba0f2df4168cfedcd199df1005b52da944de Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 12 Jun 2014 16:49:07 -0700
 Subject: [PATCH] Web Replay: capture and replay ResourceLoader callbacks
@@ -106,7 +106,7 @@ from taking over and fulfilling the loads nondeterministically.
  17 files changed, 594 insertions(+), 8 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 2a3b398..667b358 100644
+index 87a1720..49d0de9 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,91 @@
@@ -202,10 +202,10 @@ index 2a3b398..667b358 100644
  
          No new tests. No behavior was changed.
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index 47c9b48..a154969 100644
+index 4c1f131..db813b7 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -3452,10 +3452,18 @@ __ZN7WebCore32WebVideoFullscreenInterfaceAVKitC2Ev
+@@ -3455,10 +3455,18 @@ __ZN7WebCore32WebVideoFullscreenInterfaceAVKitC2Ev
  __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
  #endif
  
@@ -1431,7 +1431,7 @@ index 9d8af6e..b793e6f 100644
      ]
  }
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 288d64a..d284a12 100644
+index 53aebf1..f2bc25e 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,11 +1,24 @@

@@ -1,4 +1,4 @@
-From bd5c8c452facb88cc4dca1a43899e22816cfe096 Mon Sep 17 00:00:00 2001
+From 9b206f46c29aa14c73d83cff3b45bdd5b6f0c73a Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 11:33:21 -0700
 Subject: [PATCH] Web Replay: incorrect serialization code generated for enum
@@ -30,7 +30,7 @@ class types to this test case.
  5 files changed, 165 insertions(+), 49 deletions(-)
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index c1e8e89..a5a5efb 100644
+index 3f3939f..8ec9b7d 100644
 --- a/Source/JavaScriptCore/ChangeLog
 +++ b/Source/JavaScriptCore/ChangeLog
 @@ -1,12 +1,35 @@

@@ -1,4 +1,4 @@
-From ee61474e7661d5b1ab1b9e0b065ebc2c3012a823 Mon Sep 17 00:00:00 2001
+From a885bc3499720cef7cb9fb8342629c26c08f3f01 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 11:45:23 -0700
 Subject: [PATCH] [WIP] Web Replay: capture and replay Reload, Navigate, and
@@ -102,7 +102,7 @@ an enum with uint64_t-sized storage rather than int.
  14 files changed, 513 insertions(+), 11 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 667b358..97c1abe 100644
+index 49d0de9..ad721d1 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,83 @@
@@ -217,7 +217,7 @@ index 1a2bbf8..1e2f9a8 100644
  
  }
 diff --git a/Source/WebCore/loader/cache/CachedResourceLoader.cpp b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
-index cef7312..cce02fd 100644
+index 0a2560b..3b73f90 100644
 --- a/Source/WebCore/loader/cache/CachedResourceLoader.cpp
 +++ b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
 @@ -408,21 +408,21 @@ bool CachedResourceLoader::shouldContinueAfterNotifyingLoadedFromMemoryCache(con
@@ -1139,7 +1139,7 @@ index b793e6f..385f45a 100644
      ]
  }
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index d284a12..6ae4cc0 100644
+index f2bc25e..8c04dd4 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,25 @@
