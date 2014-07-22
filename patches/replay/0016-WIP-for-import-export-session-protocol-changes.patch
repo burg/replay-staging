@@ -1,0 +1,130 @@
+From a4d3bb07d6a46477ca176ed0a52dcf9bedaaea55 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Tue, 22 Jul 2014 16:28:09 -0700
+Subject: [PATCH] WIP for import/export session protocol changes
+
+---
+ Source/WebCore/inspector/InspectorReplayAgent.cpp | 17 ++++++++++++++
+ Source/WebCore/inspector/InspectorReplayAgent.h   |  4 ++++
+ Source/WebCore/inspector/protocol/Replay.json     | 27 +++++++++++++++++++++++
+ 3 files changed, 48 insertions(+)
+
+diff --git a/Source/WebCore/inspector/InspectorReplayAgent.cpp b/Source/WebCore/inspector/InspectorReplayAgent.cpp
+index d988a8d..3d54f6c3 100644
+--- a/Source/WebCore/inspector/InspectorReplayAgent.cpp
++++ b/Source/WebCore/inspector/InspectorReplayAgent.cpp
+@@ -486,13 +486,30 @@ void InspectorReplayAgent::getSegmentData(ErrorString* errorString, SegmentIdent
+ {
+     RefPtr<ReplaySessionSegment> segment = findSegment(errorString, identifier);
+     if (!segment) {
+         *errorString = ASCIILiteral("Couldn't find the specified segment.");
+         return;
+     }
+ 
+     serializedObject = buildInspectorObjectForSegment(segment);
+ }
+ 
++void InspectorReplayAgent::createSession(ErrorString*, SessionIdentifier* identifier)
++{
++    RefPtr<ReplaySession> session = ReplaySession::create();
++    sessionCreated(session);
++    *identifier = WTF::safeCast<int>(session->identifier());
++}
++
++void InspectorReplayAgent::importSession(ErrorString*, const String& encodedSession, SessionIdentifier* identifier)
++{
++
++}
++
++void InspectorReplayAgent::exportSession(ErrorString*, SessionIdentifier, String*)
++{
++
++}
++
+ } // namespace WebCore
+ 
+ #endif // ENABLE(INSPECTOR) && ENABLE(WEB_REPLAY)
+diff --git a/Source/WebCore/inspector/InspectorReplayAgent.h b/Source/WebCore/inspector/InspectorReplayAgent.h
+index f57ad54..610b4a9 100644
+--- a/Source/WebCore/inspector/InspectorReplayAgent.h
++++ b/Source/WebCore/inspector/InspectorReplayAgent.h
+@@ -101,20 +101,24 @@ public:
+     virtual void cancelPlayback(ErrorString*) override;
+ 
+     virtual void switchSession(ErrorString*, SessionIdentifier) override;
+     virtual void insertSessionSegment(ErrorString*, SessionIdentifier, SegmentIdentifier, int segmentIndex) override;
+     virtual void removeSessionSegment(ErrorString*, SessionIdentifier, int segmentIndex) override;
+ 
+     virtual void getAvailableSessions(ErrorString*, RefPtr<Inspector::TypeBuilder::Array<SessionIdentifier>>&) override;
+     virtual void getSessionData(ErrorString*, SessionIdentifier, RefPtr<Inspector::TypeBuilder::Replay::ReplaySession>&) override;
+     virtual void getSegmentData(ErrorString*, SegmentIdentifier, RefPtr<Inspector::TypeBuilder::Replay::SessionSegment>&) override;
+ 
++    virtual void createSession(ErrorString*, SessionIdentifier*) override;
++    virtual void importSession(ErrorString*, const String&, SessionIdentifier*) override;
++    virtual void exportSession(ErrorString*, SessionIdentifier, String*) override;
++
+ private:
+     PassRefPtr<ReplaySession> findSession(ErrorString*, SessionIdentifier);
+     PassRefPtr<ReplaySessionSegment> findSegment(ErrorString*, SegmentIdentifier);
+     SessionState sessionState() const;
+ 
+     std::unique_ptr<Inspector::InspectorReplayFrontendDispatcher> m_frontendDispatcher;
+     RefPtr<Inspector::InspectorReplayBackendDispatcher> m_backendDispatcher;
+     Page& m_page;
+ 
+     HashMap<int, RefPtr<ReplaySession>, WTF::IntHash<int>, WTF::UnsignedWithZeroKeyHashTraits<int>> m_sessionsMap;
+diff --git a/Source/WebCore/inspector/protocol/Replay.json b/Source/WebCore/inspector/protocol/Replay.json
+index 9fb3f3c..99cee38 100644
+--- a/Source/WebCore/inspector/protocol/Replay.json
++++ b/Source/WebCore/inspector/protocol/Replay.json
+@@ -130,20 +130,47 @@
+         },
+         {
+             "name": "getSegmentData",
+             "description": "Returns an object for the specified session segment.",
+             "parameters": [
+                 { "name": "id", "$ref": "SegmentIdentifier" }
+             ],
+             "returns": [
+                 { "name": "segment", "$ref": "SessionSegment",  "optional": true, "description": "The requested serialized session segment." }
+             ]
++        },
++        {
++            "name": "createSession",
++            "description": "Creates a new and empty session.",
++            "returns": [
++                { "name": "sessionIdentifier", "$ref": "SessionIdentifier", "description": "The newly-created session's identifier." }
++            ]
++        },
++        {
++            "name": "importSession",
++            "description": "Creates a new replay session from a serialized JSON representation.",
++            "parameters": [
++                { "name": "data", "type": "string", "description": "JSON-formatted serialized replay session." }
++            ],
++            "returns": [
++                { "name": "sessionIdentifier", "$ref": "SessionIdentifier", "description": "The newly-created session's identifier." }
++            ]
++        },
++        {
++            "name": "exportSession",
++            "description": "Creates a serialized JSON representation for a replay session.",
++            "parameters": [
++                { "name": "sessionIdentifier", "$ref": "SessionIdentifier", "description": "The newly-created session's identifier." }
++            ],
++            "returns": [
++                { "name": "data", "type": "string", "description": "JSON-formatted serialized replay session." }
++            ]
+         }
+     ],
+     "events": [
+         {
+             "name": "captureStarted",
+             "description": "Fired when capture has started."
+         },
+         {
+             "name": "captureStopped",
+             "description": "Fired when capture has stopped."
+-- 
+2.0.1
+

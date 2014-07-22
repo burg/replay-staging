@@ -1,0 +1,94 @@
+From 216a19eba9dcc9c7d2e1c5cc53cd87600dad7097 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Tue, 22 Jul 2014 13:21:49 -0700
+Subject: [PATCH] WIP for recording timeline and eject button
+
+---
+ .../UserInterface/Images/ReplayEjectButton.svg               |  8 ++++++++
+ .../UserInterface/Views/ReplayDashboardView.css              | 12 ++++++++++++
+ .../UserInterface/Views/ReplayDashboardView.js               |  3 +++
+ 3 files changed, 23 insertions(+)
+ create mode 100644 Source/WebInspectorUI/UserInterface/Images/ReplayEjectButton.svg
+
+diff --git a/Source/WebInspectorUI/UserInterface/Images/ReplayEjectButton.svg b/Source/WebInspectorUI/UserInterface/Images/ReplayEjectButton.svg
+new file mode 100644
+index 0000000..3b64a07
+--- /dev/null
++++ b/Source/WebInspectorUI/UserInterface/Images/ReplayEjectButton.svg
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Generator: Adobe Illustrator 14.0.0, SVG Export Plug-In . SVG Version: 6.00 Build 43363)  -->
++<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
++<svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
++	 width="36px" height="36px" viewBox="0 0 36 36" enable-background="new 0 0 36 36" xml:space="preserve">
++<rect x="4.395" y="26.764" width="27.211" height="5"/>
++<polygon points="4.576,21.709 18,4.658 31.424,21.709 "/>
++</svg>
+diff --git a/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.css b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.css
+index 01b6e6e..84cfa22 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.css
++++ b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.css
+@@ -31,20 +31,32 @@
+     text-align: center;
+     text-shadow: rgba(255, 255, 255, 0.5) 0 1px 0;
+     color: rgb(60, 60, 60);
+     padding: 0 5px;
+ }
+ 
+ .toolbar .dashboard.replay div.navigation-bar {
+     border-bottom: none !important;
+ }
+ 
++.toolbar .dashboard.replay > .recording-container {
++    -webkit-flex-grow: 1;
++    -webkit-order: 2;
++    border: 1px solid #aaa;
++    height: 22px;
++    margin-left: 4px;
++}
++
++.toolbar.label-only .dashboard.replay > .recording-container {
++    height: 16px;
++}
++
+ .toolbar .dashboard.replay .item.button > .glyph {
+     /* ButtonNavigationItem is not aware of alternate button sizes, so override here. */
+     width: 16px !important;
+     height: 16px !important;
+ }
+ 
+ .toolbar.label-only .dashboard.replay .item.button > .glyph {
+     /* The default styles here will try to elide buttons in label-only mode. */
+     display: -webkit-flex !important;
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js
+index 6e0ccbc..0b0533a 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js
++++ b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js
+@@ -35,20 +35,23 @@ WebInspector.ReplayDashboardView = function(representedObject)
+     this._captureButtonItem = new WebInspector.ActivateButtonNavigationItem("replay-dashboard-capture", WebInspector.UIString("Start Recording"), WebInspector.UIString("Stop Recording"), "Images/ReplayReadyButton.svg", 16, 16);
+     this._captureButtonItem.addEventListener(WebInspector.ButtonNavigationItem.Event.Clicked, this._captureButtonItemClicked, this);
+     this._captureButtonItem.hidden = true;
+     this._navigationBar.addNavigationItem(this._captureButtonItem);
+ 
+     this._replayButtonItem = new WebInspector.ToggleButtonNavigationItem("replay-dashboard-replay", WebInspector.UIString("Start Playback"), WebInspector.UIString("Pause Playback"), "Images/ReplayPlayButton.svg", "Images/ReplayPauseButton.svg", 16, 16);
+     this._replayButtonItem.addEventListener(WebInspector.ButtonNavigationItem.Event.Clicked, this._replayButtonItemClicked, this);
+     this._replayButtonItem.hidden = true;
+     this._navigationBar.addNavigationItem(this._replayButtonItem);
+ 
++    var recordingContainerElement = this._recordingContainerElement = this.element.appendChild(document.createElement("div"));
++    recordingContainerElement.className = WebInspector.ReplayDashboardView.RecordingContainerStyleClassName;
++
+     // Add events required to track capture and replay state.
+     WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.CaptureStarted, this._captureStarted, this);
+     WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.CaptureStopped, this._captureStopped, this);
+     WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.PlaybackStarted, this._playbackStarted, this);
+     WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.PlaybackPaused, this._playbackPaused, this);
+     WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.PlaybackFinished, this._playbackFinished, this);
+ 
+     // Manually initialize style classes by querying current replay state.
+     if (WebInspector.replayManager.sessionState === WebInspector.ReplayManager.SessionState.Capturing)
+         this._captureStarted();
+-- 
+2.0.1
+

@@ -1,0 +1,465 @@
+From bf8d2f6aa066db4570a282543a41ad87fa064313 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Mon, 21 Jul 2014 14:24:48 -0700
+Subject: [PATCH] Web Inspector: cannot navigate between multiple applicable
+ dashboards https://bugs.webkit.org/show_bug.cgi?id=135130
+
+Reviewed by NOBODY (OOPS!).
+
+Add navigation arrows between dashboards when multiple dashboards are applicable.
+For example, the user should be able to go back to the default dashboard while paused
+at a breakpoint. Dashboards form a stack based on when they are first introduced.
+
+* UserInterface/Views/DashboardContainerView.css:
+(.toolbar .dashboard): Increase padding-right a bit to make room for arrows.
+(.toolbar .dashboard:not(.visible)): Fix a bug where higher dashboards in the dashboard stack
+can shine through when animating between two lower dashboards that have transparent background.
+This ensures that at most two dashboards (namely, the ones being animated) are displayed.
+
+(.dashboard-container .advance-arrow): Main style class for navigation arrows.
+(.dashboard-container .advance-arrow:hover):
+(.dashboard-container .advance-arrow:active):
+(.dashboard-container .advance-arrow.inactive):
+(.toolbar.label-only .dashboard-container .advance-arrow): Make arrows slightly smaller when
+the dashboards get shorter.
+
+(.dashboard-container .advance-arrow.advance-forward):
+(.dashboard-container .advance-arrow.advance-backward):
+* UserInterface/Views/DashboardContainerView.js:
+(WebInspector.DashboardContainerView): Arrow styles are updated when a dashboard is shown,
+hidden, or closed. When moving away, we dismiss (i.e., set zero opacity) arrows at animation
+start. When the animation finishes, redisplay arrows that are applicable for the new dashboard.
+
+(WebInspector.DashboardContainerView.prototype._advanceForwardArrowClicked):
+(WebInspector.DashboardContainerView.prototype._advanceBackwardArrowClicked):
+(WebInspector.DashboardContainerView.prototype._dismissAdvanceArrows):
+(WebInspector.DashboardContainerView.prototype._updateAdvanceArrowVisibility):
+(WebInspector.DashboardContainerView.prototype._showDashboardAtIndex): There was a bug here
+where it would unconditionally use the same animation direction when showing a dashboard, but
+it was hard to spot without arrows that must correlate with the animation direction.
+
+(WebInspector.DashboardContainerView.prototype.animationEnded):
+(WebInspector.DashboardContainerView.prototype._showDashboardView):
+(WebInspector.DashboardContainerView.prototype._hideDashboardView):
+(WebInspector.DashboardContainerView.prototype._closeDashboardView):
+---
+ Source/WebInspectorUI/ChangeLog                    | 44 +++++++++++++++
+ .../UserInterface/Views/DashboardContainerView.css | 62 +++++++++++++++++++++-
+ .../UserInterface/Views/DashboardContainerView.js  | 62 +++++++++++++++++++---
+ .../UserInterface/Views/DashboardView.js           |  4 ++
+ 4 files changed, 163 insertions(+), 9 deletions(-)
+
+diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
+index 4be9629..836510a 100644
+--- a/Source/WebInspectorUI/ChangeLog
++++ b/Source/WebInspectorUI/ChangeLog
+@@ -1,10 +1,54 @@
++2014-07-21  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Inspector: cannot navigate between multiple applicable dashboards
++        https://bugs.webkit.org/show_bug.cgi?id=135130
++
++        Reviewed by NOBODY (OOPS!).
++
++        Add navigation arrows between dashboards when multiple dashboards are applicable.
++        For example, the user should be able to go back to the default dashboard while paused
++        at a breakpoint. Dashboards form a stack based on when they are first introduced.
++
++        * UserInterface/Views/DashboardContainerView.css:
++        (.toolbar .dashboard): Increase padding-right a bit to make room for arrows.
++        (.toolbar .dashboard:not(.visible)): Fix a bug where higher dashboards in the dashboard stack
++        can shine through when animating between two lower dashboards that have transparent background.
++        This ensures that at most two dashboards (namely, the ones being animated) are displayed.
++
++        (.dashboard-container .advance-arrow): Main style class for navigation arrows.
++        (.dashboard-container .advance-arrow:hover):
++        (.dashboard-container .advance-arrow:active):
++        (.dashboard-container .advance-arrow.inactive):
++        (.toolbar.label-only .dashboard-container .advance-arrow): Make arrows slightly smaller when
++        the dashboards get shorter.
++
++        (.dashboard-container .advance-arrow.advance-forward):
++        (.dashboard-container .advance-arrow.advance-backward):
++        * UserInterface/Views/DashboardContainerView.js:
++        (WebInspector.DashboardContainerView): Arrow styles are updated when a dashboard is shown,
++        hidden, or closed. When moving away, we dismiss (i.e., set zero opacity) arrows at animation
++        start. When the animation finishes, redisplay arrows that are applicable for the new dashboard.
++
++        (WebInspector.DashboardContainerView.prototype._advanceForwardArrowClicked):
++        (WebInspector.DashboardContainerView.prototype._advanceBackwardArrowClicked):
++        (WebInspector.DashboardContainerView.prototype._dismissAdvanceArrows):
++        (WebInspector.DashboardContainerView.prototype._updateAdvanceArrowVisibility):
++        (WebInspector.DashboardContainerView.prototype._showDashboardAtIndex): There was a bug here
++        where it would unconditionally use the same animation direction when showing a dashboard, but
++        it was hard to spot without arrows that must correlate with the animation direction.
++
++        (WebInspector.DashboardContainerView.prototype.animationEnded):
++        (WebInspector.DashboardContainerView.prototype._showDashboardView):
++        (WebInspector.DashboardContainerView.prototype._hideDashboardView):
++        (WebInspector.DashboardContainerView.prototype._closeDashboardView):
++
+ 2014-07-18  Timothy Hatcher  <timothy@apple.com>
+ 
+         Revert r169735 since it broke Timeline, and fix bug 129696 in a more targeted way.
+ 
+         REGRESSION (r169735): Web Inspector: Timeline tree outline missing data until collapse-expand.
+         https://bugs.webkit.org/show_bug.cgi?id=134845
+ 
+         Reviewed by Joseph Pecoraro.
+ 
+         * UserInterface/Views/DOMTreeElement.js:
+diff --git a/Source/WebInspectorUI/UserInterface/Views/DashboardContainerView.css b/Source/WebInspectorUI/UserInterface/Views/DashboardContainerView.css
+index 30459f6..080c766 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/DashboardContainerView.css
++++ b/Source/WebInspectorUI/UserInterface/Views/DashboardContainerView.css
+@@ -84,22 +84,20 @@ body.mac-platform.legacy.window-inactive .toolbar .dashboard-container {
+ 
+ /* Default styles for dashboards */
+ 
+ .toolbar .dashboard {
+     position: absolute;
+     top: 0;
+     bottom: 0;
+     left: 0;
+     right: 0;
+ 
+-    padding: 0 5px;
+-
+     background-color: rgb(252, 252, 252);
+     box-shadow: inset white 0 1px 0;
+ 
+     -webkit-animation-duration: 0.4s;
+ }
+ 
+ body.window-inactive .toolbar .dashboard {
+     background-color: rgb(246, 246, 246);
+     box-shadow: none;
+ }
+@@ -113,20 +111,24 @@ body.mac-platform.legacy.window-inactive .toolbar .dashboard {
+     background-position: bottom, center, center;
+     background-repeat: no-repeat;
+     background-color: transparent;
+     box-shadow: none;
+ }
+ 
+ .toolbar .dashboard.visible {
+     z-index: 1; /* Establish a stacking context. */
+ }
+ 
++.toolbar .dashboard:not(.visible) {
++    opacity: 0;
++}
++
+ .toolbar .dashboard.slide-out-up {
+     -webkit-animation-name: slide-top-edge;
+     -webkit-animation-direction: reverse;
+ }
+ 
+ .toolbar .dashboard.slide-out-down {
+     -webkit-animation-name: slide-bottom-edge;
+ }
+ 
+ .toolbar .dashboard.slide-in-up {
+@@ -148,10 +150,66 @@ body.mac-platform.legacy.window-inactive .toolbar .dashboard {
+ }
+ 
+ @-webkit-keyframes slide-bottom-edge {
+     from {
+         -webkit-transform: translateY(0);
+     }
+     to {
+         -webkit-transform: translateY(30px);
+     }
+ }
++
++.toolbar .dashboard-container .dashboard .navigation-spacer {
++    width: 14px;
++    -webkit-order: 100;
++}
++
++.toolbar.label-only .dashboard-container .dashboard .navigation-spacer {
++    width: 12px;
++}
++
++.dashboard-container .advance-arrow {
++    position: absolute;
++    right: 0px;
++    width: 10px;
++    height: 10px;
++    margin: 4px;
++    opacity: 0.6;
++
++    z-index: 1000;
++    background-repeat: no-repeat;
++    background-size: 8px;
++    background-image: url(../Images/UpDownArrows.svg);
++
++    transition-property: opacity;
++    transition-duration: 0.2s;
++}
++
++.dashboard-container .advance-arrow:hover {
++    opacity: 0.8;
++}
++
++.dashboard-container .advance-arrow:active {
++    opacity: 1;
++}
++
++.dashboard-container .advance-arrow.inactive {
++    opacity: 0;
++    pointer-events: none;
++}
++
++.toolbar.label-only .dashboard-container .advance-arrow {
++    width: 8px;
++    height: 8px;
++    margin: 2px 4px 2px 2px;
++    background-size: 6px;
++}
++
++.dashboard-container .advance-arrow.advance-forward {
++    top: 0;
++    background-position: 0% 0%;
++}
++
++.dashboard-container .advance-arrow.advance-backward {
++    bottom: 0;
++    background-position: 0% 100%;
++}
+diff --git a/Source/WebInspectorUI/UserInterface/Views/DashboardContainerView.js b/Source/WebInspectorUI/UserInterface/Views/DashboardContainerView.js
+index 31bd74c..aed9619 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/DashboardContainerView.js
++++ b/Source/WebInspectorUI/UserInterface/Views/DashboardContainerView.js
+@@ -21,26 +21,37 @@
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ WebInspector.DashboardContainerView = function() {
+     WebInspector.Object.call(this);
+ 
+     this._toolbarItem = new WebInspector.NavigationItem("dashboard-container", "group", WebInspector.UIString("Activity Viewer"));
+ 
++    this._advanceForwardArrowElement = this._toolbarItem.element.appendChild(document.createElement("div"));
++    this._advanceForwardArrowElement.className = "advance-arrow advance-forward";
++    this._advanceBackwardArrowElement = this._toolbarItem.element.appendChild(document.createElement("div"));
++    this._advanceBackwardArrowElement.className = "advance-arrow advance-backward";
++
++    this._advanceForwardArrowElement.addEventListener("click", this._advanceForwardArrowClicked.bind(this));
++    this._advanceBackwardArrowElement.addEventListener("click", this._advanceBackwardArrowClicked.bind(this));
++
+     // Represents currently open dashboards, with the most recent entries appended to the end.
+     this._dashboardStack = [];
+     this._currentIndex = -1;
++
++    this._updateAdvanceArrowVisibility();
+ };
+ 
+ WebInspector.DashboardContainerView.VisibleDashboardStyleClassName = "visible";
++WebInspector.DashboardContainerView.InactiveStyleClassName = "inactive";
+ 
+ WebInspector.DashboardContainerView.AdvanceDirection = {
+     Forward: "dashboard-container-view-advance-direction-forward",
+     Backward: "dashboard-container-view-advance-direction-backward",
+     None: "dashboard-container-view-advance-direction-none"
+ };
+ 
+ WebInspector.DashboardContainerView.ForwardIncomingDashboardStyleClassName = "slide-in-down";
+ WebInspector.DashboardContainerView.BackwardIncomingDashboardStyleClassName = "slide-in-up";
+ WebInspector.DashboardContainerView.ForwardOutgoingDashboardStyleClassName = "slide-out-down";
+@@ -96,20 +107,44 @@ WebInspector.DashboardContainerView.prototype = {
+         var onlyReturnExistingViews = true;
+         var dashboardView = this._dashboardViewForRepresentedObject(representedObject, onlyReturnExistingViews);
+         if (!dashboardView)
+             return null;
+ 
+         this._closeDashboardView(dashboardView);
+     },
+ 
+     // Private
+ 
++    _advanceForwardArrowClicked: function()
++    {
++        this._showDashboardAtIndex(this._currentIndex + 1);
++    },
++
++    _advanceBackwardArrowClicked: function()
++    {
++        this._showDashboardAtIndex(this._currentIndex - 1);
++    },
++
++    _dismissAdvanceArrows: function()
++    {
++        this._advanceForwardArrowElement.classList.add(WebInspector.DashboardContainerView.InactiveStyleClassName);
++        this._advanceBackwardArrowElement.classList.add(WebInspector.DashboardContainerView.InactiveStyleClassName);
++    },
++
++    _updateAdvanceArrowVisibility: function()
++    {
++        var canAdvanceForward = this._currentIndex < this._dashboardStack.length - 1;
++        var canAdvanceBackward = this._currentIndex > 0;
++        this._advanceForwardArrowElement.classList.toggle(WebInspector.DashboardContainerView.InactiveStyleClassName, !canAdvanceForward);
++        this._advanceBackwardArrowElement.classList.toggle(WebInspector.DashboardContainerView.InactiveStyleClassName, !canAdvanceBackward);
++    },
++
+     _dashboardViewForRepresentedObject: function(representedObject, onlyReturnExistingViews)
+     {
+         console.assert(representedObject);
+ 
+         // Iterate over all known dashboard views and see if any are for this object.
+         for (var dashboardView of this._dashboardStack) {
+             if (dashboardView.representedObject === representedObject)
+                 return dashboardView;
+         }
+ 
+@@ -130,80 +165,91 @@ WebInspector.DashboardContainerView.prototype = {
+         return dashboardView;
+     },
+ 
+     _showDashboardAtIndex: function(index)
+     {
+         console.assert(index >= 0 && index <= this._dashboardStack.length - 1);
+ 
+         if (this._currentIndex === index)
+             return;
+ 
+-        var advanceDirection = WebInspector.DashboardContainerView.AdvanceDirection.Forward;
++        var advanceDirection = null;
++        if (this._currentIndex < index)
++            advanceDirection = WebInspector.DashboardContainerView.AdvanceDirection.Forward;
++        else
++            advanceDirection = WebInspector.DashboardContainerView.AdvanceDirection.Backward;
+         var initialDirection = WebInspector.DashboardContainerView.AdvanceDirection.None;
+-        var isFirstDashboard = this._currentIndex === -1;
+-        if (!isFirstDashboard)
++        var isInitialDashboard = this._currentIndex === -1;
++        if (!isInitialDashboard)
+             this._hideDashboardView(this.currentDashboardView, advanceDirection);
+ 
+         this._currentIndex = index;
+-        this._showDashboardView(this.currentDashboardView, isFirstDashboard ? initialDirection : advanceDirection);
++        this._showDashboardView(this.currentDashboardView, isInitialDashboard ? initialDirection : advanceDirection);
+     },
+ 
+     _showDashboardView: function(dashboardView, advanceDirection)
+     {
+         console.assert(dashboardView instanceof WebInspector.DashboardView);
+ 
+         dashboardView.shown();
++        this._dismissAdvanceArrows();
+ 
+         var animationClass = null;
+         if (advanceDirection === WebInspector.DashboardContainerView.AdvanceDirection.Forward)
+             animationClass = WebInspector.DashboardContainerView.ForwardIncomingDashboardStyleClassName;
+         if (advanceDirection === WebInspector.DashboardContainerView.AdvanceDirection.Backward)
+             animationClass = WebInspector.DashboardContainerView.BackwardIncomingDashboardStyleClassName;
+ 
++        var container = this;
++        dashboardView.element.classList.add(WebInspector.DashboardContainerView.VisibleDashboardStyleClassName);
++
+         if (animationClass) {
+             function animationEnded(event) {
+                 if (event.target !== dashboardView.element)
+                     return;
+ 
+                 dashboardView.element.removeEventListener("webkitAnimationEnd", animationEnded);
+                 dashboardView.element.classList.remove(animationClass);
+-                dashboardView.element.classList.add(WebInspector.DashboardContainerView.VisibleDashboardStyleClassName);
++                container._updateAdvanceArrowVisibility();
+             }
+             dashboardView.element.classList.add(animationClass);
+             dashboardView.element.addEventListener("webkitAnimationEnd", animationEnded);
+-        } else
+-            dashboardView.element.classList.add(WebInspector.DashboardContainerView.VisibleDashboardStyleClassName);
++        }
+ 
+         return dashboardView;
+     },
+ 
+     _hideDashboardView: function(dashboardView, advanceDirection, callback)
+     {
+         console.assert(dashboardView instanceof WebInspector.DashboardView);
+         console.assert(this.currentDashboardView === dashboardView);
+ 
+         dashboardView.hidden();
++        this._dismissAdvanceArrows();
+ 
+         var animationClass = null;
+         if (advanceDirection === WebInspector.DashboardContainerView.AdvanceDirection.Forward)
+             animationClass = WebInspector.DashboardContainerView.ForwardOutgoingDashboardStyleClassName;
+         if (advanceDirection === WebInspector.DashboardContainerView.AdvanceDirection.Backward)
+             animationClass = WebInspector.DashboardContainerView.BackwardOutgoingDashboardStyleClassName;
+ 
++        var container = this;
++
+         if (animationClass) {
+             function animationEnded(event) {
+                 if (event.target !== dashboardView.element)
+                     return;
+ 
+                 dashboardView.element.removeEventListener("webkitAnimationEnd", animationEnded);
+                 dashboardView.element.classList.remove(animationClass);
+                 dashboardView.element.classList.remove(WebInspector.DashboardContainerView.VisibleDashboardStyleClassName);
++                container._updateAdvanceArrowVisibility();
+ 
+                 if (typeof callback === "function")
+                     callback();
+             }
+             dashboardView.element.classList.add(animationClass);
+             dashboardView.element.addEventListener("webkitAnimationEnd", animationEnded);
+         } else
+             dashboardView.element.classList.remove(WebInspector.DashboardContainerView.VisibleDashboardStyleClassName);
+     },
+ 
+@@ -224,12 +270,14 @@ WebInspector.DashboardContainerView.prototype = {
+             this._dashboardStack.splice(index, 1);
+             --this._currentIndex;
+             this._showDashboardView(this.currentDashboardView, direction);
+             return;
+         }
+ 
+         this._dashboardStack.splice(index, 1);
+         if (this._currentIndex > index)
+             --this._currentIndex;
+         dissociateDashboardView.call(this);
++
++        this._updateAdvanceArrowVisibility();
+     }
+ };
+diff --git a/Source/WebInspectorUI/UserInterface/Views/DashboardView.js b/Source/WebInspectorUI/UserInterface/Views/DashboardView.js
+index 8b05ba2..1ded515 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/DashboardView.js
++++ b/Source/WebInspectorUI/UserInterface/Views/DashboardView.js
+@@ -42,23 +42,27 @@ WebInspector.DashboardView = function(representedObject, identifier)
+     console.assert(this.constructor !== WebInspector.DashboardView && this instanceof WebInspector.DashboardView);
+     console.assert(identifier);
+ 
+     WebInspector.Object.call(this);
+ 
+     this._representedObject = representedObject;
+ 
+     this._element = document.createElement("div");
+     this._element.classList.add(WebInspector.DashboardView.StyleClassName);
+     this._element.classList.add(identifier);
++
++    var navigationSpacerElement = this._element.appendChild(document.createElement("div"));
++    navigationSpacerElement.className = WebInspector.DashboardView.NavigationSpacerStyleClassName;
+ };
+ 
+ WebInspector.DashboardView.StyleClassName = "dashboard";
++WebInspector.DashboardView.NavigationSpacerStyleClassName = "navigation-spacer";
+ 
+ WebInspector.DashboardView.prototype = {
+     constructor: WebInspector.DashboardView,
+     __proto__: WebInspector.Object.prototype,
+ 
+     // Public
+ 
+     get element()
+     {
+         return this._element;
+-- 
+2.0.1
+
