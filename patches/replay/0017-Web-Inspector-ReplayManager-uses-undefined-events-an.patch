@@ -1,0 +1,184 @@
+From a8d49357271a6a059871abf598ba989563ad27c0 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Wed, 23 Jul 2014 18:09:16 -0700
+Subject: [PATCH] Web Inspector: ReplayManager uses undefined events and
+ inconsistent event data https://bugs.webkit.org/show_bug.cgi?id=135222
+
+Reviewed by NOBODY (OOPS!).
+
+* UserInterface/Controllers/ReplayManager.js:
+(WebInspector.ReplayManager.prototype.sessionCreated.this):
+(WebInspector.ReplayManager.prototype.sessionCreated):
+(WebInspector.ReplayManager.prototype.segmentLoaded):
+(WebInspector.ReplayManager.prototype.segmentUnloaded):
+(WebInspector.ReplayManager.prototype.stopCapturing):
+(WebInspector.ReplayManager.prototype.replayToMarkIndex):
+(WebInspector.ReplayManager.prototype.segmentCompleted.set catch):
+(WebInspector.ReplayManager.prototype.segmentCompleted):
+(WebInspector.ReplayManager.prototype.startCapturing):
+(WebInspector.ReplayManager.prototype._changeSessionState):
+---
+ Source/WebInspectorUI/ChangeLog                       | 19 +++++++++++++++++++
+ .../UserInterface/Controllers/ReplayManager.js        | 13 ++++++-------
+ 2 files changed, 25 insertions(+), 7 deletions(-)
+
+diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
+index 0f4e880..90b48f8 100644
+--- a/Source/WebInspectorUI/ChangeLog
++++ b/Source/WebInspectorUI/ChangeLog
+@@ -1,12 +1,31 @@
+ 2014-07-23  Brian J. Burg  <burg@cs.washington.edu>
+ 
++        Web Inspector: ReplayManager uses undefined events and inconsistent event data
++        https://bugs.webkit.org/show_bug.cgi?id=135222
++
++        Reviewed by NOBODY (OOPS!).
++
++        * UserInterface/Controllers/ReplayManager.js:
++        (WebInspector.ReplayManager.prototype.sessionCreated.this):
++        (WebInspector.ReplayManager.prototype.sessionCreated):
++        (WebInspector.ReplayManager.prototype.segmentLoaded):
++        (WebInspector.ReplayManager.prototype.segmentUnloaded):
++        (WebInspector.ReplayManager.prototype.stopCapturing):
++        (WebInspector.ReplayManager.prototype.replayToMarkIndex):
++        (WebInspector.ReplayManager.prototype.segmentCompleted.set catch):
++        (WebInspector.ReplayManager.prototype.segmentCompleted):
++        (WebInspector.ReplayManager.prototype.startCapturing):
++        (WebInspector.ReplayManager.prototype._changeSessionState):
++
++2014-07-23  Brian J. Burg  <burg@cs.washington.edu>
++
+         Web Inspector: ReplayManager shouldn't assume replay status when the inspector is opened
+         https://bugs.webkit.org/show_bug.cgi?id=135212
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         The inspector could be closed and reopened at any point during capturing or replaying.
+         ReplayManager should query the current state on initialization rather than assuming
+         that the replay controller is still in its initial state.
+ 
+         ReplayManager's initialization code requires querying the backend for the current replay
+diff --git a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
+index b33a9d3..35edbfc 100644
+--- a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
++++ b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
+@@ -281,21 +281,21 @@ WebInspector.ReplayManager.prototype = {
+         console.assert(!this._sessions.has(sessionId), "Tried to add duplicate session identifier:", sessionId);
+         var sessionMap = this._sessions;
+         this.getSession(sessionId)
+             .then(function(session) {
+                 sessionMap.set(sessionId, session);
+             })
+             .catch(function(error) {
+                 console.error("Error obtaining session data: ", error);
+             });
+ 
+-        this.dispatchEventToListeners(WebInspector.ReplayManager.Event.SessionCreated, {sessionId: sessionId});
++        this.dispatchEventToListeners(WebInspector.ReplayManager.Event.SessionAdded, {sessionId: sessionId});
+     },
+ 
+     sessionModified: function(sessionId)
+     {
+         if (!this._initialized)
+             return this.waitUntilInitialized().then(this.sessionModified.bind(this, sessionId));
+ 
+         this.getSession(sessionId).then(function(session) {
+             session.segmentsChanged();
+         });
+@@ -334,21 +334,21 @@ WebInspector.ReplayManager.prototype = {
+         console.assert(!this._segments.has(segmentId), "Tried to add duplicate segment identifier:", segmentId);
+ 
+         this._changeSegmentState(WebInspector.ReplayManager.SegmentState.Appending);
+ 
+         // Create a dummy segment, and don't try to load any data for it. It will
+         // be removed once the segment is complete, and then its data will be fetched.
+         var incompleteSegment = new WebInspector.IncompleteSessionSegment(segmentId);
+         this._segments.set(segmentId, incompleteSegment);
+         this._segmentPromises.set(segmentId, Promise.resolve(incompleteSegment));
+ 
+-        this.dispatchEventToListeners(WebInspector.ReplayManager.Event.SegmentCreated, {segmentIdentifier: segmentId});
++        this.dispatchEventToListeners(WebInspector.ReplayManager.Event.SessionSegmentAdded, {segmentIdentifier: segmentId});
+     },
+ 
+     segmentCompleted: function(segmentId)
+     {
+         if (!this._initialized)
+             return this.waitUntilInitialized().then(this.segmentCompleted.bind(this, segmentId));
+ 
+         var placeholderSegment = this._segments.take(segmentId);
+         console.assert(placeholderSegment instanceof WebInspector.IncompleteSessionSegment);
+         this._segmentPromises.delete(segmentId);
+@@ -391,35 +391,36 @@ WebInspector.ReplayManager.prototype = {
+     segmentLoaded: function(segmentId)
+     {
+         if (!this._initialized)
+             return this.waitUntilInitialized().then(this.segmentLoaded.bind(this, segmentId));
+ 
+         console.assert(this._segments.has(segmentId), "Unknown segment identifier:", segmentId);
+ 
+         console.assert(this.sessionState !== WebInspector.ReplayManager.SessionState.Capturing);
+         this._changeSegmentState(WebInspector.ReplayManager.SegmentState.Loaded);
+ 
++        var previousIdentifier = this._activeSegmentIdentifier;
+         this._activeSegmentIdentifier = segmentId;
+-        this.dispatchEventToListeners(WebInspector.ReplayManager.Event.SegmentLoaded);
++        this.dispatchEventToListeners(WebInspector.ReplayManager.Event.ActiveSegmentChanged, {previousSegmentIdentifier: previousIdentifier});
+    },
+ 
+     segmentUnloaded: function()
+     {
+         if (!this._initialized)
+             return this.waitUntilInitialized().then(this.segmentUnloaded.bind(this));
+ 
+         console.assert(this.sessionState === WebInspector.ReplayManager.SessionState.Replaying);
+         this._changeSegmentState(WebInspector.ReplayManager.SegmentState.Unloaded);
+ 
+-        var unloadedSegmentIdentifier = this._activeSegmentIdentifier;
++        var previousIdentifier = this._activeSegmentIdentifier;
+         this._activeSegmentIdentifier = null;
+-        this.dispatchEventToListeners(WebInspector.ReplayManager.Event.segmentUnloaded, {unloadedSegmentIdentifier: unloadedSegmentIdentifier});
++        this.dispatchEventToListeners(WebInspector.ReplayManager.Event.ActiveSegmentChanged, {previousSegmentIdentifier: previousIdentifier});
+     },
+ 
+     // Private
+ 
+     // FIXME: these methods should be private and only accessed by implementations of the public API,
+     // which should properly chain async calls leading up to these low-level backend calls. Otherwise,
+     // their preconditions on session and segment state are too strong for scenarios triggered by the UI.
+ 
+     startCapturing: function()
+     {
+@@ -437,30 +438,28 @@ WebInspector.ReplayManager.prototype = {
+         ReplayAgent.stopCapturing();
+     },
+ 
+     replayToMarkIndex: function(replayPosition)
+     {
+         console.assert(replayPosition instanceof WebInspector.ReplayPosition);
+ 
+         console.assert(this.sessionState !== WebInspector.ReplayManager.SessionState.Capturing);
+         // FIXME: Once the public API is asynchronous, we should assert that segmentState is Loaded.
+ 
+-        this.dispatchEventToListeners(WebInspector.ReplayManager.Event.PlaybackWillStart);
+         ReplayAgent.replayToPosition(replayPosition, this.playbackSpeed === WebInspector.ReplayManager.PlaybackSpeed.FastForward);
+     },
+ 
+     replayToCompletion: function()
+     {
+         console.assert(this.sessionState !== WebInspector.ReplayManager.SessionState.Capturing);
+         // FIXME: Once the public API is asynchronous, we should assert that segmentState is Loaded.
+ 
+-        this.dispatchEventToListeners(WebInspector.ReplayManager.Event.PlaybackWillStart);
+         ReplayAgent.replayToCompletion(this.playbackSpeed === WebInspector.ReplayManager.PlaybackSpeed.FastForward);
+     },
+ 
+     pausePlayback: function()
+     {
+         console.assert(this.sessionState === WebInspector.ReplayManager.SessionState.Replaying);
+         console.assert(this.segmentState === WebInspector.ReplayManager.SegmentState.Dispatching);
+ 
+         ReplayAgent.pausePlayback();
+     },
+-- 
+2.0.1
+

@@ -1,4 +1,4 @@
-From 3b8d7ab76651c4bd6594c9567ef3f52b2eccc65c Mon Sep 17 00:00:00 2001
+From c90ba960bbf1f5f21bae550c0ebdc68862b97913 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 22 Jul 2014 14:54:13 -0700
 Subject: [PATCH] Web Replay: Rename protocol methods for obtaining

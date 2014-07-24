@@ -1,0 +1,277 @@
+From c659ead49e5cf0355dae569a755acbce1408312d Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Wed, 23 Jul 2014 12:20:19 -0700
+Subject: [PATCH] Web Inspector: InspectorBackend's promise-based agent API
+ does not support multiple return values
+ https://bugs.webkit.org/show_bug.cgi?id=135207
+
+Reviewed by NOBODY (OOPS!).
+
+Source/WebInspectorUI:
+The promise wrapper implementation assumed that the protocol callback supplies a single 'payload'
+return value, but InspectorBackend will actually unpack multiple return values as multiple
+callback arguments. Set a special flag so it will not try to apply multiple return values.
+
+It would read better if multiple return values could be spread to the resolve callback, but
+multiple argument support are not required by the Promises specification, so we won't use them.
+
+* UserInterface/Controllers/ReplayManager.js: Fix uses of promise return values.
+(WebInspector.ReplayManager):
+* UserInterface/Models/ReplaySession.js:
+* UserInterface/Models/ReplaySessionSegment.js:
+(WebInspector.ReplaySessionSegment):
+* UserInterface/Protocol/InspectorBackend.js:
+(InspectorBackend.Command.prototype.promise):
+
+LayoutTests:
+* http/tests/inspector/replay/replay-test.js: fix uses of promise API return values.
+---
+ LayoutTests/ChangeLog                              |  9 +++++++++
+ .../http/tests/inspector/replay/replay-test.js     |  4 ++--
+ Source/WebInspectorUI/ChangeLog                    | 22 ++++++++++++++++++++++
+ .../UserInterface/Controllers/ReplayManager.js     |  4 ++--
+ .../UserInterface/Models/ReplaySession.js          |  5 +++--
+ .../UserInterface/Models/ReplaySessionSegment.js   |  9 ++++-----
+ .../UserInterface/Protocol/InspectorBackend.js     |  4 ++++
+ 7 files changed, 46 insertions(+), 11 deletions(-)
+
+diff --git a/LayoutTests/ChangeLog b/LayoutTests/ChangeLog
+index ea9400e..95456ad 100644
+--- a/LayoutTests/ChangeLog
++++ b/LayoutTests/ChangeLog
+@@ -1,10 +1,19 @@
++2014-07-23  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Inspector: InspectorBackend's promise-based agent API does not support multiple return values
++        https://bugs.webkit.org/show_bug.cgi?id=135207
++
++        Reviewed by NOBODY (OOPS!).
++
++        * http/tests/inspector/replay/replay-test.js: fix uses of promise API return values.
++
+ 2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         Web Replay: save and restore page history state at main frame navigations
+         https://bugs.webkit.org/show_bug.cgi?id=131043
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         * inspector/replay/history-length-single-segment-expected.txt: Added.
+         * inspector/replay/history-length-single-segment.html: Added.
+ 
+diff --git a/LayoutTests/http/tests/inspector/replay/replay-test.js b/LayoutTests/http/tests/inspector/replay/replay-test.js
+index 461f8ac..333d783 100644
+--- a/LayoutTests/http/tests/inspector/replay/replay-test.js
++++ b/LayoutTests/http/tests/inspector/replay/replay-test.js
+@@ -31,21 +31,21 @@ InspectorTest.Replay.runSingleSegmentRefTest = function(stateComparator)
+         return new Promise(function waitToCaptureInitialNavigation(resolve, reject) {
+             InspectorTest.log("Waiting to capture initial navigation...");
+             InspectorTest.eventDispatcher.addEventListener(InspectorTest.EventDispatcher.Event.TestPageDidLoad, resolve);
+         });
+     })
+     .then(function() {
+         InspectorTest.log("Initial navigation captured. Dumping state....");
+         return RuntimeAgent.evaluate.promise("dumpNondeterministicState()");
+     })
+     .then(function(payload) {
+-        stateDuringCapturing = payload.value;
++        stateDuringCapturing = payload.result.value;
+         return new Promise(function stopCapturing(resolve, reject) {
+             WebInspector.replayManager.stopCapturing();
+             WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.CaptureStopped, resolve);
+         });
+     })
+     .then(function() {
+         return RuntimeAgent.evaluate.promise("if (typeof \"setupPreCapture\" === \"function\") setupPreReplay()");
+     })
+     .then(function() {
+         InspectorTest.log("Capture stopped, now starting replay to completion...")
+@@ -59,21 +59,21 @@ InspectorTest.Replay.runSingleSegmentRefTest = function(stateComparator)
+         return new Promise(function waitForMainResourceWhenReplaying(resolve, reject) {
+             InspectorTest.log("Waiting to replay initial navigation...");
+             InspectorTest.eventDispatcher.addEventListener(InspectorTest.EventDispatcher.Event.TestPageDidLoad, resolve);
+         });
+     })
+     .then(function() {
+         InspectorTest.log("Initial navigation replayed. Dumping state...");
+         return RuntimeAgent.evaluate.promise("dumpNondeterministicState()");
+     })
+     .then(function(payload) {
+-        stateDuringReplaying = payload.value;
++        stateDuringReplaying = payload.result.value;
+         return new Promise(function waitForReplayingToFinish(resolve, reject) {
+             WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.PlaybackFinished, resolve);
+         });
+     })
+     .then(function() {
+         var statesEqual = stateDuringCapturing === stateDuringReplaying;
+         InspectorTest.expectThat(statesEqual, "Nondeterministic state should not differ during capture and replay.");
+         if (!statesEqual) {
+             InspectorTest.log("State during capturing: " + stateDuringCapturing);
+             InspectorTest.log("State during replaying: " + stateDuringReplaying);
+diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
+index 343da2a..5f585fc 100644
+--- a/Source/WebInspectorUI/ChangeLog
++++ b/Source/WebInspectorUI/ChangeLog
+@@ -1,10 +1,32 @@
++2014-07-23  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Inspector: InspectorBackend's promise-based agent API does not support multiple return values
++        https://bugs.webkit.org/show_bug.cgi?id=135207
++
++        Reviewed by NOBODY (OOPS!).
++
++        The promise wrapper implementation assumed that the protocol callback supplies a single 'payload'
++        return value, but InspectorBackend will actually unpack multiple return values as multiple
++        callback arguments. Set a special flag so it will not try to apply multiple return values.
++
++        It would read better if multiple return values could be spread to the resolve callback, but
++        multiple argument support are not required by the Promises specification, so we won't use them.
++
++        * UserInterface/Controllers/ReplayManager.js: Fix uses of promise return values.
++        (WebInspector.ReplayManager):
++        * UserInterface/Models/ReplaySession.js:
++        * UserInterface/Models/ReplaySessionSegment.js:
++        (WebInspector.ReplaySessionSegment):
++        * UserInterface/Protocol/InspectorBackend.js:
++        (InspectorBackend.Command.prototype.promise):
++
+ 2014-07-22  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         Web Replay: Rename protocol methods for obtaining session/segment data.
+         Need the bug URL (OOPS!).
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         * UserInterface/Controllers/ReplayManager.js:
+         (WebInspector.ReplayManager.prototype.getSession.get var):
+         (WebInspector.ReplayManager.prototype.getSegment.get var):
+diff --git a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
+index 43ec4a3..e5857d8 100644
+--- a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
++++ b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
+@@ -43,22 +43,22 @@ WebInspector.ReplayManager = function()
+     this._segmentPromises = new Map;
+ 
+     // Playback speed is specified in replayToPosition commands, and persists
+     // for the duration of the playback command until another playback begins.
+     this._playbackSpeed = WebInspector.ReplayManager.PlaybackSpeed.RealTime;
+ 
+     if (!window.ReplayAgent)
+         return;
+ 
+     ReplayAgent.getAvailableSessions.promise()
+-        .then(function(sessionIds) {
+-            for (var sessionId of sessionIds)
++        .then(function(payload) {
++            for (var sessionId of payload.ids)
+                 WebInspector.replayManager.sessionCreated(sessionId);
+         });
+ };
+ 
+ WebInspector.ReplayManager.Event = {
+     CaptureStarted: "replay-manager-capture-started",
+     CaptureStopped: "replay-manager-capture-stopped",
+ 
+     PlaybackStarted: "replay-manager-playback-started",
+     PlaybackPaused: "replay-manager-playback-paused",
+diff --git a/Source/WebInspectorUI/UserInterface/Models/ReplaySession.js b/Source/WebInspectorUI/UserInterface/Models/ReplaySession.js
+index 0dc5f6c..c11a3ed 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/ReplaySession.js
++++ b/Source/WebInspectorUI/UserInterface/Models/ReplaySession.js
+@@ -56,23 +56,24 @@ WebInspector.ReplaySession.prototype = {
+ 
+     segmentsChanged: function()
+     {
+         // The replay manager won't update the session's list of segments nor create a new session.
+         ReplayAgent.getSessionData.promise(this.identifier)
+             .then(this._updateFromPayload.bind(this));
+     },
+ 
+     _updateFromPayload: function(payload)
+     {
+-        console.assert(payload.id === this.identifier);
++        var session = payload.session;
++        console.assert(session.id === this.identifier);
+ 
+-        var segmentIds = payload.segments;
++        var segmentIds = session.segments;
+         var oldSegments = this._segments;
+         var pendingSegments = [];
+         for (var segmentId of segmentIds)
+             pendingSegments.push(WebInspector.replayManager.getSegment(segmentId));
+ 
+         var session = this;
+         Promise.all(pendingSegments).then(
+             function(segmentsArray) {
+                 session._segments = segmentsArray;
+                 session.dispatchEventToListeners(WebInspector.ReplaySession.Event.SegmentsChanged, {oldSegments: oldSegments});
+diff --git a/Source/WebInspectorUI/UserInterface/Models/ReplaySessionSegment.js b/Source/WebInspectorUI/UserInterface/Models/ReplaySessionSegment.js
+index 61062be..9764f35 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/ReplaySessionSegment.js
++++ b/Source/WebInspectorUI/UserInterface/Models/ReplaySessionSegment.js
+@@ -40,28 +40,27 @@ WebInspector.IncompleteSessionSegment.prototype = {
+     get isComplete()
+     {
+         return false;
+     }
+ };
+ 
+ WebInspector.ReplaySessionSegment = function(identifier, payload)
+ {
+     WebInspector.Object.call(this);
+ 
+-    console.assert(identifier === payload.id);
++    var segment = payload.segment;
++    console.assert(identifier === segment.id);
+ 
+     this.identifier = identifier;
+-    this._timestamp = payload.timestamp;
++    this._timestamp = segment.timestamp;
+ 
+-    this._queues = payload.queues;
+-
+-    // XXX: make objects for the queues and inputs?
++    this._queues = segment.queues;
+ };
+ 
+ WebInspector.ReplaySessionSegment.prototype = {
+     constructor: WebInspector.ReplaySessionSegment,
+     __proto__: WebInspector.Object.prototype,
+ 
+     get isComplete()
+     {
+         return true;
+     }
+diff --git a/Source/WebInspectorUI/UserInterface/Protocol/InspectorBackend.js b/Source/WebInspectorUI/UserInterface/Protocol/InspectorBackend.js
+index 2e2b497..f57c15f 100644
+--- a/Source/WebInspectorUI/UserInterface/Protocol/InspectorBackend.js
++++ b/Source/WebInspectorUI/UserInterface/Protocol/InspectorBackend.js
+@@ -366,20 +366,24 @@ InspectorBackend.Command.prototype = {
+     },
+ 
+     promise: function()
+     {
+         var instance = this._instance;
+         var promiseArguments = Array.prototype.slice.call(arguments);
+         return new Promise(function(resolve, reject) {
+             function convertToPromiseCallback(error, payload) {
+                 return error ? reject(error) : resolve(payload);
+             }
++            // FIXME: this should be indicated by invoking the command differently, rather
++            // than by setting a magical property on the callback. <webkit.org/b/132386>
++            convertToPromiseCallback.expectsResultObject = true;
++
+             promiseArguments.push(convertToPromiseCallback);
+             instance._invokeWithArguments.apply(instance, promiseArguments);
+         });
+     },
+ 
+     supports: function(parameterName)
+     {
+         var instance = this._instance;
+         return instance.callSignature.some(function(parameter) {
+             return parameter["name"] === parameterName;
+-- 
+2.0.1
+
