@@ -1,0 +1,186 @@
+From 779d564e5abd5b84392f59c817f1845042b11277 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Thu, 24 Jul 2014 08:46:32 -0700
+Subject: [PATCH] Web Inspector: protocol command invocations should return a
+ promise if no callback is supplied
+ https://bugs.webkit.org/show_bug.cgi?id=130702
+
+Reviewed by NOBODY (OOPS!).
+
+Source/WebInspectorUI:
+This allows the trailing Agent.command.promise(args) to be dropped in favor of just
+Agent.command(args). It should make it a bit easier to convert code to use promises.
+
+Test: LayoutTests/inspector/protocol-promise-result.html
+
+* UserInterface/Protocol/InspectorBackend.js:
+(.callable): Redirect to the promise entry point if the last argument isn't a function.
+(InspectorBackend.Command.create):
+
+LayoutTests:
+Addd a test for recieving protocol command results through an explicit callback,
+via the .promise() entry point, and via an implicitly created promise.
+
+* inspector/protocol-promise-result-expected.txt: Added.
+* inspector/protocol-promise-result.html: Added.
+---
+ LayoutTests/ChangeLog                              | 13 ++++++++
+ .../inspector/protocol-promise-result-expected.txt |  7 ++++
+ LayoutTests/inspector/protocol-promise-result.html | 38 ++++++++++++++++++++++
+ Source/WebInspectorUI/ChangeLog                    | 16 +++++++++
+ .../UserInterface/Protocol/InspectorBackend.js     |  7 +++-
+ 5 files changed, 80 insertions(+), 1 deletion(-)
+ create mode 100644 LayoutTests/inspector/protocol-promise-result-expected.txt
+ create mode 100644 LayoutTests/inspector/protocol-promise-result.html
+
+diff --git a/LayoutTests/ChangeLog b/LayoutTests/ChangeLog
+index 95456ad..a642636 100644
+--- a/LayoutTests/ChangeLog
++++ b/LayoutTests/ChangeLog
+@@ -1,10 +1,23 @@
++2014-07-24  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Inspector: protocol command invocations should return a promise if no callback is supplied
++        https://bugs.webkit.org/show_bug.cgi?id=130702
++
++        Reviewed by NOBODY (OOPS!).
++
++        Addd a test for recieving protocol command results through an explicit callback,
++        via the .promise() entry point, and via an implicitly created promise.
++
++        * inspector/protocol-promise-result-expected.txt: Added.
++        * inspector/protocol-promise-result.html: Added.
++
+ 2014-07-23  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         Web Inspector: InspectorBackend's promise-based agent API does not support multiple return values
+         https://bugs.webkit.org/show_bug.cgi?id=135207
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         * http/tests/inspector/replay/replay-test.js: fix uses of promise API return values.
+ 
+ 2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
+diff --git a/LayoutTests/inspector/protocol-promise-result-expected.txt b/LayoutTests/inspector/protocol-promise-result-expected.txt
+new file mode 100644
+index 0000000..1eb7a53
+--- /dev/null
++++ b/LayoutTests/inspector/protocol-promise-result-expected.txt
+@@ -0,0 +1,7 @@
++Testing that the inspector backend can return command results using promises.
++
++Using a callback, got RuntimeAgent.evaluate() result: 41
++Setting up two promises for RuntimeAgent.evaluate.
++Using a promise, got RuntimeAgent.evaluate() result: 42
++Using a promise, got RuntimeAgent.evaluate() result: 43
++
+diff --git a/LayoutTests/inspector/protocol-promise-result.html b/LayoutTests/inspector/protocol-promise-result.html
+new file mode 100644
+index 0000000..52dc706
+--- /dev/null
++++ b/LayoutTests/inspector/protocol-promise-result.html
+@@ -0,0 +1,38 @@
++<!doctype html>
++<html>
++<head>
++<script type="text/javascript" src="../http/tests/inspector/inspector-test.js"></script>
++<script>
++function test()
++{
++    var c1 = RuntimeAgent.evaluate("41", function(err, result, wasThrown) {
++        InspectorTest.log("Using a callback, got RuntimeAgent.evaluate() result: " + result.value);
++
++        InspectorTest.log("Setting up two promises for RuntimeAgent.evaluate.");
++
++        var p1 = RuntimeAgent.evaluate.promise("42");
++        var p2 = RuntimeAgent.evaluate("43");
++
++        InspectorTest.assert(!(c1 instanceof Promise), "A promise was returned even though a callback was supplied to the command!");
++
++        p1.then(function(payload) {
++            InspectorTest.log("Using a promise, got RuntimeAgent.evaluate() result: " + payload.result.value);
++        });
++        p2.then(function(payload) {
++            InspectorTest.log("Using a promise, got RuntimeAgent.evaluate() result: " + payload.result.value);
++        });
++
++        Promise.all([p1, p2]).then(function() {
++            InspectorTest.completeTest();
++        }).catch(function(error) {
++            InspectorTest.log("ERROR: " + error);
++            InspectorTest.completeTest();
++        })
++    });
++}
++</script>
++</head>
++<body onload="runTest()">
++    <p>Testing that the inspector backend can return command results using promises.</p>
++</body>
++</html>
+diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
+index b095670..d166d47 100644
+--- a/Source/WebInspectorUI/ChangeLog
++++ b/Source/WebInspectorUI/ChangeLog
+@@ -1,10 +1,26 @@
++2014-07-24  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Inspector: protocol command invocations should return a promise if no callback is supplied
++        https://bugs.webkit.org/show_bug.cgi?id=130702
++
++        Reviewed by NOBODY (OOPS!).
++
++        This allows the trailing Agent.command.promise(args) to be dropped in favor of just
++        Agent.command(args). It should make it a bit easier to convert code to use promises.
++
++        Test: LayoutTests/inspector/protocol-promise-result.html
++
++        * UserInterface/Protocol/InspectorBackend.js:
++        (.callable): Redirect to the promise entry point if the last argument isn't a function.
++        (InspectorBackend.Command.create):
++
+ 2014-07-23  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         Web Inspector: add eject current recording button to the replay dashboard
+         https://bugs.webkit.org/show_bug.cgi?id=135225
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Add a new eject button item to the replay dashboard's embedded navigation bar.
+         The eject button's visibility is mutually exclusive with that of the record button.
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Protocol/InspectorBackend.js b/Source/WebInspectorUI/UserInterface/Protocol/InspectorBackend.js
+index f57c15f..34af338 100644
+--- a/Source/WebInspectorUI/UserInterface/Protocol/InspectorBackend.js
++++ b/Source/WebInspectorUI/UserInterface/Protocol/InspectorBackend.js
+@@ -318,21 +318,26 @@ InspectorBackend.Command = function(backend, qualifiedName, callSignature, reply
+     this._commandName = commandName;
+     this._callSignature = callSignature || [];
+     this._replySignature = replySignature || [];
+ }
+ 
+ InspectorBackend.Command.create = function(backend, commandName, callSignature, replySignature)
+ {
+     var instance = new InspectorBackend.Command(backend, commandName, callSignature, replySignature);
+ 
+     function callable() {
+-        instance._invokeWithArguments.apply(instance, arguments);
++        // If the last argument to the command is not a function, return a result promise.
++        var commandArguments = Array.prototype.slice.call(arguments);
++        if (typeof commandArguments.lastValue !== "function")
++            return instance.promise.apply(instance, arguments);
++
++        return instance._invokeWithArguments.apply(instance, arguments);
+     }
+     callable._instance = instance;
+     callable.__proto__ = InspectorBackend.Command.prototype;
+     return callable;
+ }
+ 
+ // As part of the workaround to make commands callable, these functions use |this._instance|.
+ // |this| could refer to the callable trampoline, or the InspectorBackend.Command instance.
+ InspectorBackend.Command.prototype = {
+     __proto__: Function.prototype,
+-- 
+2.0.1
+
