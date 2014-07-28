@@ -1,0 +1,403 @@
+From fc10eb58dc2cd59e3eb77ecc312ec24c7ce39578 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Tue, 15 Jul 2014 15:32:44 -0700
+Subject: [PATCH] Web Replay: auto-decoding of parameterized vector's elements
+ is incorrect Need the bug URL (OOPS!).
+
+Reviewed by NOBODY (OOPS!).
+
+Fix an incorrect type argument in EncodingTraits<Vector<T>>::encodeValue
+that was using the element's decoded type as the type parameter to
+EncodedValue::append<T>. It should instead be the raw type T. This
+causes problems when encoding Vector<RefPtr<T>>, as it later tries to
+use encoding traits for RefPtr<T> rather than for T.
+
+Fix incorrect generated encoding traits argument for vectors of
+RefCounted objects. Updated test to cover this scenario.
+
+* replay/scripts/CodeGeneratorReplayInputs.py:
+(Type.encoding_type_argument):
+(VectorType.type_name):
+(VectorType):
+(VectorType.encoding_type_argument):
+(Generator.generate_input_encode_implementation):
+(Generator.generate_input_decode_implementation):
+(Generator.generate_input_trait_implementation): Deleted.
+* replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.cpp:
+* replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h:
+* replay/scripts/tests/generate-input-with-vector-members.json: Updated.
+---
+ Source/JavaScriptCore/ChangeLog                    | 28 +++++++++++++++++++
+ Source/JavaScriptCore/replay/EncodedValue.h        |  2 +-
+ .../replay/scripts/CodeGeneratorReplayInputs.py    | 10 +++++--
+ ...t-with-vector-members.json-TestReplayInputs.cpp | 31 ++++++++++++++++++++++
+ ...put-with-vector-members.json-TestReplayInputs.h | 24 +++++++++++++++++
+ .../tests/generate-input-with-vector-members.json  | 14 +++++++++-
+ 6 files changed, 105 insertions(+), 4 deletions(-)
+
+diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
+index 8ef0faf..e4593c5 100644
+--- a/Source/JavaScriptCore/ChangeLog
++++ b/Source/JavaScriptCore/ChangeLog
+@@ -1,12 +1,40 @@
+ 2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
+ 
++        Web Replay: auto-decoding of parameterized vector's elements is incorrect
++        Need the bug URL (OOPS!).
++
++        Reviewed by NOBODY (OOPS!).
++
++        Fix an incorrect type argument in EncodingTraits<Vector<T>>::encodeValue
++        that was using the element's decoded type as the type parameter to
++        EncodedValue::append<T>. It should instead be the raw type T. This
++        causes problems when encoding Vector<RefPtr<T>>, as it later tries to
++        use encoding traits for RefPtr<T> rather than for T.
++
++        Fix incorrect generated encoding traits argument for vectors of
++        RefCounted objects. Updated test to cover this scenario.
++
++        * replay/scripts/CodeGeneratorReplayInputs.py:
++        (Type.encoding_type_argument):
++        (VectorType.type_name):
++        (VectorType):
++        (VectorType.encoding_type_argument):
++        (Generator.generate_input_encode_implementation):
++        (Generator.generate_input_decode_implementation):
++        (Generator.generate_input_trait_implementation): Deleted.
++        * replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.cpp:
++        * replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h:
++        * replay/scripts/tests/generate-input-with-vector-members.json: Updated.
++
++2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
++
+         Web Replay: incorrect serialization code generated for enum classes inside class scope
+         Need the bug URL (OOPS!).
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         If an enum class is defined inside of a class scope, then the enum class
+         cannot be forward-declared and the relevant header should be included.
+         Some generated code used incorrectly-scoped enum values in this situation.
+ 
+         * replay/scripts/CodeGeneratorReplayInputs.py:
+diff --git a/Source/JavaScriptCore/replay/EncodedValue.h b/Source/JavaScriptCore/replay/EncodedValue.h
+index 6566734..3ed089f 100644
+--- a/Source/JavaScriptCore/replay/EncodedValue.h
++++ b/Source/JavaScriptCore/replay/EncodedValue.h
+@@ -105,21 +105,21 @@ struct EncodingTraits {
+ };
+ 
+ template<typename T, size_t inlineCapacity, typename OverflowHandler>
+ struct EncodingTraits<Vector<T, inlineCapacity, OverflowHandler>> {
+     typedef Vector<typename EncodingTraits<T>::DecodedType, inlineCapacity, OverflowHandler> DecodedType;
+ 
+     static EncodedValue encodeValue(const DecodedType& vectorOfValues)
+     {
+         EncodedValue encodedVector = EncodedValue::createArray();
+         for (const typename EncodingTraits<T>::DecodedType& value : vectorOfValues)
+-            encodedVector.append<typename EncodingTraits<T>::DecodedType>(value);
++            encodedVector.append<T>(value);
+ 
+         return WTF::move(encodedVector);
+     }
+ 
+     static bool decodeValue(EncodedValue& encodedVector, DecodedType& decodedValue)
+     {
+         RefPtr<Inspector::InspectorArray> inspectorArray = encodedVector.asArray();
+         decodedValue = Vector<typename EncodingTraits<T>::DecodedType, inlineCapacity, OverflowHandler>(inspectorArray->length());
+         for (size_t i = 0; i < inspectorArray->length(); ++i) {
+             EncodedValue encodedElement(inspectorArray->get(i));
+diff --git a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
+index 6229bcb..6feb323 100644
+--- a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
++++ b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
+@@ -353,20 +353,23 @@ class Type:
+             return "PassRefPtr<%s>" % self.type_name(qualified)
+         else:
+             return "const %s&" % self.type_name(qualified)
+ 
+     def argument_type(self, qualified=False):
+         if self.mode == TypeModes.SHARED:
+             return "PassRefPtr<%s>" % self.type_name(qualified)
+         else:
+             return self.storage_type()
+ 
++    def encoding_type_argument(self, qualified=False):
++        return self.type_name(qualified=qualified)
++
+ 
+ def check_for_required_properties(props, obj, what):
+     for prop in props:
+         if prop not in obj:
+             raise ParseException("When parsing %s, required property missing: %s" % (what, prop))
+ 
+ 
+ class VectorType(Type):
+     def __init__(self, element_type):
+         self._element_type = element_type
+@@ -383,20 +386,23 @@ class VectorType(Type):
+     def is_enum(self):
+         return False
+ 
+     def is_enum_class(self):
+         return False
+ 
+     def qualified_prefix(self):
+         return ""
+ 
+     def type_name(self, qualified=False):
++        return "Vector<%s>" % self._element_type.storage_type(qualified=qualified)
++
++    def encoding_type_argument(self, qualified=False):
+         return "Vector<%s>" % self._element_type.type_name(qualified=qualified)
+ 
+     def argument_type(self, qualified=False):
+         return self.type_name(qualified=qualified) + "&"
+ 
+ 
+ class InputsModel:
+     def __init__(self, parsed_json):
+         self.inputs = []
+         self.types = []
+@@ -874,39 +880,39 @@ class Generator:
+             'constructorFormalsList': self.generate_constructor_formals_list(_input),
+             'encodeSteps': self.generate_input_encode_implementation(_input),
+             'decodeSteps': self.generate_input_decode_implementation(_input),
+         }
+         return wrap_with_guard(Template(Templates.InputTraitsImplementation).substitute(template_arguments), _input.guard)
+ 
+     def generate_input_encode_implementation(self, _input):
+         steps = []
+         for (_member, _type) in self.generate_input_member_tuples(_input):
+             should_qualify_type = _type.framework != self.traits_framework
+-            put_method = "put<%s>" % _type.type_name(qualified=should_qualify_type)
++            put_method = "put<%s>" % _type.encoding_type_argument(qualified=should_qualify_type)
+ 
+             steps.extend([
+                 "    encodedValue.%s(ASCIILiteral(\"%s\"), input.%s());" % (put_method, _member.memberName, _member.memberName)
+             ])
+ 
+         if len(steps) == 0:
+             steps.extend([
+                 "    UNUSED_PARAM(encodedValue);",
+                 "    UNUSED_PARAM(input);",
+             ])
+ 
+         return "\n".join(steps)
+ 
+     def generate_input_decode_implementation(self, _input):
+         steps = []
+         for (_member, _type) in self.generate_input_member_tuples(_input):
+             should_qualify_type = _type.framework != self.traits_framework
+-            get_method = "get<%s>" % _type.type_name(qualified=should_qualify_type)
++            get_method = "get<%s>" % _type.encoding_type_argument(qualified=should_qualify_type)
+ 
+             lines = [
+                 "    %s %s;" % (_type.storage_type(qualified=should_qualify_type), _member.memberName),
+                 "    if (!encodedValue.%s(ASCIILiteral(\"%s\"), %s))" % (get_method, _member.memberName, _member.memberName),
+                 "        return false;",
+                 ""
+             ]
+ 
+             steps.append("\n".join(lines))
+ 
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.cpp b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.cpp
+index 02bb56b..fb34e2c 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.cpp
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.cpp
+@@ -41,20 +41,30 @@ ArrayOfThings::ArrayOfThings(Vector<double>& doubles, Vector<JSThing>& jsthings,
+     : NondeterministicInput<ArrayOfThings>()
+     , m_doubles(doubles)
+     , m_jsthings(jsthings)
+     , m_webthings(webthings)
+ {
+ }
+ 
+ ArrayOfThings::~ArrayOfThings()
+ {
+ }
++
++SavedHistory::SavedHistory(Vector<RefPtr<HistoryItem>>& entries)
++    : NondeterministicInput<SavedHistory>()
++    , m_entries(entries)
++{
++}
++
++SavedHistory::~SavedHistory()
++{
++}
+ } // namespace Test
+ 
+ namespace JSC {
+ const AtomicString& InputTraits<Test::ArrayOfThings>::type()
+ {
+     static NeverDestroyed<const AtomicString> type("ArrayOfThings", AtomicString::ConstructFromLiteral);
+     return type;
+ }
+ 
+ void InputTraits<Test::ArrayOfThings>::encode(EncodedValue& encodedValue, const Test::ArrayOfThings& input)
+@@ -75,13 +85,34 @@ bool InputTraits<Test::ArrayOfThings>::decode(EncodedValue& encodedValue, std::u
+         return false;
+ 
+     Vector<WebCore::WebThing> webthings;
+     if (!encodedValue.get<Vector<WebCore::WebThing>>(ASCIILiteral("webthings"), webthings))
+         return false;
+ 
+     input = std::make_unique<Test::ArrayOfThings>(doubles, jsthings, webthings);
+     return true;
+ }
+ 
++const AtomicString& InputTraits<Test::SavedHistory>::type()
++{
++    static NeverDestroyed<const AtomicString> type("SavedHistory", AtomicString::ConstructFromLiteral);
++    return type;
++}
++
++void InputTraits<Test::SavedHistory>::encode(EncodedValue& encodedValue, const Test::SavedHistory& input)
++{
++    encodedValue.put<Vector<WebCore::HistoryItem>>(ASCIILiteral("entries"), input.entries());
++}
++
++bool InputTraits<Test::SavedHistory>::decode(EncodedValue& encodedValue, std::unique_ptr<Test::SavedHistory>& input)
++{
++    Vector<RefPtr<WebCore::HistoryItem>> entries;
++    if (!encodedValue.get<Vector<WebCore::HistoryItem>>(ASCIILiteral("entries"), entries))
++        return false;
++
++    input = std::make_unique<Test::SavedHistory>(entries);
++    return true;
++}
++
+ } // namespace JSC
+ 
+ #endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h
+index 278c37d..242ff87 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h
+@@ -25,53 +25,77 @@
+  */
+ 
+ // DO NOT EDIT THIS FILE. It is automatically generated from generate-input-with-vector-members.json
+ // by the script: JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
+ 
+ #ifndef generate_input_with_vector_members_json_TestReplayInputs_h
+ #define generate_input_with_vector_members_json_TestReplayInputs_h
+ 
+ #if ENABLE(WEB_REPLAY)
+ #include "InternalNamespaceHeaderIncludeDummy.h"
++#include <history/HistoryItem.h>
+ #include <platform/ExternalNamespaceHeaderIncludeDummy.h>
+ 
++namespace WebCore {
++class HistoryItem;
++}
+ 
+ 
+ namespace Test {
+ class ArrayOfThings;
++class SavedHistory;
+ } // namespace Test
+ 
+ namespace JSC {
+ template<> struct InputTraits<Test::ArrayOfThings> {
+     static InputQueue queue() { return InputQueue::ScriptMemoizedData; }
+     static const AtomicString& type();
+ 
+     static void encode(JSC::EncodedValue&, const Test::ArrayOfThings&);
+     static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::ArrayOfThings>&);
+ };
+ 
++template<> struct InputTraits<Test::SavedHistory> {
++    static InputQueue queue() { return InputQueue::ScriptMemoizedData; }
++    static const AtomicString& type();
++
++    static void encode(JSC::EncodedValue&, const Test::SavedHistory&);
++    static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::SavedHistory>&);
++};
++
+ } // namespace JSC
+ 
+ namespace Test {
+ class ArrayOfThings : public NondeterministicInput<ArrayOfThings> {
+ public:
+     ArrayOfThings(Vector<double>& doubles, Vector<JSThing>& jsthings, Vector<WebThing>& webthings);
+     virtual ~ArrayOfThings();
+ 
+     const Vector<double>& doubles() const { return m_doubles; }
+     const Vector<JSThing>& jsthings() const { return m_jsthings; }
+     const Vector<WebThing>& webthings() const { return m_webthings; }
+ private:
+     Vector<double> m_doubles;
+     Vector<JSThing> m_jsthings;
+     Vector<WebThing> m_webthings;
+ };
++
++class SavedHistory : public NondeterministicInput<SavedHistory> {
++public:
++    SavedHistory(Vector<RefPtr<HistoryItem>>& entries);
++    virtual ~SavedHistory();
++
++    const Vector<RefPtr<HistoryItem>>& entries() const { return m_entries; }
++private:
++    Vector<RefPtr<HistoryItem>> m_entries;
++};
+ } // namespace Test
+ 
+ #define TEST_REPLAY_INPUT_NAMES_FOR_EACH(macro) \
+     macro(ArrayOfThings) \
++    macro(SavedHistory) \
+     \
+ // end of TEST_REPLAY_INPUT_NAMES_FOR_EACH
+ 
+ #endif // ENABLE(WEB_REPLAY)
+ 
+ #endif // generate-input-with-vector-members.json-TestReplayInputs_h
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/generate-input-with-vector-members.json b/Source/JavaScriptCore/replay/scripts/tests/generate-input-with-vector-members.json
+index eb3487c..076e54b 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/generate-input-with-vector-members.json
++++ b/Source/JavaScriptCore/replay/scripts/tests/generate-input-with-vector-members.json
+@@ -2,27 +2,39 @@
+     "types": {
+         "Global": [
+             { "name": "double", "mode": "SCALAR" }
+         ],
+ 
+         "JavaScriptCore": [
+             { "name": "JSThing", "mode": "SCALAR", "header": "things/JSThing.h" }
+         ],
+ 
+         "WebCore": [
+-            { "name": "WebThing", "mode": "SCALAR", "header": "things/WebThing.h"  }
++            { "name": "WebThing", "mode": "SCALAR", "header": "things/WebThing.h" },
++            {
++                "name": "HistoryItem", "mode": "SHARED",
++                "header": "history/HistoryItem.h"
++            }
+         ]
+     },
+ 
+     "inputs": [
+         {
+             "name": "ArrayOfThings",
+             "description": "Supplies arrays of things.",
+             "queue": "SCRIPT_MEMOIZED",
+             "members": [
+                 { "name": "doubles", "type": "double", "flags": ["VECTOR"] },
+                 { "name": "jsthings", "type": "JSThing", "flags": ["VECTOR"] },
+                 { "name": "webthings", "type": "WebThing", "flags": ["VECTOR"] }
+             ]
++        },
++        {
++            "name": "SavedHistory",
++            "description": "Save history items.",
++            "queue": "SCRIPT_MEMOIZED",
++            "members": [
++                { "name": "entries", "type": "HistoryItem", "flags": ["VECTOR"] }
++            ]
+         }
+     ]
+ }
+-- 
+2.0.1
+

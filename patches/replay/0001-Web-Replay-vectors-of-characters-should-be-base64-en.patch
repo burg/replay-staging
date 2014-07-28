@@ -1,0 +1,123 @@
+From d811f218d7c6af2266de65314ec40390367e3c00 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Tue, 15 Jul 2014 11:25:22 -0700
+Subject: [PATCH] Web Replay: vectors of characters should be base64-encoded
+ Need the bug URL (OOPS!).
+
+Reviewed by NOBODY (OOPS!).
+
+Without this specialization, encode/decode methods try to create an
+array of single characters in JSON, rather than treating the
+vector as a binary blob.
+
+* replay/EncodedValue.cpp:
+(JSC::EncodingTraits<Vector<char>>::encodeValue): Added.
+(JSC::EncodingTraits<Vector<char>>::decodeValue): Added.
+* replay/EncodedValue.h:
+---
+ Source/JavaScriptCore/ChangeLog               | 16 ++++++++++++++++
+ Source/JavaScriptCore/replay/EncodedValue.cpp | 10 ++++++++++
+ Source/JavaScriptCore/replay/EncodedValue.h   |  7 +++++++
+ 3 files changed, 33 insertions(+)
+
+diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
+index 6191e2e..34c45fa 100644
+--- a/Source/JavaScriptCore/ChangeLog
++++ b/Source/JavaScriptCore/ChangeLog
+@@ -1,10 +1,26 @@
++2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Replay: vectors of characters should be base64-encoded
++        Need the bug URL (OOPS!).
++
++        Reviewed by NOBODY (OOPS!).
++
++        Without this specialization, encode/decode methods try to create an
++        array of single characters in JSON, rather than treating the
++        vector as a binary blob.
++
++        * replay/EncodedValue.cpp:
++        (JSC::EncodingTraits<Vector<char>>::encodeValue): Added.
++        (JSC::EncodingTraits<Vector<char>>::decodeValue): Added.
++        * replay/EncodedValue.h:
++
+ 2014-07-27  Ryuan Choi  <ryuan.choi@samsung.com>
+ 
+         Unreviewed build fix on the EFL port
+ 
+         Build break because of -Werror=return-type
+ 
+         * bytecode/PutByIdVariant.cpp:
+         (JSC::PutByIdVariant::oldStructureForTransition):
+         * dfg/DFGValueStrength.h:
+         (JSC::DFG::merge):
+diff --git a/Source/JavaScriptCore/replay/EncodedValue.cpp b/Source/JavaScriptCore/replay/EncodedValue.cpp
+index cee70e2..73f98a5 100644
+--- a/Source/JavaScriptCore/replay/EncodedValue.cpp
++++ b/Source/JavaScriptCore/replay/EncodedValue.cpp
+@@ -48,20 +48,30 @@ PassRefPtr<InspectorObject> EncodedValue::asObject()
+ 
+ PassRefPtr<InspectorArray> EncodedValue::asArray()
+ {
+     RefPtr<InspectorArray> result;
+     bool castSucceeded = m_value->asArray(&result);
+     ASSERT_UNUSED(castSucceeded, castSucceeded);
+ 
+     return result.release();
+ }
+ 
++EncodedValue EncodingTraits<Vector<char>>::encodeValue(const Vector<char>& buffer)
++{
++    return EncodedValue::createString(base64Encode(buffer));
++}
++
++bool EncodingTraits<Vector<char>>::decodeValue(EncodedValue& encodedBuffer, Vector<char>& decodedValue)
++{
++    return base64Decode(encodedBuffer.convertTo<String>(), decodedValue);
++}
++
+ template<> EncodedValue ScalarEncodingTraits<bool>::encodeValue(const bool& value)
+ {
+     return EncodedValue(InspectorBasicValue::create(value));
+ }
+ 
+ template<> EncodedValue ScalarEncodingTraits<double>::encodeValue(const double& value)
+ {
+     return EncodedValue(InspectorBasicValue::create(value));
+ }
+ 
+diff --git a/Source/JavaScriptCore/replay/EncodedValue.h b/Source/JavaScriptCore/replay/EncodedValue.h
+index 4fb8a85..6566734 100644
+--- a/Source/JavaScriptCore/replay/EncodedValue.h
++++ b/Source/JavaScriptCore/replay/EncodedValue.h
+@@ -129,20 +129,27 @@ struct EncodingTraits<Vector<T, inlineCapacity, OverflowHandler>> {
+         return true;
+     }
+ };
+ 
+ template<> struct EncodingTraits<EncodedValue> {
+     typedef EncodedValue DecodedType;
+     // We should never attempt to decode or encode an encoded value,
+     // so encodeValue and decodeValue are intentionally omitted here.
+ };
+ 
++// Specialize byte vectors to use base64 encoding.
++template<> struct EncodingTraits<Vector<char>> {
++    typedef Vector<char> DecodedType;
++    static JS_EXPORT_PRIVATE EncodedValue encodeValue(const DecodedType&);
++    static JS_EXPORT_PRIVATE bool decodeValue(EncodedValue&, DecodedType&);
++};
++
+ template<typename T>
+ struct ScalarEncodingTraits {
+     typedef T DecodedType;
+ 
+     static JS_EXPORT_PRIVATE EncodedValue encodeValue(const DecodedType& decodedValue);
+     static bool decodeValue(EncodedValue& encodedValue, DecodedType& decodedValue)
+     {
+         decodedValue = encodedValue.convertTo<DecodedType>();
+         return true;
+     }
+-- 
+2.0.1
+

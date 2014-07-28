@@ -1,0 +1,274 @@
+From dbf4faaa1bcad3ea64dcaa78879342e441a4cc45 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Tue, 22 Jul 2014 14:54:13 -0700
+Subject: [PATCH] Web Replay: Rename protocol methods for obtaining
+ session/segment data. Need the bug URL (OOPS!).
+
+Reviewed by NOBODY (OOPS!).
+
+Source/WebCore:
+* inspector/InspectorReplayAgent.cpp:
+(WebCore::InspectorReplayAgent::getSessionData):
+(WebCore::InspectorReplayAgent::getSegmentData):
+(WebCore::InspectorReplayAgent::getSerializedSession): Deleted.
+(WebCore::InspectorReplayAgent::getSerializedSegment): Deleted.
+* inspector/InspectorReplayAgent.h:
+* inspector/protocol/Replay.json:
+
+Source/WebInspectorUI:
+* UserInterface/Controllers/ReplayManager.js:
+(WebInspector.ReplayManager.prototype.getSession.get var):
+(WebInspector.ReplayManager.prototype.getSegment.get var):
+* UserInterface/Models/ReplaySession.js:
+(WebInspector.ReplaySession.prototype.segmentsChanged):
+---
+ Source/WebCore/ChangeLog                                  | 15 +++++++++++++++
+ Source/WebCore/inspector/InspectorReplayAgent.cpp         |  4 ++--
+ Source/WebCore/inspector/InspectorReplayAgent.h           |  4 ++--
+ Source/WebCore/inspector/protocol/Replay.json             |  8 ++++----
+ Source/WebInspectorUI/ChangeLog                           | 13 +++++++++++++
+ .../UserInterface/Controllers/ReplayManager.js            |  4 ++--
+ .../WebInspectorUI/UserInterface/Models/ReplaySession.js  |  2 +-
+ 7 files changed, 39 insertions(+), 11 deletions(-)
+
+diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
+index 64ffd28..588da57 100644
+--- a/Source/WebCore/ChangeLog
++++ b/Source/WebCore/ChangeLog
+@@ -1,10 +1,25 @@
++2014-07-22  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Replay: Rename protocol methods for obtaining session/segment data.
++        Need the bug URL (OOPS!).
++
++        Reviewed by NOBODY (OOPS!).
++
++        * inspector/InspectorReplayAgent.cpp:
++        (WebCore::InspectorReplayAgent::getSessionData):
++        (WebCore::InspectorReplayAgent::getSegmentData):
++        (WebCore::InspectorReplayAgent::getSerializedSession): Deleted.
++        (WebCore::InspectorReplayAgent::getSerializedSegment): Deleted.
++        * inspector/InspectorReplayAgent.h:
++        * inspector/protocol/Replay.json:
++
+ 2014-07-16  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         [WIP] Web Replay: DOM Timers should be created and fired deterministically
+         Need the bug URL (OOPS!).
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Async mechanisms such as window.setTimeout are nondeterministic because the
+         interleaving of callbacks and other event loop items (which run JS) is also
+         nondeterministic.
+diff --git a/Source/WebCore/inspector/InspectorReplayAgent.cpp b/Source/WebCore/inspector/InspectorReplayAgent.cpp
+index 912bea8..d988a8d 100644
+--- a/Source/WebCore/inspector/InspectorReplayAgent.cpp
++++ b/Source/WebCore/inspector/InspectorReplayAgent.cpp
+@@ -464,32 +464,32 @@ PassRefPtr<ReplaySessionSegment> InspectorReplayAgent::findSegment(ErrorString*
+     return it->value;
+ }
+ 
+ void InspectorReplayAgent::getAvailableSessions(ErrorString*, RefPtr<Inspector::TypeBuilder::Array<SessionIdentifier>>& sessionsList)
+ {
+     sessionsList = TypeBuilder::Array<SessionIdentifier>::create();
+     for (auto& pair : m_sessionsMap)
+         sessionsList->addItem(pair.key);
+ }
+ 
+-void InspectorReplayAgent::getSerializedSession(ErrorString* errorString, SessionIdentifier identifier, RefPtr<Inspector::TypeBuilder::Replay::ReplaySession>& serializedObject)
++void InspectorReplayAgent::getSessionData(ErrorString* errorString, SessionIdentifier identifier, RefPtr<Inspector::TypeBuilder::Replay::ReplaySession>& serializedObject)
+ {
+     RefPtr<ReplaySession> session = findSession(errorString, identifier);
+     if (!session) {
+         *errorString = ASCIILiteral("Couldn't find the specified session.");
+         return;
+     }
+ 
+     serializedObject = buildInspectorObjectForSession(session);
+ }
+ 
+-void InspectorReplayAgent::getSerializedSegment(ErrorString* errorString, SegmentIdentifier identifier, RefPtr<Inspector::TypeBuilder::Replay::SessionSegment>& serializedObject)
++void InspectorReplayAgent::getSegmentData(ErrorString* errorString, SegmentIdentifier identifier, RefPtr<Inspector::TypeBuilder::Replay::SessionSegment>& serializedObject)
+ {
+     RefPtr<ReplaySessionSegment> segment = findSegment(errorString, identifier);
+     if (!segment) {
+         *errorString = ASCIILiteral("Couldn't find the specified segment.");
+         return;
+     }
+ 
+     serializedObject = buildInspectorObjectForSegment(segment);
+ }
+ 
+diff --git a/Source/WebCore/inspector/InspectorReplayAgent.h b/Source/WebCore/inspector/InspectorReplayAgent.h
+index 01ec1e9..f57ad54 100644
+--- a/Source/WebCore/inspector/InspectorReplayAgent.h
++++ b/Source/WebCore/inspector/InspectorReplayAgent.h
+@@ -98,22 +98,22 @@ public:
+     virtual void replayToPosition(ErrorString*, const RefPtr<Inspector::InspectorObject>&, bool shouldFastForward) override;
+     virtual void replayToCompletion(ErrorString*, bool shouldFastForward) override;
+     virtual void pausePlayback(ErrorString*) override;
+     virtual void cancelPlayback(ErrorString*) override;
+ 
+     virtual void switchSession(ErrorString*, SessionIdentifier) override;
+     virtual void insertSessionSegment(ErrorString*, SessionIdentifier, SegmentIdentifier, int segmentIndex) override;
+     virtual void removeSessionSegment(ErrorString*, SessionIdentifier, int segmentIndex) override;
+ 
+     virtual void getAvailableSessions(ErrorString*, RefPtr<Inspector::TypeBuilder::Array<SessionIdentifier>>&) override;
+-    virtual void getSerializedSession(ErrorString*, SessionIdentifier, RefPtr<Inspector::TypeBuilder::Replay::ReplaySession>&) override;
+-    virtual void getSerializedSegment(ErrorString*, SegmentIdentifier, RefPtr<Inspector::TypeBuilder::Replay::SessionSegment>&) override;
++    virtual void getSessionData(ErrorString*, SessionIdentifier, RefPtr<Inspector::TypeBuilder::Replay::ReplaySession>&) override;
++    virtual void getSegmentData(ErrorString*, SegmentIdentifier, RefPtr<Inspector::TypeBuilder::Replay::SessionSegment>&) override;
+ 
+ private:
+     PassRefPtr<ReplaySession> findSession(ErrorString*, SessionIdentifier);
+     PassRefPtr<ReplaySessionSegment> findSegment(ErrorString*, SegmentIdentifier);
+     SessionState sessionState() const;
+ 
+     std::unique_ptr<Inspector::InspectorReplayFrontendDispatcher> m_frontendDispatcher;
+     RefPtr<Inspector::InspectorReplayBackendDispatcher> m_backendDispatcher;
+     Page& m_page;
+ 
+diff --git a/Source/WebCore/inspector/protocol/Replay.json b/Source/WebCore/inspector/protocol/Replay.json
+index 6db6637..9fb3f3c 100644
+--- a/Source/WebCore/inspector/protocol/Replay.json
++++ b/Source/WebCore/inspector/protocol/Replay.json
+@@ -112,32 +112,32 @@
+             ]
+         },
+         {
+             "name": "getAvailableSessions",
+             "description": "Returns identifiers of all available sessions.",
+             "returns": [
+                 { "name": "ids", "type": "array", "items": { "$ref": "SessionIdentifier" } }
+             ]
+         },
+         {
+-            "name": "getSerializedSession",
+-            "description": "Returns the specified session serialized to a JSON object.",
++            "name": "getSessionData",
++            "description": "Returns an object for the specified session.",
+             "parameters": [
+                 { "name": "sessionIdentifier", "$ref": "SessionIdentifier" }
+             ],
+             "returns": [
+                 { "name": "session", "$ref": "ReplaySession", "optional": true, "description": "The requested serialized replay session." }
+             ]
+         },
+         {
+-            "name": "getSerializedSegment",
+-            "description": "Returns the session segment serialized to a JSON object.",
++            "name": "getSegmentData",
++            "description": "Returns an object for the specified session segment.",
+             "parameters": [
+                 { "name": "id", "$ref": "SegmentIdentifier" }
+             ],
+             "returns": [
+                 { "name": "segment", "$ref": "SessionSegment",  "optional": true, "description": "The requested serialized session segment." }
+             ]
+         }
+     ],
+     "events": [
+         {
+diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
+index beb7431..7f02730 100644
+--- a/Source/WebInspectorUI/ChangeLog
++++ b/Source/WebInspectorUI/ChangeLog
+@@ -1,12 +1,25 @@
+ 2014-07-22  Brian J. Burg  <burg@cs.washington.edu>
+ 
++        Web Replay: Rename protocol methods for obtaining session/segment data.
++        Need the bug URL (OOPS!).
++
++        Reviewed by NOBODY (OOPS!).
++
++        * UserInterface/Controllers/ReplayManager.js:
++        (WebInspector.ReplayManager.prototype.getSession.get var):
++        (WebInspector.ReplayManager.prototype.getSegment.get var):
++        * UserInterface/Models/ReplaySession.js:
++        (WebInspector.ReplaySession.prototype.segmentsChanged):
++
++2014-07-22  Brian J. Burg  <burg@cs.washington.edu>
++
+         Web Inspector: show a replay dashboard when capturing or replaying
+         https://bugs.webkit.org/show_bug.cgi?id=135170
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         This is a WIP patch which adds a replay dashboard with record/play/pause buttons.
+         The replay dashboard is automatically shown when the user starts capturing an execution.
+ 
+         * Localizations/en.lproj/localizedStrings.js:
+         * UserInterface/Base/Main.js:
+diff --git a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
+index 8881886..7154f60 100644
+--- a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
++++ b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
+@@ -133,35 +133,35 @@ WebInspector.ReplayManager.prototype = {
+     {
+         return this._currentPosition;
+     },
+ 
+     // These return promises even if the relevant instance is already created.
+     getSession: function(sessionId)
+     {
+         if (this._sessionPromises.has(sessionId))
+             return this._sessionPromises.get(sessionId);
+ 
+-        var newPromise = ReplayAgent.getSerializedSession.promise(sessionId)
++        var newPromise = ReplayAgent.getSessionData.promise(sessionId)
+             .then(function(payload) {
+                 return Promise.resolve(WebInspector.ReplaySession.fromPayload(sessionId, payload));
+             });
+ 
+         this._sessionPromises.set(sessionId, newPromise);
+         return newPromise;
+     },
+ 
+     getSegment: function(segmentId)
+     {
+         if (this._segmentPromises.has(segmentId))
+             return this._segmentPromises.get(segmentId);
+ 
+-        var newPromise = ReplayAgent.getSerializedSegment.promise(segmentId)
++        var newPromise = ReplayAgent.getSegmentData.promise(segmentId)
+             .then(function(payload) {
+                 return Promise.resolve(new WebInspector.ReplaySessionSegment(segmentId, payload));
+             });
+ 
+         this._segmentPromises.set(segmentId, newPromise);
+         return newPromise;
+     },
+ 
+     // Protected (called by ReplayObserver)
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Models/ReplaySession.js b/Source/WebInspectorUI/UserInterface/Models/ReplaySession.js
+index 2c7bcd7..c11a3ed 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/ReplaySession.js
++++ b/Source/WebInspectorUI/UserInterface/Models/ReplaySession.js
+@@ -50,21 +50,21 @@ WebInspector.ReplaySession.prototype = {
+     __proto__: WebInspector.Object.prototype,
+ 
+     get segments()
+     {
+         return this._segments.slice();
+     },
+ 
+     segmentsChanged: function()
+     {
+         // The replay manager won't update the session's list of segments nor create a new session.
+-        ReplayAgent.getSerializedSession.promise(this.identifier)
++        ReplayAgent.getSessionData.promise(this.identifier)
+             .then(this._updateFromPayload.bind(this));
+     },
+ 
+     _updateFromPayload: function(payload)
+     {
+         var session = payload.session;
+         console.assert(session.id === this.identifier);
+ 
+         var segmentIds = session.segments;
+         var oldSegments = this._segments;
+-- 
+2.0.1
+

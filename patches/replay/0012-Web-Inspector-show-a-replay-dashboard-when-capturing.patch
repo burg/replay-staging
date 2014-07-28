@@ -1,0 +1,611 @@
+From c4e5c088023e56ffdbcfe88b1914d5080afb82ef Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Tue, 22 Jul 2014 13:19:06 -0700
+Subject: [PATCH] Web Inspector: show a replay dashboard when capturing or
+ replaying https://bugs.webkit.org/show_bug.cgi?id=135170
+
+Reviewed by NOBODY (OOPS!).
+
+This is a WIP patch which adds a replay dashboard with record/play/pause buttons.
+The replay dashboard is automatically shown when the user starts capturing an execution.
+
+* Localizations/en.lproj/localizedStrings.js:
+* UserInterface/Base/Main.js:
+(WebInspector.loaded):
+(WebInspector._captureDidStart):
+* UserInterface/Controllers/DashboardManager.js:
+(WebInspector.DashboardManager):
+* UserInterface/Images/ReplayPauseButton.svg: Added.
+* UserInterface/Images/ReplayPlayButton.svg: Added.
+* UserInterface/Images/ReplayRecordingButton.svg: Added.
+* UserInterface/Main.html:
+* UserInterface/Models/ReplayDashboard.js: Copied from Source/WebInspectorUI/UserInterface/Controllers/DashboardManager.js.
+(WebInspector.ReplayDashboard):
+* UserInterface/Views/ButtonNavigationItem.js:
+(WebInspector.ButtonNavigationItem.prototype._updateImage):
+* UserInterface/Views/DashboardView.js:
+(WebInspector.DashboardView):
+* UserInterface/Views/ReplayDashboardView.css: Copied from Source/WebInspectorUI/UserInterface/Controllers/DashboardManager.js.
+(.toolbar .dashboard.replay):
+(.toolbar .dashboard.replay div.navigation-bar):
+(.toolbar .dashboard.replay .item.button > .glyph):
+(.toolbar.label-only .dashboard.replay .item.button > .glyph):
+* UserInterface/Views/ReplayDashboardView.js: Added.
+(WebInspector.ReplayDashboardView):
+(WebInspector.ReplayDashboardView.prototype._captureButtonItemClicked):
+(WebInspector.ReplayDashboardView.prototype._replayButtonItemClicked):
+(WebInspector.ReplayDashboardView.prototype._captureStarted):
+(WebInspector.ReplayDashboardView.prototype._captureStopped):
+(WebInspector.ReplayDashboardView.prototype._playbackStarted):
+(WebInspector.ReplayDashboardView.prototype._playbackPaused):
+(WebInspector.ReplayDashboardView.prototype._playbackFinished):
+---
+ Source/WebInspectorUI/ChangeLog                    |  41 +++++++
+ .../Localizations/en.lproj/localizedStrings.js     | Bin 54590 -> 54976 bytes
+ Source/WebInspectorUI/UserInterface/Base/Main.js   |   6 +
+ .../UserInterface/Controllers/DashboardManager.js  |   1 +
+ .../UserInterface/Images/ReplayPauseButton.svg     |  10 ++
+ .../UserInterface/Images/ReplayPlayButton.svg      |   7 ++
+ .../UserInterface/Images/ReplayRecordingButton.svg |   7 ++
+ Source/WebInspectorUI/UserInterface/Main.html      |   3 +
+ .../ReplayDashboard.js}                            |  17 +--
+ .../UserInterface/Views/DashboardView.js           |   3 +
+ .../ReplayDashboardView.css}                       |  43 ++++---
+ .../UserInterface/Views/ReplayDashboardView.js     | 126 +++++++++++++++++++++
+ 12 files changed, 236 insertions(+), 28 deletions(-)
+ create mode 100755 Source/WebInspectorUI/UserInterface/Images/ReplayPauseButton.svg
+ create mode 100755 Source/WebInspectorUI/UserInterface/Images/ReplayPlayButton.svg
+ create mode 100755 Source/WebInspectorUI/UserInterface/Images/ReplayRecordingButton.svg
+ copy Source/WebInspectorUI/UserInterface/{Controllers/DashboardManager.js => Models/ReplayDashboard.js} (76%)
+ copy Source/WebInspectorUI/UserInterface/{Controllers/DashboardManager.js => Views/ReplayDashboardView.css} (57%)
+ create mode 100644 Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js
+
+diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
+index 8aeeb08..beb7431 100644
+--- a/Source/WebInspectorUI/ChangeLog
++++ b/Source/WebInspectorUI/ChangeLog
+@@ -1,10 +1,51 @@
++2014-07-22  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Inspector: show a replay dashboard when capturing or replaying
++        https://bugs.webkit.org/show_bug.cgi?id=135170
++
++        Reviewed by NOBODY (OOPS!).
++
++        This is a WIP patch which adds a replay dashboard with record/play/pause buttons.
++        The replay dashboard is automatically shown when the user starts capturing an execution.
++
++        * Localizations/en.lproj/localizedStrings.js:
++        * UserInterface/Base/Main.js:
++        (WebInspector.loaded):
++        (WebInspector._captureDidStart):
++        * UserInterface/Controllers/DashboardManager.js:
++        (WebInspector.DashboardManager):
++        * UserInterface/Images/ReplayPauseButton.svg: Added.
++        * UserInterface/Images/ReplayPlayButton.svg: Added.
++        * UserInterface/Images/ReplayRecordingButton.svg: Added.
++        * UserInterface/Main.html:
++        * UserInterface/Models/ReplayDashboard.js: Copied from Source/WebInspectorUI/UserInterface/Controllers/DashboardManager.js.
++        (WebInspector.ReplayDashboard):
++        * UserInterface/Views/ButtonNavigationItem.js:
++        (WebInspector.ButtonNavigationItem.prototype._updateImage):
++        * UserInterface/Views/DashboardView.js:
++        (WebInspector.DashboardView):
++        * UserInterface/Views/ReplayDashboardView.css: Copied from Source/WebInspectorUI/UserInterface/Controllers/DashboardManager.js.
++        (.toolbar .dashboard.replay):
++        (.toolbar .dashboard.replay div.navigation-bar):
++        (.toolbar .dashboard.replay .item.button > .glyph):
++        (.toolbar.label-only .dashboard.replay .item.button > .glyph):
++        * UserInterface/Views/ReplayDashboardView.js: Added.
++        (WebInspector.ReplayDashboardView):
++        (WebInspector.ReplayDashboardView.prototype._captureButtonItemClicked):
++        (WebInspector.ReplayDashboardView.prototype._replayButtonItemClicked):
++        (WebInspector.ReplayDashboardView.prototype._captureStarted):
++        (WebInspector.ReplayDashboardView.prototype._captureStopped):
++        (WebInspector.ReplayDashboardView.prototype._playbackStarted):
++        (WebInspector.ReplayDashboardView.prototype._playbackPaused):
++        (WebInspector.ReplayDashboardView.prototype._playbackFinished):
++
+ 2014-07-21  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         Web Inspector: cannot navigate between multiple applicable dashboards
+         https://bugs.webkit.org/show_bug.cgi?id=135130
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Add navigation arrows between dashboards when multiple dashboards are applicable.
+         For example, the user should be able to go back to the default dashboard while paused
+         at a breakpoint. Dashboards form a stack based on when they are first introduced.
+diff --git a/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js b/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js
+index 2147e8a05458ba924555ca262f7606b17509387e..7e20150f19df336cd7e5a80e66faf58bab85e8d5 100644
+GIT binary patch
+delta 154
+zcmdnDiuu4=<_+ye;?4|345<u>3?)EP0Z1z__yJkvllSdWl*A#&pfLHtY}?K4MvwG4
+zGa2$2G8u{)GC&%5-GFQ;AF3!l>60OE4$$06pvff+84Rf)g@OSLC}L2>;ZvSF008x%
+BEUf?l
+
+delta 24
+gcmX@GmU-VQ<_+yen?;Qu>2J<W{$RNI_SB~i0Fs{!Jpcdz
+
+diff --git a/Source/WebInspectorUI/UserInterface/Base/Main.js b/Source/WebInspectorUI/UserInterface/Base/Main.js
+index 2d50b73..e9bd6c1 100644
+--- a/Source/WebInspectorUI/UserInterface/Base/Main.js
++++ b/Source/WebInspectorUI/UserInterface/Base/Main.js
+@@ -117,20 +117,21 @@ WebInspector.loaded = function()
+     this.layerTreeManager = new WebInspector.LayerTreeManager;
+     this.dashboardManager = new WebInspector.DashboardManager;
+     this.probeManager = new WebInspector.ProbeManager;
+     this.replayManager = new WebInspector.ReplayManager;
+ 
+     // Enable the Console Agent after creating the singleton managers.
+     if (window.ConsoleAgent)
+         ConsoleAgent.enable();
+ 
+     // Register for events.
++    this.replayManager.addEventListener(WebInspector.ReplayManager.Event.CaptureStarted, this._captureDidStart, this);
+     this.debuggerManager.addEventListener(WebInspector.DebuggerManager.Event.Paused, this._debuggerDidPause, this);
+     this.debuggerManager.addEventListener(WebInspector.DebuggerManager.Event.Resumed, this._debuggerDidResume, this);
+     this.domTreeManager.addEventListener(WebInspector.DOMTreeManager.Event.InspectModeStateChanged, this._inspectModeStateChanged, this);
+     this.domTreeManager.addEventListener(WebInspector.DOMTreeManager.Event.DOMNodeWasInspected, this._domNodeWasInspected, this);
+     this.frameResourceManager.addEventListener(WebInspector.FrameResourceManager.Event.MainFrameDidChange, this._mainFrameDidChange, this);
+ 
+     WebInspector.Frame.addEventListener(WebInspector.Frame.Event.MainResourceDidChange, this._mainResourceDidChange, this);
+ 
+     document.addEventListener("DOMContentLoaded", this.contentLoaded.bind(this));
+ 
+@@ -737,20 +738,25 @@ WebInspector._dragOver = function(event)
+ 
+     // Allow dropping into editable areas.
+     if (WebInspector.isEventTargetAnEditableField(event))
+         return;
+ 
+     // Prevent the drop from being accepted.
+     event.dataTransfer.dropEffect = "none";
+     event.preventDefault();
+ }
+ 
++WebInspector._captureDidStart = function(event)
++{
++    this.dashboardContainer.showDashboardViewForRepresentedObject(this.dashboardManager.dashboards.replay);
++}
++
+ WebInspector._debuggerDidPause = function(event)
+ {
+     this.debuggerSidebarPanel.show();
+     this.dashboardContainer.showDashboardViewForRepresentedObject(this.dashboardManager.dashboards.debugger);
+ 
+     // Since the Scope Chain details sidebar panel might not be in the sidebar yet,
+     // set a flag to select and show it when it does become available.
+     this._selectAndShowScopeChainDetailsSidebarPanelWhenAvailable = true;
+ 
+     InspectorFrontendHost.bringToFront();
+diff --git a/Source/WebInspectorUI/UserInterface/Controllers/DashboardManager.js b/Source/WebInspectorUI/UserInterface/Controllers/DashboardManager.js
+index 781c819..9425a5e 100644
+--- a/Source/WebInspectorUI/UserInterface/Controllers/DashboardManager.js
++++ b/Source/WebInspectorUI/UserInterface/Controllers/DashboardManager.js
+@@ -22,20 +22,21 @@
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ WebInspector.DashboardManager = function() {
+     WebInspector.Object.call(this);
+ 
+     this._dashboards = {};
+     this._dashboards.default = new WebInspector.DefaultDashboard;
+     this._dashboards.debugger = new WebInspector.DebuggerDashboard;
++    this._dashboards.replay = new WebInspector.ReplayDashboard;
+ };
+ 
+ WebInspector.DashboardManager.prototype = {
+     constructor: WebInspector.DashboardManager,
+     __proto__: WebInspector.Object.prototype,
+ 
+     get dashboards()
+     {
+         return this._dashboards;
+     }
+diff --git a/Source/WebInspectorUI/UserInterface/Images/ReplayPauseButton.svg b/Source/WebInspectorUI/UserInterface/Images/ReplayPauseButton.svg
+new file mode 100755
+index 0000000..d9b5e9c
+--- /dev/null
++++ b/Source/WebInspectorUI/UserInterface/Images/ReplayPauseButton.svg
+@@ -0,0 +1,10 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Generator: Adobe Illustrator 14.0.0, SVG Export Plug-In . SVG Version: 6.00 Build 43363)  -->
++<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
++<svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
++	 width="36px" height="36px" viewBox="0 0 36 36" enable-background="new 0 0 36 36" xml:space="preserve">
++<g>
++	<rect x="5.656" y="4.202" width="9.255" height="27.597"/>
++	<rect x="21.09" y="4.202" width="9.254" height="27.597"/>
++</g>
++</svg>
+diff --git a/Source/WebInspectorUI/UserInterface/Images/ReplayPlayButton.svg b/Source/WebInspectorUI/UserInterface/Images/ReplayPlayButton.svg
+new file mode 100755
+index 0000000..450d539
+--- /dev/null
++++ b/Source/WebInspectorUI/UserInterface/Images/ReplayPlayButton.svg
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Generator: Adobe Illustrator 14.0.0, SVG Export Plug-In . SVG Version: 6.00 Build 43363)  -->
++<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
++<svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
++	 width="36px" height="36px" viewBox="0 0 36 36" enable-background="new 0 0 36 36" xml:space="preserve">
++<polygon fill="#38AF4A" points="5.625,4.21 30.375,18 5.625,31.79 "/>
++</svg>
+diff --git a/Source/WebInspectorUI/UserInterface/Images/ReplayRecordingButton.svg b/Source/WebInspectorUI/UserInterface/Images/ReplayRecordingButton.svg
+new file mode 100755
+index 0000000..8040e07
+--- /dev/null
++++ b/Source/WebInspectorUI/UserInterface/Images/ReplayRecordingButton.svg
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Generator: Adobe Illustrator 14.0.0, SVG Export Plug-In . SVG Version: 6.00 Build 43363)  -->
++<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
++<svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
++	 width="36px" height="36px" viewBox="0 0 36 36" enable-background="new 0 0 36 36" xml:space="preserve">
++<circle fill="#EE2D24" cx="18" cy="18" r="13.605"/>
++</svg>
+diff --git a/Source/WebInspectorUI/UserInterface/Main.html b/Source/WebInspectorUI/UserInterface/Main.html
+index f815d1b..31979d9 100644
+--- a/Source/WebInspectorUI/UserInterface/Main.html
++++ b/Source/WebInspectorUI/UserInterface/Main.html
+@@ -99,20 +99,21 @@
+     <link rel="stylesheet" href="Views/NavigationSidebarPanel.css">
+     <link rel="stylesheet" href="Views/NetworkTimelineOverviewGraph.css">
+     <link rel="stylesheet" href="Views/NetworkTimelineView.css">
+     <link rel="stylesheet" href="Views/OverviewTimelineView.css">
+     <link rel="stylesheet" href="Views/PathComponentIcons.css">
+     <link rel="stylesheet" href="Views/Popover.css">
+     <link rel="stylesheet" href="Views/ProbeDetailsSidebarPanel.css">
+     <link rel="stylesheet" href="Views/ProbeSetDataGrid.css">
+     <link rel="stylesheet" href="Views/QuickConsole.css">
+     <link rel="stylesheet" href="Views/RadioButtonNavigationItem.css">
++    <link rel="stylesheet" href="Views/ReplayDashboardView.css">
+     <link rel="stylesheet" href="Views/ResourceIcons.css">
+     <link rel="stylesheet" href="Views/ResourceSidebarPanel.css">
+     <link rel="stylesheet" href="Views/ResourceTreeElement.css">
+     <link rel="stylesheet" href="Views/RulesStyleDetailsPanel.css">
+     <link rel="stylesheet" href="Views/ScopeBar.css">
+     <link rel="stylesheet" href="Views/ScriptContentView.css">
+     <link rel="stylesheet" href="Views/ScriptTimelineOverviewGraph.css">
+     <link rel="stylesheet" href="Views/ScriptTimelineView.css">
+     <link rel="stylesheet" href="Views/SearchBar.css">
+     <link rel="stylesheet" href="Views/SearchIcons.css">
+@@ -239,20 +240,21 @@
+     <script src="Models/LayoutTimelineRecord.js"></script>
+     <script src="Models/LogObject.js"></script>
+     <script src="Models/NetworkTimeline.js"></script>
+     <script src="Models/Probe.js"></script>
+     <script src="Models/ProbeSet.js"></script>
+     <script src="Models/ProbeSetDataFrame.js"></script>
+     <script src="Models/ProbeSetDataTable.js"></script>
+     <script src="Models/Profile.js"></script>
+     <script src="Models/ProfileNode.js"></script>
+     <script src="Models/ProfileNodeCall.js"></script>
++    <script src="Models/ReplayDashboard.js"></script>
+     <script src="Models/ReplaySession.js"></script>
+     <script src="Models/ReplaySessionSegment.js"></script>
+     <script src="Models/Resource.js"></script>
+     <script src="Models/ResourceCollection.js"></script>
+     <script src="Models/ResourceSearchMatchObject.js"></script>
+     <script src="Models/ResourceTimelineRecord.js"></script>
+     <script src="Models/Revision.js"></script>
+     <script src="Models/ScopeChainNode.js"></script>
+     <script src="Models/Script.js"></script>
+     <script src="Models/ScriptTimelineRecord.js"></script>
+@@ -411,20 +413,21 @@
+     <script src="Views/Popover.js"></script>
+     <script src="Views/ProbeDetailsSidebarPanel.js"></script>
+     <script src="Views/ProbeSetDataGrid.js"></script>
+     <script src="Views/ProbeSetDataGridNode.js"></script>
+     <script src="Views/ProbeSetDetailsSection.js"></script>
+     <script src="Views/ProfileNodeDataGridNode.js"></script>
+     <script src="Views/ProfileNodeTreeElement.js"></script>
+     <script src="Views/QuickConsole.js"></script>
+     <script src="Views/QuickConsoleNavigationBar.js"></script>
+     <script src="Views/RadioButtonNavigationItem.js"></script>
++    <script src="Views/ReplayDashboardView.js"></script>
+     <script src="Views/ResourceClusterContentView.js"></script>
+     <script src="Views/ResourceDetailsSidebarPanel.js"></script>
+     <script src="Views/ResourceSidebarPanel.js"></script>
+     <script src="Views/ResourceTimelineDataGridNode.js"></script>
+     <script src="Views/ResourceTimelineDataGridNodePathComponent.js"></script>
+     <script src="Views/RulesStyleDetailsPanel.js"></script>
+     <script src="Views/ScopeBar.js"></script>
+     <script src="Views/ScopeBarItem.js"></script>
+     <script src="Views/ScopeChainDetailsSidebarPanel.js"></script>
+     <script src="Views/ScopeVariableTreeElement.js"></script>
+diff --git a/Source/WebInspectorUI/UserInterface/Controllers/DashboardManager.js b/Source/WebInspectorUI/UserInterface/Models/ReplayDashboard.js
+similarity index 76%
+copy from Source/WebInspectorUI/UserInterface/Controllers/DashboardManager.js
+copy to Source/WebInspectorUI/UserInterface/Models/ReplayDashboard.js
+index 781c819..8db5c1b 100644
+--- a/Source/WebInspectorUI/UserInterface/Controllers/DashboardManager.js
++++ b/Source/WebInspectorUI/UserInterface/Models/ReplayDashboard.js
+@@ -1,12 +1,12 @@
+ /*
+- * Copyright (C) 2013, 2014 Apple Inc. All rights reserved.
++ * Copyright (C) 2014 University of Washington. All rights reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without
+  * modification, are permitted provided that the following conditions
+  * are met:
+  * 1. Redistributions of source code must retain the above copyright
+  *    notice, this list of conditions and the following disclaimer.
+  * 2. Redistributions in binary form must reproduce the above copyright
+  *    notice, this list of conditions and the following disclaimer in the
+  *    documentation and/or other materials provided with the distribution.
+  *
+@@ -16,27 +16,18 @@
+  * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+  * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+-WebInspector.DashboardManager = function() {
++WebInspector.ReplayDashboard = function() {
+     WebInspector.Object.call(this);
+-
+-    this._dashboards = {};
+-    this._dashboards.default = new WebInspector.DefaultDashboard;
+-    this._dashboards.debugger = new WebInspector.DebuggerDashboard;
+ };
+ 
+-WebInspector.DashboardManager.prototype = {
+-    constructor: WebInspector.DashboardManager,
++WebInspector.ReplayDashboard.prototype = {
++    constructor: WebInspector.ReplayDashboard,
+     __proto__: WebInspector.Object.prototype,
+-
+-    get dashboards()
+-    {
+-        return this._dashboards;
+-    }
+ };
+diff --git a/Source/WebInspectorUI/UserInterface/Views/DashboardView.js b/Source/WebInspectorUI/UserInterface/Views/DashboardView.js
+index 1ded515..87cb88a 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/DashboardView.js
++++ b/Source/WebInspectorUI/UserInterface/Views/DashboardView.js
+@@ -28,20 +28,23 @@ WebInspector.DashboardView = function(representedObject, identifier)
+     // Creating a new DashboardView directly returns an instance of the proper subclass.
+     if (this.constructor === WebInspector.DashboardView) {
+         console.assert(representedObject);
+ 
+         if (representedObject instanceof WebInspector.DefaultDashboard)
+             return new WebInspector.DefaultDashboardView(representedObject);
+ 
+         if (representedObject instanceof WebInspector.DebuggerDashboard)
+             return new WebInspector.DebuggerDashboardView(representedObject);
+ 
++        if (representedObject instanceof WebInspector.ReplayDashboard)
++            return new WebInspector.ReplayDashboardView(representedObject);
++
+         throw "Can't make a DashboardView for an unknown representedObject.";
+     }
+ 
+     // Otherwise, a subclass is calling the base constructor.
+     console.assert(this.constructor !== WebInspector.DashboardView && this instanceof WebInspector.DashboardView);
+     console.assert(identifier);
+ 
+     WebInspector.Object.call(this);
+ 
+     this._representedObject = representedObject;
+diff --git a/Source/WebInspectorUI/UserInterface/Controllers/DashboardManager.js b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.css
+similarity index 57%
+copy from Source/WebInspectorUI/UserInterface/Controllers/DashboardManager.js
+copy to Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.css
+index 781c819..01b6e6e 100644
+--- a/Source/WebInspectorUI/UserInterface/Controllers/DashboardManager.js
++++ b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.css
+@@ -1,12 +1,12 @@
+ /*
+- * Copyright (C) 2013, 2014 Apple Inc. All rights reserved.
++ * Copyright (C) 2014 University of Washington. All rights reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without
+  * modification, are permitted provided that the following conditions
+  * are met:
+  * 1. Redistributions of source code must retain the above copyright
+  *    notice, this list of conditions and the following disclaimer.
+  * 2. Redistributions in binary form must reproduce the above copyright
+  *    notice, this list of conditions and the following disclaimer in the
+  *    documentation and/or other materials provided with the distribution.
+  *
+@@ -15,28 +15,41 @@
+  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+  * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+  * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
++.toolbar .dashboard.replay {
++    display: -webkit-flex;
++    -webkit-flex-wrap: nowrap;
++    -webkit-justify-content: center;
++    -webkit-align-items: center;
+ 
+-WebInspector.DashboardManager = function() {
+-    WebInspector.Object.call(this);
++    text-align: center;
++    text-shadow: rgba(255, 255, 255, 0.5) 0 1px 0;
++    color: rgb(60, 60, 60);
++    padding: 0 5px;
++}
+ 
+-    this._dashboards = {};
+-    this._dashboards.default = new WebInspector.DefaultDashboard;
+-    this._dashboards.debugger = new WebInspector.DebuggerDashboard;
+-};
++.toolbar .dashboard.replay div.navigation-bar {
++    border-bottom: none !important;
++}
+ 
+-WebInspector.DashboardManager.prototype = {
+-    constructor: WebInspector.DashboardManager,
+-    __proto__: WebInspector.Object.prototype,
++.toolbar .dashboard.replay .item.button > .glyph {
++    /* ButtonNavigationItem is not aware of alternate button sizes, so override here. */
++    width: 16px !important;
++    height: 16px !important;
++}
++
++.toolbar.label-only .dashboard.replay .item.button > .glyph {
++    /* The default styles here will try to elide buttons in label-only mode. */
++    display: -webkit-flex !important;
++
++    /* ButtonNavigationItem is not aware of alternate button sizes, so override here. */
++    width: 14px !important;
++    height: 14px !important;
++}
+ 
+-    get dashboards()
+-    {
+-        return this._dashboards;
+-    }
+-};
+diff --git a/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js
+new file mode 100644
+index 0000000..6e0ccbc
+--- /dev/null
++++ b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js
+@@ -0,0 +1,126 @@
++/*
++ * Copyright (C) 2014 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
++ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
++ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
++ * THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++WebInspector.ReplayDashboardView = function(representedObject)
++{
++    WebInspector.DashboardView.call(this, representedObject, "replay");
++
++    this._navigationBar = new WebInspector.NavigationBar;
++    this.element.appendChild(this._navigationBar.element);
++
++    replayManager = WebInspector.replayManager;
++
++    this._captureButtonItem = new WebInspector.ActivateButtonNavigationItem("replay-dashboard-capture", WebInspector.UIString("Start Recording"), WebInspector.UIString("Stop Recording"), "Images/ReplayReadyButton.svg", 16, 16);
++    this._captureButtonItem.addEventListener(WebInspector.ButtonNavigationItem.Event.Clicked, this._captureButtonItemClicked, this);
++    this._captureButtonItem.hidden = true;
++    this._navigationBar.addNavigationItem(this._captureButtonItem);
++
++    this._replayButtonItem = new WebInspector.ToggleButtonNavigationItem("replay-dashboard-replay", WebInspector.UIString("Start Playback"), WebInspector.UIString("Pause Playback"), "Images/ReplayPlayButton.svg", "Images/ReplayPauseButton.svg", 16, 16);
++    this._replayButtonItem.addEventListener(WebInspector.ButtonNavigationItem.Event.Clicked, this._replayButtonItemClicked, this);
++    this._replayButtonItem.hidden = true;
++    this._navigationBar.addNavigationItem(this._replayButtonItem);
++
++    // Add events required to track capture and replay state.
++    WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.CaptureStarted, this._captureStarted, this);
++    WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.CaptureStopped, this._captureStopped, this);
++    WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.PlaybackStarted, this._playbackStarted, this);
++    WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.PlaybackPaused, this._playbackPaused, this);
++    WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.PlaybackFinished, this._playbackFinished, this);
++
++    // Manually initialize style classes by querying current replay state.
++    if (WebInspector.replayManager.sessionState === WebInspector.ReplayManager.SessionState.Capturing)
++        this._captureStarted();
++    else if (WebInspector.replayManager.sessionState === WebInspector.ReplayManager.SessionState.Inactive)
++        this._captureStopped();
++    // ReplayManager.sessionState must be Replaying.
++    else if (WebInspector.replayManager.segmentState === WebInspector.ReplayManager.SegmentState.Dispatching)
++        this._playbackStarted();
++    // ReplayManager.sessionState must be Unloaded or Loaded, so execution is paused.
++    else
++        this._playbackPaused();
++};
++
++// Class names for top-level flex items within the replay dashboard.
++WebInspector.ReplayDashboardView.RecordingContainerStyleClassName = "recording-container";
++
++// Class names for single buttons.
++WebInspector.ReplayDashboardView.RecordButtonStyleClassName = "record-button";
++WebInspector.ReplayDashboardView.ReplayButtonStyleClassName = "replay-button";
++
++WebInspector.ReplayDashboardView.prototype = {
++    constructor: WebInspector.ReplayDashboardView,
++    __proto__: WebInspector.DashboardView.prototype,
++
++    // Private
++
++    _captureButtonItemClicked: function()
++    {
++        if (WebInspector.replayManager.sessionState !== WebInspector.ReplayManager.SessionState.Capturing)
++            WebInspector.replayManager.startCapturing();
++        else
++            WebInspector.replayManager.stopCapturing();
++    },
++
++    _replayButtonItemClicked: function(event)
++    {
++        console.assert(WebInspector.replayManager.sessionState !== WebInspector.ReplayManager.SessionState.Capturing, "Tried to start replaying while SessionState is Capturing!");
++
++        if (WebInspector.replayManager.sessionState === WebInspector.ReplayManager.SessionState.Inactive)
++            WebInspector.replayManager.replayToCompletion();
++        else if (WebInspector.replayManager.segmentState === WebInspector.ReplayManager.SegmentState.Dispatching)
++            WebInspector.replayManager.pausePlayback();
++        else
++            WebInspector.replayManager.replayToCompletion();
++    },
++
++    _captureStarted: function()
++    {
++        this._captureButtonItem.hidden = false;
++        this._captureButtonItem.activated = true;
++        this._replayButtonItem.hidden = true;
++    },
++
++    _captureStopped: function()
++    {
++        this._captureButtonItem.activated = false;
++        this._captureButtonItem.hidden = true;
++        this._replayButtonItem.hidden = false;
++    },
++
++    _playbackStarted: function()
++    {
++        this._replayButtonItem.toggled = true;
++    },
++
++    _playbackPaused: function()
++    {
++        this._replayButtonItem.toggled = false;
++    },
++
++    _playbackFinished: function()
++    {
++        this._replayButtonItem.toggled = false;
++    }
++};
+-- 
+2.0.1
+
