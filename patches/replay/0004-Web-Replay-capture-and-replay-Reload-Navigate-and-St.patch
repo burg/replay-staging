@@ -1,4 +1,4 @@
-From 5377e3b7441459e4b96d1bae868a6985b65d82b8 Mon Sep 17 00:00:00 2001
+From 941f796771b0c5eb78089fd9215263ebc75461a1 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 11:45:23 -0700
 Subject: [PATCH] Web Replay: capture and replay Reload, Navigate, and Stop
@@ -102,7 +102,7 @@ an enum with uint64_t-sized storage rather than int.
  14 files changed, 513 insertions(+), 11 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 2480fbf..3b28c70 100644
+index 2179d82..ff7f280 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,83 @@
@@ -217,10 +217,10 @@ index 1a2bbf8..1e2f9a8 100644
  
  }
 diff --git a/Source/WebCore/loader/cache/CachedResourceLoader.cpp b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
-index 0a2560b..3b73f90 100644
+index 8e9c6c6..e07b494 100644
 --- a/Source/WebCore/loader/cache/CachedResourceLoader.cpp
 +++ b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
-@@ -408,21 +408,21 @@ bool CachedResourceLoader::shouldContinueAfterNotifyingLoadedFromMemoryCache(con
+@@ -406,21 +406,21 @@ bool CachedResourceLoader::shouldContinueAfterNotifyingLoadedFromMemoryCache(con
      
      // FIXME <http://webkit.org/b/113251>: If the delegate modifies the request's
      // URL, it is no longer appropriate to use this CachedResource.
@@ -1139,7 +1139,7 @@ index b793e6f..385f45a 100644
      ]
  }
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 84d087c..2df4fda 100644
+index ae51101..6ba9525 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,25 @@

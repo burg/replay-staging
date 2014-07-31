@@ -1,4 +1,4 @@
-From 525a0d7bf333101424fce61b6ad6f36b07995b65 Mon Sep 17 00:00:00 2001
+From c9da4df7f737c351763107ff7f0dccd3778ebcf2 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Mon, 21 Jul 2014 14:24:48 -0700
 Subject: [PATCH] Web Inspector: cannot navigate between multiple applicable
@@ -50,7 +50,7 @@ it was hard to spot without arrows that must correlate with the animation direct
  4 files changed, 163 insertions(+), 9 deletions(-)
 
 diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
-index 04704b8..8aeeb08 100644
+index 8a0a613..1f09f7b 100644
 --- a/Source/WebInspectorUI/ChangeLog
 +++ b/Source/WebInspectorUI/ChangeLog
 @@ -1,10 +1,54 @@
@@ -98,16 +98,16 @@ index 04704b8..8aeeb08 100644
 +        (WebInspector.DashboardContainerView.prototype._hideDashboardView):
 +        (WebInspector.DashboardContainerView.prototype._closeDashboardView):
 +
- 2014-07-26  Brian J. Burg  <burg@cs.washington.edu>
+ 2014-07-29  Joseph Pecoraro  <pecoraro@apple.com>
  
-         Web Inspector: ReplayManager uses undefined events and inconsistent event data
-         https://bugs.webkit.org/show_bug.cgi?id=135222
+         Web Inspector: 80% of time during recording is spent creating source code locations for profile nodes
+         https://bugs.webkit.org/show_bug.cgi?id=135399
  
          Reviewed by Timothy Hatcher.
  
-         * UserInterface/Controllers/ReplayManager.js:
-         (WebInspector.ReplayManager.prototype.sessionCreated.this):
-         (WebInspector.ReplayManager.prototype.sessionCreated):
+         Profiling the inspector while recording a timeline, a significant amount of
+         time was spent creating SourceCodeLocation objects for profiling information
+         and call frames. A lot of this data was eagerly being processed, even though
 diff --git a/Source/WebInspectorUI/UserInterface/Views/DashboardContainerView.css b/Source/WebInspectorUI/UserInterface/Views/DashboardContainerView.css
 index 30459f6..080c766 100644
 --- a/Source/WebInspectorUI/UserInterface/Views/DashboardContainerView.css

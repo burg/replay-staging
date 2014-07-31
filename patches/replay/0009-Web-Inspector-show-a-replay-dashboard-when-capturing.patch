@@ -1,4 +1,4 @@
-From c4e5c088023e56ffdbcfe88b1914d5080afb82ef Mon Sep 17 00:00:00 2001
+From b12834b42c5ecffd6a2b4c6bc0cefb90c9b08051 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 22 Jul 2014 13:19:06 -0700
 Subject: [PATCH] Web Inspector: show a replay dashboard when capturing or
@@ -61,7 +61,7 @@ The replay dashboard is automatically shown when the user starts capturing an ex
  create mode 100644 Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js
 
 diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
-index 8aeeb08..beb7431 100644
+index 1f09f7b..27cd5cd 100644
 --- a/Source/WebInspectorUI/ChangeLog
 +++ b/Source/WebInspectorUI/ChangeLog
 @@ -1,10 +1,51 @@
@@ -248,7 +248,7 @@ index 0000000..8040e07
 +<circle fill="#EE2D24" cx="18" cy="18" r="13.605"/>
 +</svg>
 diff --git a/Source/WebInspectorUI/UserInterface/Main.html b/Source/WebInspectorUI/UserInterface/Main.html
-index f815d1b..31979d9 100644
+index c1e2d94..7017d29 100644
 --- a/Source/WebInspectorUI/UserInterface/Main.html
 +++ b/Source/WebInspectorUI/UserInterface/Main.html
 @@ -99,20 +99,21 @@
@@ -273,8 +273,8 @@ index f815d1b..31979d9 100644
      <link rel="stylesheet" href="Views/ScriptTimelineView.css">
      <link rel="stylesheet" href="Views/SearchBar.css">
      <link rel="stylesheet" href="Views/SearchIcons.css">
-@@ -239,20 +240,21 @@
-     <script src="Models/LayoutTimelineRecord.js"></script>
+@@ -241,20 +242,21 @@
+     <script src="Models/LazySourceCodeLocation.js"></script>
      <script src="Models/LogObject.js"></script>
      <script src="Models/NetworkTimeline.js"></script>
      <script src="Models/Probe.js"></script>
@@ -295,7 +295,7 @@ index f815d1b..31979d9 100644
      <script src="Models/ScopeChainNode.js"></script>
      <script src="Models/Script.js"></script>
      <script src="Models/ScriptTimelineRecord.js"></script>
-@@ -411,20 +413,21 @@
+@@ -412,20 +414,21 @@
      <script src="Views/Popover.js"></script>
      <script src="Views/ProbeDetailsSidebarPanel.js"></script>
      <script src="Views/ProbeSetDataGrid.js"></script>

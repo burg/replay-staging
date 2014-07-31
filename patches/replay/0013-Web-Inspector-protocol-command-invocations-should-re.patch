@@ -1,4 +1,4 @@
-From 14b37006a47d17ad43dee7aef4b2296d8eb3d271 Mon Sep 17 00:00:00 2001
+From b114ac8b4f1a563dd25339207d827c672cba6557 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 24 Jul 2014 08:46:32 -0700
 Subject: [PATCH] Web Inspector: protocol command invocations should return a
@@ -34,7 +34,7 @@ via the .promise() entry point, and via an implicitly created promise.
  create mode 100644 LayoutTests/inspector/protocol-promise-result.html
 
 diff --git a/LayoutTests/ChangeLog b/LayoutTests/ChangeLog
-index 5d09853..d9fa7e2 100644
+index 63beab7..3c34b8d 100644
 --- a/LayoutTests/ChangeLog
 +++ b/LayoutTests/ChangeLog
 @@ -1,10 +1,23 @@
@@ -119,7 +119,7 @@ index 0000000..52dc706
 +</body>
 +</html>
 diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
-index f2f4604..f5283c6 100644
+index 90774a5..b74cdc1 100644
 --- a/Source/WebInspectorUI/ChangeLog
 +++ b/Source/WebInspectorUI/ChangeLog
 @@ -1,10 +1,26 @@

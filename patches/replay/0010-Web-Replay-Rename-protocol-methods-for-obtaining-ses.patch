@@ -1,4 +1,4 @@
-From dbf4faaa1bcad3ea64dcaa78879342e441a4cc45 Mon Sep 17 00:00:00 2001
+From 3c98853373ee40e1b86f955a742da52ee2b7f242 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 22 Jul 2014 14:54:13 -0700
 Subject: [PATCH] Web Replay: Rename protocol methods for obtaining
@@ -32,7 +32,7 @@ Source/WebInspectorUI:
  7 files changed, 39 insertions(+), 11 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 64ffd28..588da57 100644
+index ca80894..093c123 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,25 @@
@@ -171,7 +171,7 @@ index 6db6637..9fb3f3c 100644
      "events": [
          {
 diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
-index beb7431..7f02730 100644
+index 27cd5cd..3059656 100644
 --- a/Source/WebInspectorUI/ChangeLog
 +++ b/Source/WebInspectorUI/ChangeLog
 @@ -1,12 +1,25 @@

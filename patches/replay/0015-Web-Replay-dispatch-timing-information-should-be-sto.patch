@@ -1,4 +1,4 @@
-From bbd41529ab66bb3c36611b7e6c35a84ad279c5c4 Mon Sep 17 00:00:00 2001
+From 517a9b231d4052d7f0de50fa3a86f74ded9a391f Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Fri, 25 Jul 2014 11:20:00 -0700
 Subject: [PATCH] Web Replay: dispatch timing information should be stored
@@ -62,7 +62,6 @@ No new tests. No behavior was changed.
 and returns the next event loop input with its associated dispatch information.
 * replay/ReplayingInputCursor.h:
 ---
- Source/JavaScriptCore/ChangeLog                    |  4 +-
  Source/WebCore/ChangeLog                           | 62 ++++++++++++++++++++++
  Source/WebCore/inspector/InspectorReplayAgent.cpp  |  5 +-
  Source/WebCore/inspector/protocol/Replay.json      |  1 -
@@ -77,74 +76,10 @@ and returns the next event loop input with its associated dispatch information.
  Source/WebCore/replay/ReplaySessionSegment.h       | 14 +++--
  Source/WebCore/replay/ReplayingInputCursor.cpp     | 26 ++++++---
  Source/WebCore/replay/ReplayingInputCursor.h       | 20 ++++---
- 15 files changed, 162 insertions(+), 89 deletions(-)
+ 14 files changed, 161 insertions(+), 86 deletions(-)
 
-diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index e4593c5..2ae6db1 100644
---- a/Source/JavaScriptCore/ChangeLog
-+++ b/Source/JavaScriptCore/ChangeLog
-@@ -1,14 +1,14 @@
- 2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
- 
-         Web Replay: auto-decoding of parameterized vector's elements is incorrect
--        Need the bug URL (OOPS!).
-+        https://bugs.webkit.org/show_bug.cgi?id=135341
- 
-         Reviewed by NOBODY (OOPS!).
- 
-         Fix an incorrect type argument in EncodingTraits<Vector<T>>::encodeValue
-         that was using the element's decoded type as the type parameter to
-         EncodedValue::append<T>. It should instead be the raw type T. This
-         causes problems when encoding Vector<RefPtr<T>>, as it later tries to
-         use encoding traits for RefPtr<T> rather than for T.
- 
-         Fix incorrect generated encoding traits argument for vectors of
-@@ -22,21 +22,20 @@
-         (Generator.generate_input_encode_implementation):
-         (Generator.generate_input_decode_implementation):
-         (Generator.generate_input_trait_implementation): Deleted.
-         * replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.cpp:
-         * replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h:
-         * replay/scripts/tests/generate-input-with-vector-members.json: Updated.
- 
- 2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
- 
-         Web Replay: incorrect serialization code generated for enum classes inside class scope
--        Need the bug URL (OOPS!).
- 
-         Reviewed by NOBODY (OOPS!).
- 
-         If an enum class is defined inside of a class scope, then the enum class
-         cannot be forward-declared and the relevant header should be included.
-         Some generated code used incorrectly-scoped enum values in this situation.
- 
-         * replay/scripts/CodeGeneratorReplayInputs.py:
-         (Generator.generate_includes.declaration.is):
-         (Generator.generate_enum_trait_implementation.is):
-@@ -45,21 +44,20 @@
-         Tests:
- 
-         * replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.cpp: Rebaselined.
-         * replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.h: Rebaselined.
-         * replay/scripts/tests/generate-enums-with-same-base-name.json: Add enum
-         class types to this test case.
- 
- 2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
- 
-         Web Replay: vectors of characters should be base64-encoded
--        Need the bug URL (OOPS!).
- 
-         Reviewed by NOBODY (OOPS!).
- 
-         Without this specialization, encode/decode methods try to create an
-         array of single characters in JSON, rather than treating the
-         vector as a binary blob.
- 
-         * replay/EncodedValue.cpp:
-         (JSC::EncodingTraits<Vector<char>>::encodeValue): Added.
-         (JSC::EncodingTraits<Vector<char>>::decodeValue): Added.
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index e6e2669..e7d217b 100644
+index 2415082..87d121f 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,72 @@
@@ -730,7 +665,7 @@ index d07821d..c8df903 100644
  inline NondeterministicInputBase* FunctorInputCursor::loadInput(InputQueue, const AtomicString&)
  {
 diff --git a/Source/WebCore/replay/ReplayController.cpp b/Source/WebCore/replay/ReplayController.cpp
-index 9cdce32..3c3670e 100644
+index 9cdce32..29e9b5f 100644
 --- a/Source/WebCore/replay/ReplayController.cpp
 +++ b/Source/WebCore/replay/ReplayController.cpp
 @@ -221,21 +221,21 @@ void ReplayController::createSegment()
@@ -745,7 +680,7 @@ index 9cdce32..3c3670e 100644
      InspectorInstrumentation::segmentCreated(&m_page, m_loadedSegment);
  
 -    m_activeCursor = m_loadedSegment->createCapturingCursor(m_page);
-+    m_activeCursor = CapturingInputCursor::create(m_loadedSegment, m_page);
++    m_activeCursor = CapturingInputCursor::create(m_loadedSegment);
      m_activeCursor->appendInput<BeginSegmentSentinel>();
  
      // Dispatching this input saves history, clears all but the current item, appends saved

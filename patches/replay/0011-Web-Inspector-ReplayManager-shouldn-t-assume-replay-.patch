@@ -1,4 +1,4 @@
-From 1db1a2138877ba87424ff7e51c140a4c1b11c775 Mon Sep 17 00:00:00 2001
+From 668f9f1db9f63f3772d71d12d8627428710a5ffd Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 23 Jul 2014 15:03:49 -0700
 Subject: [PATCH] Web Inspector: ReplayManager shouldn't assume replay status
@@ -76,7 +76,7 @@ that is fulfilled when initialization is complete.
  7 files changed, 214 insertions(+), 3 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 588da57..e473f00 100644
+index 093c123..291880e 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,28 @@
@@ -313,7 +313,7 @@ index 77eaaf7..70a60d8 100644
      void completeSegment();
  
 diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
-index 7f02730..041fee4 100644
+index 3059656..f280536 100644
 --- a/Source/WebInspectorUI/ChangeLog
 +++ b/Source/WebInspectorUI/ChangeLog
 @@ -1,10 +1,64 @@

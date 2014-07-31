@@ -1,4 +1,4 @@
-From e92c95316f6c278ececd4bf1eec464abbcefe08f Mon Sep 17 00:00:00 2001
+From abe1af91af856a5cdbb4a253b048d2dfad9b5446 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 12 Jun 2014 09:30:20 -0700
 Subject: [PATCH] Move createUniqueIdentifier() from ProgressTracker to
@@ -48,7 +48,7 @@ No new tests. No behavior was changed.
  12 files changed, 66 insertions(+), 39 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 9b468a5..848e6cd 100644
+index e70edfd..a27ce35 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,11 +1,45 @@

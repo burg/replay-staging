@@ -1,4 +1,4 @@
-From b2b7042e2a7a726ea9e4dac42073284aed970b49 Mon Sep 17 00:00:00 2001
+From 000d78d980886341ce3bca671f72d6b17cc32b6b Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 11 Jun 2014 15:33:16 -0700
 Subject: [PATCH] Web Replay: add page-level setting to bypass the MemoryCache
@@ -62,7 +62,7 @@ and bypass cache session id are both considered to be non-ephemeral.
  11 files changed, 104 insertions(+), 11 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 8343c53a..9b468a5 100644
+index 8b7d903..e70edfd 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,58 @@
@@ -114,21 +114,21 @@ index 8343c53a..9b468a5 100644
 +        (WebCore::ReplayController::setForceDeterministicSettings):
 +        * replay/ReplayController.h:
 +
- 2014-07-28  Brent Fulgham  <bfulgham@apple.com>
+ 2014-07-30  Dan Bernstein  <mitz@apple.com>
  
-         Unreviewed 'merge' fix.
+         <rdar://problem/17199364> [Mac] Popup button arrows appear on the left, underlapping text, when the UI layout direction is right-to-left
+         https://bugs.webkit.org/show_bug.cgi?id=135426
  
-         * platform/graphics/avfoundation/InbandTextTrackPrivateAVF.cpp:
-         Correct line endings to allow EWS merges again.
+         Reviewed by Dean Jackson.
  
- 2014-07-28  Zoltan Horvath  <zoltan@webkit.org>
+         No test, because the UI layout direction in the test harness is always left-to-right.
  
-         [CSS3-Text] Adjust text-justify implementation to the latest spec
+         * rendering/RenderThemeMac.mm:
 diff --git a/Source/WebCore/loader/cache/CachedResourceLoader.cpp b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
-index bafd3d6..0a2560b 100644
+index fa3c54f..8e9c6c6 100644
 --- a/Source/WebCore/loader/cache/CachedResourceLoader.cpp
 +++ b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
-@@ -422,21 +422,21 @@ CachedResourceHandle<CachedResource> CachedResourceLoader::requestResource(Cache
+@@ -420,21 +420,21 @@ CachedResourceHandle<CachedResource> CachedResourceLoader::requestResource(Cache
  
      if (!url.isValid())
          return 0;
@@ -151,7 +151,7 @@ index bafd3d6..0a2560b 100644
      // See if we can use an existing resource from the cache.
      CachedResourceHandle<CachedResource> resource;
  #if ENABLE(CACHE_PARTITIONING)
-@@ -486,37 +486,40 @@ CachedResourceHandle<CachedResource> CachedResourceLoader::requestResource(Cache
+@@ -476,37 +476,40 @@ CachedResourceHandle<CachedResource> CachedResourceLoader::requestResource(Cache
              if (resource->inCache())
                  memoryCache()->remove(resource.get());
              return 0;
@@ -193,10 +193,10 @@ index bafd3d6..0a2560b 100644
      memoryCache()->remove(resource);
      memoryCache()->add(newResource.get());
 diff --git a/Source/WebCore/loader/cache/MemoryCache.cpp b/Source/WebCore/loader/cache/MemoryCache.cpp
-index 9071eef..b45d151 100644
+index 02fb309..4913bd8 100644
 --- a/Source/WebCore/loader/cache/MemoryCache.cpp
 +++ b/Source/WebCore/loader/cache/MemoryCache.cpp
-@@ -104,20 +104,23 @@ URL MemoryCache::removeFragmentIdentifierIfNeeded(const URL& originalURL)
+@@ -105,20 +105,23 @@ URL MemoryCache::removeFragmentIdentifierIfNeeded(const URL& originalURL)
      URL url = originalURL;
      url.removeFragmentIdentifier();
      return url;
@@ -502,7 +502,7 @@ index 929477a..77eaaf7 100644
      // The active cursor is set to nullptr when invalid.
      RefPtr<JSC::InputCursor> m_activeCursor;
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index c27a7e8..5a81b04 100644
+index 79585c8..134c6d4 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,24 @@
@@ -520,15 +520,15 @@ index c27a7e8..5a81b04 100644
 +        (WebKit::SessionTracker::session):
 +        (WebKit::SessionTracker::setSession):
 +
- 2014-07-27  Yusuke Suzuki  <utatane.tea@gmail.com>
+ 2014-07-30  Dan Bernstein  <mitz@apple.com>
  
-         [GTK] Keep non-DATABASE_PROCESS build
-         https://bugs.webkit.org/show_bug.cgi?id=135321
+         Get rid of the WKNSURLProtectionSpace wrapper
+         https://bugs.webkit.org/show_bug.cgi?id=135425
  
-         Reviewed by Gyuyoung Kim.
+         Reviewed by Sam Weinig.
  
-         This is the patch for r171622 in non-DATABASE_PROCESS builds.
-         Change sendToDatabaseProcessRelaunchingIfNecessary to support non-DATABASE_PROCESS implementation.
+         * Shared/Cocoa/APIObject.mm:
+         (API::Object::newObject): Don’t allocate WKNSURLProtectionSpace wrappers.
  
 diff --git a/Source/WebKit2/Shared/SessionTracker.cpp b/Source/WebKit2/Shared/SessionTracker.cpp
 index ac79a9d..0886af1 100644

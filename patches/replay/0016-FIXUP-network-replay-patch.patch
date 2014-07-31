@@ -1,0 +1,68 @@
+From 948a16d6dc0b07c893ae5ec51065e3acd51c1a4f Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Thu, 31 Jul 2014 09:53:58 -0700
+Subject: [PATCH] FIXUP network replay patch
+
+---
+ Source/JavaScriptCore/replay/EncodedValue.h                    | 4 ++--
+ Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp | 1 +
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/Source/JavaScriptCore/replay/EncodedValue.h b/Source/JavaScriptCore/replay/EncodedValue.h
+index c0010e8..3ed089f 100644
+--- a/Source/JavaScriptCore/replay/EncodedValue.h
++++ b/Source/JavaScriptCore/replay/EncodedValue.h
+@@ -132,22 +132,22 @@ struct EncodingTraits<Vector<T, inlineCapacity, OverflowHandler>> {
+ 
+ template<> struct EncodingTraits<EncodedValue> {
+     typedef EncodedValue DecodedType;
+     // We should never attempt to decode or encode an encoded value,
+     // so encodeValue and decodeValue are intentionally omitted here.
+ };
+ 
+ // Specialize byte vectors to use base64 encoding.
+ template<> struct EncodingTraits<Vector<char>> {
+     typedef Vector<char> DecodedType;
+-    static EncodedValue encodeValue(const DecodedType&);
+-    static bool decodeValue(EncodedValue&, DecodedType&);
++    static JS_EXPORT_PRIVATE EncodedValue encodeValue(const DecodedType&);
++    static JS_EXPORT_PRIVATE bool decodeValue(EncodedValue&, DecodedType&);
+ };
+ 
+ template<typename T>
+ struct ScalarEncodingTraits {
+     typedef T DecodedType;
+ 
+     static JS_EXPORT_PRIVATE EncodedValue encodeValue(const DecodedType& decodedValue);
+     static bool decodeValue(EncodedValue& encodedValue, DecodedType& decodedValue)
+     {
+         decodedValue = encodedValue.convertTo<DecodedType>();
+diff --git a/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp b/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
+index 63e6f47..acdbf26 100644
+--- a/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
++++ b/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
+@@ -114,20 +114,21 @@ void WebResourceLoadScheduler::scheduleLoad(ResourceLoader* resourceLoader, Cach
+         return;
+     }
+ 
+ 
+ #if USE(QUICK_LOOK)
+     if (maybeLoadQuickLookResource(*resourceLoader)) {
+         LOG(NetworkScheduling, "(WebProcess) WebResourceLoadScheduler::scheduleLoad, url '%s' will be handled as a QuickLook resource.", resourceLoader->url().string().utf8().data());
+         m_webResourceLoaders.set(identifier, WebResourceLoader::create(resourceLoader));
+         return;
+     }
++#endif
+ 
+ #if ENABLE(WEB_REPLAY)
+     if (InputCursor* cursor = resourceLoader->activeInputCursor()) {
+         if (cursor->isReplaying())
+             return;
+     }
+ #endif
+ 
+     LOG(NetworkScheduling, "(WebProcess) WebResourceLoadScheduler::scheduleLoad, url '%s' will be scheduled with the NetworkProcess with priority %lli", resourceLoader->url().string().utf8().data(), priority);
+ 
+-- 
+2.0.1
+

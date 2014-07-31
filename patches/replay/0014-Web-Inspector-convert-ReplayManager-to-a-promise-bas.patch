@@ -1,4 +1,4 @@
-From 0d390771ed5c90e58904bb51c4b5a7d2fe7d11f2 Mon Sep 17 00:00:00 2001
+From 0f90577f4aa764a64b1a51e75fb687d370290e94 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 24 Jul 2014 09:23:12 -0700
 Subject: [PATCH] Web Inspector: convert ReplayManager to a promise-based API
@@ -67,7 +67,7 @@ Debounce buttons when they are clicked and reactivate when an action is taken.
  5 files changed, 345 insertions(+), 109 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 1d51c88..e6e2669 100644
+index c595d27..2415082 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,23 @@
@@ -136,7 +136,7 @@ index e610140..6c78ea4e 100644
      if (sessionState() != SessionState::Replaying) {
          *errorString = ASCIILiteral("Can't pause playback if playback is not in progress.");
 diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
-index f5283c6..c090023 100644
+index b74cdc1..984884d 100644
 --- a/Source/WebInspectorUI/ChangeLog
 +++ b/Source/WebInspectorUI/ChangeLog
 @@ -1,12 +1,64 @@

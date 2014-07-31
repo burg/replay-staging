@@ -1,4 +1,4 @@
-From 55f229224372414eabd8205caa09614e737f9ce3 Mon Sep 17 00:00:00 2001
+From 5af5ab9c1c82a7813cba4d88def750513ee7afe4 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 22 Jul 2014 13:21:49 -0700
 Subject: [PATCH] Web Inspector: add eject current recording button to the
@@ -55,7 +55,7 @@ makes it possible to fulfill a promise using WebInspector.Object listeners witho
  create mode 100644 Source/WebInspectorUI/UserInterface/Images/ReplayEjectButton.svg
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index e473f00..1d51c88 100644
+index 291880e..c595d27 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,27 @@
@@ -177,7 +177,7 @@ index 6a77726..65ba289 100644
              "description": "Splices the specified session segment into the session at the specified index.",
              "parameters": [
 diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
-index 041fee4..f2f4604 100644
+index f280536..90774a5 100644
 --- a/Source/WebInspectorUI/ChangeLog
 +++ b/Source/WebInspectorUI/ChangeLog
 @@ -1,12 +1,43 @@

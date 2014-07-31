@@ -1,4 +1,4 @@
-From 79b810e1e44e960bbefdce526365ffb49152f473 Mon Sep 17 00:00:00 2001
+From 774bb0c2aab2a1b282fba2074b0f40a1be998775 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 15:34:16 -0700
 Subject: [PATCH] Web Replay: window.history.length should be captured at main
@@ -85,7 +85,7 @@ LayoutTests:
  create mode 100644 LayoutTests/inspector/replay/history-length-single-segment.html
 
 diff --git a/LayoutTests/ChangeLog b/LayoutTests/ChangeLog
-index e78d1508..5d09853 100644
+index 202f036..63beab7 100644
 --- a/LayoutTests/ChangeLog
 +++ b/LayoutTests/ChangeLog
 @@ -1,10 +1,20 @@
@@ -99,16 +99,16 @@ index e78d1508..5d09853 100644
 +        * inspector/replay/history-length-single-segment-expected.txt: Added.
 +        * inspector/replay/history-length-single-segment.html: Added.
 +
- 2014-07-28  Zoltan Horvath  <zoltan@webkit.org>
+ 2014-07-30  Pratik Solanki  <psolanki@apple.com>
  
-         [CSS3-Text] Adjust text-justify implementation to the latest spec
-         https://bugs.webkit.org/show_bug.cgi?id=135317
+         Move iphone-simulator test results landed in r171094 to the correct directory.
  
-         Reviewed by Darin Adler.
+         * platform/ios-sim/fast/events/ontouchstart-active-selector-expected.txt: Renamed from LayoutTests/platform/iphone-simulator/fast/events/ontouchstart-active-selector-expected.txt.
+         * platform/ios-sim/fast/events/ontouchstart-active-selector.html: Renamed from LayoutTests/platform/iphone-simulator/fast/events/ontouchstart-active-selector.html.
  
-         * fast/css3-text/css3-text-justify/getComputedStyle/script-tests/getComputedStyle-text-justify-inherited.js:
-         * fast/css3-text/css3-text-justify/getComputedStyle/script-tests/getComputedStyle-text-justify.js:
+ 2014-07-29  Jinwoo Song  <jinwoo7.song@samsung.com>
  
+         [EFL] Unreviewed EFL gardening. Rebaseline tests after r170418.
 diff --git a/LayoutTests/inspector/replay/history-length-single-segment-expected.txt b/LayoutTests/inspector/replay/history-length-single-segment-expected.txt
 new file mode 100644
 index 0000000..b797ffd
@@ -165,7 +165,7 @@ index 0000000..a88d9c1
 +</body>
 +</html>
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index ecddcac..6e28f2c 100644
+index 239a6b9..e3e3d03 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,66 @@
@@ -899,7 +899,7 @@ index d76bbee..bcf3002 100644
              ]
          },
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 3d7afe0..34d9636 100644
+index 81a0208..03fe1b8 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,12 +1,23 @@
