@@ -1,12 +1,13 @@
-From 5af5ab9c1c82a7813cba4d88def750513ee7afe4 Mon Sep 17 00:00:00 2001
+From 47bf66919ad25804a795e6084a99ec92fee9ba00 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
-Date: Tue, 22 Jul 2014 13:21:49 -0700
+Date: Mon, 11 Aug 2014 23:52:17 -0700
 Subject: [PATCH] Web Inspector: add eject current recording button to the
  replay dashboard https://bugs.webkit.org/show_bug.cgi?id=135225
 
 Reviewed by NOBODY (OOPS!).
 
 Source/WebCore:
+
 Add a protocol method that creates an empty replay session. To eject, the
 frontend creates an empty session and then switches to it.
 
@@ -16,51 +17,52 @@ frontend creates an empty session and then switches to it.
 * inspector/protocol/Replay.json:
 
 Source/WebInspectorUI:
+
 Add a new eject button item to the replay dashboard's embedded navigation bar.
 The eject button's visibility is mutually exclusive with that of the record button.
 
 When the eject button is clicked, a new, empty session is created and then loaded.
 
 * Localizations/en.lproj/localizedStrings.js:
-* UserInterface/Base/Object.js:
-(.wrappedCallback):
-(WebInspector.Object.addSingleFireEventListener): Added. Convenience wrapper that
-makes it possible to fulfill a promise using WebInspector.Object listeners without leaking.
-
-* UserInterface/Controllers/ReplayManager.js: Add methods that forward to protocol commands.
-(WebInspector.ReplayManager.prototype.sessionLoaded): Added.
-(WebInspector.ReplayManager.prototype.createSession): Added.
-(WebInspector.ReplayManager.prototype.switchSession): Added.
-* UserInterface/Views/ReplayDashboardView.js:
-(WebInspector.ReplayDashboardView): Add button, click listener, and sessionChanged listener.
-(WebInspector.ReplayDashboardView.prototype._ejectButtonItemClicked.then):
+* UserInterface/Controllers/ReplayManager.js: Implement an asynchronous API for creating sessions.
+(WebInspector.ReplayManager.prototype.createSession.var):
+(WebInspector.ReplayManager.prototype.createSession.return):
+(WebInspector.ReplayManager.prototype.createSession):
+(WebInspector.ReplayManager.prototype.sessionLoaded):
+* UserInterface/Images/ReplayEjectButton.svg: Added.
+* UserInterface/Views/ReplayDashboardView.css: Fix styles for the placeholder recording container.
+This will be replaced soon with a mini-timeline content view.
+(.toolbar .dashboard.replay div.navigation-bar):
+(.toolbar .dashboard.replay > .recording-container):
+(.toolbar.small-size .dashboard.replay > .recording-container):
+* UserInterface/Views/ReplayDashboardView.js: Add an eject button and click listeners.
+(WebInspector.ReplayDashboardView):
 (WebInspector.ReplayDashboardView.prototype._ejectButtonItemClicked):
 (WebInspector.ReplayDashboardView.prototype._captureStarted):
 (WebInspector.ReplayDashboardView.prototype._captureStopped):
 (WebInspector.ReplayDashboardView.prototype._playbackFinished):
 (WebInspector.ReplayDashboardView.prototype._activeSessionChanged):
 ---
- Source/WebCore/ChangeLog                           |  15 ++++++
+ Source/WebCore/ChangeLog                           |  15 +++++++
  Source/WebCore/inspector/InspectorReplayAgent.cpp  |   7 +++
  Source/WebCore/inspector/InspectorReplayAgent.h    |   1 +
  Source/WebCore/inspector/protocol/Replay.json      |   7 +++
- Source/WebInspectorUI/ChangeLog                    |  31 ++++++++++++
- .../Localizations/en.lproj/localizedStrings.js     | Bin 54976 -> 55090 bytes
- Source/WebInspectorUI/UserInterface/Base/Object.js |  20 ++++++++
- .../UserInterface/Controllers/ReplayManager.js     |  22 +++++++++
- .../UserInterface/Images/ReplayEjectButton.svg     |   8 +++
- .../UserInterface/Views/ReplayDashboardView.css    |  12 +++++
- .../UserInterface/Views/ReplayDashboardView.js     |  54 ++++++++++++++++++++-
- 11 files changed, 176 insertions(+), 1 deletion(-)
+ Source/WebInspectorUI/ChangeLog                    |  32 ++++++++++++++
+ .../Localizations/en.lproj/localizedStrings.js     | Bin 54870 -> 54984 bytes
+ .../UserInterface/Controllers/ReplayManager.js     |  33 ++++++++++++++
+ .../UserInterface/Images/ReplayEjectButton.svg     |   8 ++++
+ .../UserInterface/Views/ReplayDashboardView.css    |  13 ++++++
+ .../UserInterface/Views/ReplayDashboardView.js     |  48 ++++++++++++++++++++-
+ 10 files changed, 163 insertions(+), 1 deletion(-)
  create mode 100644 Source/WebInspectorUI/UserInterface/Images/ReplayEjectButton.svg
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 291880e..c595d27 100644
+index b6d90ac..75b74b3 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
-@@ -1,12 +1,27 @@
- 2014-07-23  Brian J. Burg  <burg@cs.washington.edu>
- 
+@@ -1,10 +1,25 @@
++2014-08-11  Brian J. Burg  <burg@cs.washington.edu>
++
 +        Web Inspector: add eject current recording button to the replay dashboard
 +        https://bugs.webkit.org/show_bug.cgi?id=135225
 +
@@ -74,23 +76,21 @@ index 291880e..c595d27 100644
 +        * inspector/InspectorReplayAgent.h:
 +        * inspector/protocol/Replay.json:
 +
-+2014-07-23  Brian J. Burg  <burg@cs.washington.edu>
-+
-         Web Inspector: ReplayManager shouldn't assume replay status when the inspector is opened
-         https://bugs.webkit.org/show_bug.cgi?id=135212
+ 2014-07-16  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         [WIP] Web Replay: DOM Timers should be created and fired deterministically
+         Need the bug URL (OOPS!).
  
          Reviewed by NOBODY (OOPS!).
  
-         The frontend should be able to introspect the session and segment state machines,
-         currently loaded segment and session identifiers, and replay position.
- 
-         * inspector/InspectorReplayAgent.cpp:
-         (WebCore::buildInspectorObjectForSessionState): Added.
+         Async mechanisms such as window.setTimeout are nondeterministic because the
+         interleaving of callbacks and other event loop items (which run JS) is also
+         nondeterministic.
 diff --git a/Source/WebCore/inspector/InspectorReplayAgent.cpp b/Source/WebCore/inspector/InspectorReplayAgent.cpp
-index f937bf2..e610140 100644
+index df0818e..1586493 100644
 --- a/Source/WebCore/inspector/InspectorReplayAgent.cpp
 +++ b/Source/WebCore/inspector/InspectorReplayAgent.cpp
-@@ -384,20 +384,27 @@ void InspectorReplayAgent::pausePlayback(ErrorString* errorString)
+@@ -381,20 +381,27 @@ void InspectorReplayAgent::pausePlayback(ErrorString* errorString)
  void InspectorReplayAgent::cancelPlayback(ErrorString* errorString)
  {
      if (sessionState() == SessionState::Capturing) {
@@ -145,10 +145,10 @@ index 69c14b6..0ed0712 100644
  
  private:
 diff --git a/Source/WebCore/inspector/protocol/Replay.json b/Source/WebCore/inspector/protocol/Replay.json
-index 6a77726..65ba289 100644
+index be26988..1c9a7a5 100644
 --- a/Source/WebCore/inspector/protocol/Replay.json
 +++ b/Source/WebCore/inspector/protocol/Replay.json
-@@ -91,20 +91,27 @@
+@@ -90,20 +90,27 @@
          },
          {
              "name": "pausePlayback",
@@ -177,11 +177,11 @@ index 6a77726..65ba289 100644
              "description": "Splices the specified session segment into the session at the specified index.",
              "parameters": [
 diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
-index f280536..90774a5 100644
+index a5ce429..1918e90 100644
 --- a/Source/WebInspectorUI/ChangeLog
 +++ b/Source/WebInspectorUI/ChangeLog
-@@ -1,12 +1,43 @@
- 2014-07-23  Brian J. Burg  <burg@cs.washington.edu>
+@@ -1,12 +1,44 @@
+ 2014-08-11  Brian J. Burg  <burg@cs.washington.edu>
  
 +        Web Inspector: add eject current recording button to the replay dashboard
 +        https://bugs.webkit.org/show_bug.cgi?id=135225
@@ -194,128 +194,100 @@ index f280536..90774a5 100644
 +        When the eject button is clicked, a new, empty session is created and then loaded.
 +
 +        * Localizations/en.lproj/localizedStrings.js:
-+        * UserInterface/Base/Object.js:
-+        (.wrappedCallback):
-+        (WebInspector.Object.addSingleFireEventListener): Added. Convenience wrapper that
-+        makes it possible to fulfill a promise using WebInspector.Object listeners without leaking.
-+
-+        * UserInterface/Controllers/ReplayManager.js: Add methods that forward to protocol commands.
-+        (WebInspector.ReplayManager.prototype.sessionLoaded): Added.
-+        (WebInspector.ReplayManager.prototype.createSession): Added.
-+        (WebInspector.ReplayManager.prototype.switchSession): Added.
-+        * UserInterface/Views/ReplayDashboardView.js:
-+        (WebInspector.ReplayDashboardView): Add button, click listener, and sessionChanged listener.
-+        (WebInspector.ReplayDashboardView.prototype._ejectButtonItemClicked.then):
++        * UserInterface/Controllers/ReplayManager.js: Implement an asynchronous API for creating sessions.
++        (WebInspector.ReplayManager.prototype.createSession.var):
++        (WebInspector.ReplayManager.prototype.createSession.return):
++        (WebInspector.ReplayManager.prototype.createSession):
++        (WebInspector.ReplayManager.prototype.sessionLoaded):
++        * UserInterface/Images/ReplayEjectButton.svg: Added.
++        * UserInterface/Views/ReplayDashboardView.css: Fix styles for the placeholder recording container.
++        This will be replaced soon with a mini-timeline content view.
++        (.toolbar .dashboard.replay div.navigation-bar):
++        (.toolbar .dashboard.replay > .recording-container):
++        (.toolbar.small-size .dashboard.replay > .recording-container):
++        * UserInterface/Views/ReplayDashboardView.js: Add an eject button and click listeners.
++        (WebInspector.ReplayDashboardView):
 +        (WebInspector.ReplayDashboardView.prototype._ejectButtonItemClicked):
 +        (WebInspector.ReplayDashboardView.prototype._captureStarted):
 +        (WebInspector.ReplayDashboardView.prototype._captureStopped):
 +        (WebInspector.ReplayDashboardView.prototype._playbackFinished):
 +        (WebInspector.ReplayDashboardView.prototype._activeSessionChanged):
 +
-+2014-07-23  Brian J. Burg  <burg@cs.washington.edu>
++2014-08-11  Brian J. Burg  <burg@cs.washington.edu>
 +
-         Web Inspector: ReplayManager shouldn't assume replay status when the inspector is opened
-         https://bugs.webkit.org/show_bug.cgi?id=135212
+         Web Inspector: show a replay dashboard when capturing or replaying
+         https://bugs.webkit.org/show_bug.cgi?id=135170
  
-         Reviewed by NOBODY (OOPS!).
+         Reviewed by Timothy Hatcher.
  
-         The inspector could be closed and reopened at any point during capturing or replaying.
-         ReplayManager should query the current state on initialization rather than assuming
-         that the replay controller is still in its initial state.
+         This patch adds a replay dashboard with record/play/pause buttons. It
+         is shown automatically when the user starts capturing an execution from
+         the replay menu in the Timelines sidebar panel.
  
-         ReplayManager's initialization code requires querying the backend for the current replay
+         * UserInterface/Base/Main.js:
 diff --git a/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js b/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js
-index 7e20150f19df336cd7e5a80e66faf58bab85e8d5..10a90002752b61d6b8b1d1b2a079c057e800b9cd 100644
+index 432d08870a7dbfd21670ee0e70489bf1d079ed8f..7e4100927c6baf3f235560ec39ed49a7256b36d8 100644
 GIT binary patch
-delta 59
-zcmX@GmU+`U<_$}o*s~Z?8Il=FCM7F!x-vjHlQ$f+pS<6hZ?bl{)a2Z7tI5&MHk123
-Lr8Y-9r%na{Yikt)
+delta 60
+zcmcb%hWW%=<_+JSII|d18Il=F7!)Q4%#r7IWkBYOPVU{SF?qkUz~pFWo5}s2Qk$cl
+He@_AccVrcK
 
-delta 22
-ecmdnAj`_e^<_$}oCfob-Or9Gqwb|DB>tq0P*$MOj
+delta 26
+kcmV+#0OkM4tpnDq1F-i(lRr-mlg&dslkZC!v&}>MlCMP#EC2ui
 
-diff --git a/Source/WebInspectorUI/UserInterface/Base/Object.js b/Source/WebInspectorUI/UserInterface/Base/Object.js
-index e582feb..e735f0d 100644
---- a/Source/WebInspectorUI/UserInterface/Base/Object.js
-+++ b/Source/WebInspectorUI/UserInterface/Base/Object.js
-@@ -61,20 +61,34 @@ WebInspector.Object.addEventListener = function(eventType, listener, thisObject)
- 
-     // Prevent registering multiple times.
-     for (var i = 0; i < listeners.length; ++i) {
-         if (listeners[i].listener === listener && listeners[i].thisObject === thisObject)
-             return;
-     }
- 
-     listeners.push({thisObject: thisObject, listener: listener});
- };
- 
-+WebInspector.Object.addSingleFireEventListener = function(eventType, listener, thisObject)
-+{
-+    console.assert(listener, "Object.addEventListener: invalid listener ", listener, "(event type: ", eventType, "thisObject: ", thisObject, ")");
-+    if (!listener)
-+        return;
-+
-+    var wrappedCallback = function(event) {
-+        this.removeEventListener(eventType, wrappedCallback, thisObject);
-+        listener.call(thisObject, event);
-+    }.bind(this);
-+
-+    this.addEventListener(eventType, wrappedCallback, thisObject);
-+};
-+
- WebInspector.Object.removeEventListener = function(eventType, listener, thisObject)
- {
-     eventType = eventType || null;
-     listener = listener || null;
-     thisObject = thisObject || null;
- 
-     if (!this._listeners)
-         return;
- 
-     if (!eventType) {
-@@ -111,28 +125,34 @@ WebInspector.Object.hasEventListeners = function(eventType)
-     if (!this._listeners || !this._listeners[eventType])
-         return false;
-     return true;
- };
- 
- WebInspector.Object.prototype = {
-     constructor: WebInspector.Object,
- 
-     addEventListener: WebInspector.Object.addEventListener,
- 
-+    addSingleFireEventListener: WebInspector.Object.addSingleFireEventListener,
-+
-     removeEventListener: WebInspector.Object.removeEventListener,
- 
-     removeAllListeners: WebInspector.Object.removeAllListeners,
- 
-     hasEventListeners: WebInspector.Object.hasEventListeners,
- 
-     dispatchEventToListeners: function(eventType, eventData)
-     {
-+        console.assert(eventType, "Object.dispatchEventToListeners: invalid event type ", eventType);
-+        if (!eventType)
-+            return;
-+
-         var event = new WebInspector.Event(this, eventType, eventData);
- 
-         function dispatch(object)
-         {
-             if (!object || !object._listeners || !object._listeners[eventType] || event._stoppedPropagation)
-                 return;
- 
-             // Make a copy with slice so mutations during the loop doesn't affect us.
-             var listenersForThisEvent = object._listeners[eventType].slice(0);
- 
 diff --git a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
-index 35edbfc..e59c1d9 100644
+index 46c0505..364a6b4 100644
 --- a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
 +++ b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
-@@ -319,20 +319,29 @@ WebInspector.ReplayManager.prototype = {
-                 return Promise.resolve();
-             })
-             .then(function() {
+@@ -225,20 +225,44 @@ WebInspector.ReplayManager.prototype = {
+             }).then(function ensureSessionDataIsLoaded(session) {
+                 return ReplayAgent.switchSession(session.identifier);
+             }).catch(function(error) {
+                 console.error("Failed to switch to session: ", error);
+                 throw error;
+             });
+ 
+         return result;
+     },
+ 
++    // Create a new, empty session.
++    // Returns a promise that resolves when the session is loaded.
++    createSession: function() // --> (sessionId)
++    {
++        var listener = new WebInspector.EventListener(this, true);
++
++        var managerResult = new Promise(function(resolve, reject) {
++            listener.connect(WebInspector.replayManager, WebInspector.ReplayManager.Event.SessionAdded, resolve);
++        });
++
++        var protocolResult = ReplayAgent.createSession()
++            .catch(function(error) {
++                listener.disconnect();
++                console.error("ReplayManager.createSession failed: ", error);
++                throw error;
++            });
++
++        return Promise.all([this.waitUntilInitialized(), protocolResult, managerResult])
++            .then(function(results) {
++                var event = results.lastValue;
++                return event.data.sessionId;
++            });
++    },
++
+     // Start capturing into the current session as soon as possible.
+     // Returns a promise that resolves when capturing begins.
+     startCapturing: function() // --> ()
+     {
+         var manager = this;
+         var result = this.waitUntilInitialized();
+ 
+         if (this.sessionState === WebInspector.ReplayManager.SessionState.Capturing)
+             return result; // Already capturing.
+ 
+@@ -525,20 +549,29 @@ WebInspector.ReplayManager.prototype = {
+             .catch(function(error) {
+                 // Wait for any outstanding promise to settle so it doesn't get re-added.
+             }).then(function() {
                  manager._sessionPromises.delete(sessionId);
                  var removedSession = manager._sessions.take(sessionId);
                  console.assert(removedSession);
@@ -342,43 +314,9 @@ index 35edbfc..e59c1d9 100644
          this._changeSegmentState(WebInspector.ReplayManager.SegmentState.Appending);
  
          // Create a dummy segment, and don't try to load any data for it. It will
-@@ -465,20 +474,33 @@ WebInspector.ReplayManager.prototype = {
-     },
- 
-     stopPlayback: function()
-     {
-         console.assert(this.sessionState === WebInspector.ReplayManager.SessionState.Replaying);
-         console.assert(this.segmentState === WebInspector.ReplayManager.SegmentState.Loaded);
- 
-         ReplayAgent.stopPlayback();
-     },
- 
-+    createSession: function()
-+    {
-+        ReplayAgent.createSession();
-+    },
-+
-+    switchSession: function(sessionId) {
-+        console.assert(this.sessionState === WebInspector.ReplayManager.SessionState.Inactive);
-+        console.assert(this.segmentState === WebInspector.ReplayManager.SegmentState.Unloaded);
-+        console.assert(this._sessions.has(sessionId), "Unknown session identifier:", sessionId);
-+
-+        ReplayAgent.switchSession(sessionId);
-+    },
-+
-     // Private
- 
-     _changeSessionState: function(newState)
-     {
-         // Warn about no-op state changes. We shouldn't be seeing them.
-         var isAllowed = this._sessionState !== newState;
- 
-         switch (this._sessionState) {
-         case WebInspector.ReplayManager.SessionState.Capturing:
-             isAllowed &= newState === WebInspector.ReplayManager.SessionState.Inactive;
 diff --git a/Source/WebInspectorUI/UserInterface/Images/ReplayEjectButton.svg b/Source/WebInspectorUI/UserInterface/Images/ReplayEjectButton.svg
 new file mode 100644
-index 0000000..e8a4f44
+index 0000000..3b64a07
 --- /dev/null
 +++ b/Source/WebInspectorUI/UserInterface/Images/ReplayEjectButton.svg
 @@ -0,0 +1,8 @@
@@ -391,10 +329,12 @@ index 0000000..e8a4f44
 +<polygon points="4.576,21.709 18,4.658 31.424,21.709 "/>
 +</svg>
 diff --git a/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.css b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.css
-index 01b6e6e..84cfa22 100644
+index 01b6e6e..d76f0e8 100644
 --- a/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.css
 +++ b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.css
-@@ -31,20 +31,32 @@
+@@ -29,20 +29,33 @@
+     -webkit-align-items: center;
+ 
      text-align: center;
      text-shadow: rgba(255, 255, 255, 0.5) 0 1px 0;
      color: rgb(60, 60, 60);
@@ -403,20 +343,21 @@ index 01b6e6e..84cfa22 100644
  
  .toolbar .dashboard.replay div.navigation-bar {
      border-bottom: none !important;
- }
- 
++    box-shadow: none !important;
++}
++
 +.toolbar .dashboard.replay > .recording-container {
 +    -webkit-flex-grow: 1;
 +    -webkit-order: 2;
 +    border: 1px solid #aaa;
 +    height: 22px;
-+    margin-left: 4px;
++    margin: 0 14px 0 4px;
 +}
 +
-+.toolbar.label-only .dashboard.replay > .recording-container {
++.toolbar.small-size .dashboard.replay > .recording-container {
 +    height: 16px;
-+}
-+
+ }
+ 
  .toolbar .dashboard.replay .item.button > .glyph {
      /* ButtonNavigationItem is not aware of alternate button sizes, so override here. */
      width: 16px !important;
@@ -425,14 +366,12 @@ index 01b6e6e..84cfa22 100644
  
  .toolbar.label-only .dashboard.replay .item.button > .glyph {
      /* The default styles here will try to elide buttons in label-only mode. */
-     display: -webkit-flex !important;
- 
 diff --git a/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js
-index 6e0ccbc..dcffc0e 100644
+index b228924..a66d909 100644
 --- a/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js
 +++ b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js
 @@ -35,32 +35,41 @@ WebInspector.ReplayDashboardView = function(representedObject)
-     this._captureButtonItem = new WebInspector.ActivateButtonNavigationItem("replay-dashboard-capture", WebInspector.UIString("Start Recording"), WebInspector.UIString("Stop Recording"), "Images/ReplayReadyButton.svg", 16, 16);
+     this._captureButtonItem = new WebInspector.ActivateButtonNavigationItem("replay-dashboard-capture", WebInspector.UIString("Start Recording"), WebInspector.UIString("Stop Recording"), "Images/ReplayRecordingButton.svg", 16, 16);
      this._captureButtonItem.addEventListener(WebInspector.ButtonNavigationItem.Event.Clicked, this._captureButtonItemClicked, this);
      this._captureButtonItem.hidden = true;
      this._navigationBar.addNavigationItem(this._captureButtonItem);
@@ -474,7 +413,7 @@ index 6e0ccbc..dcffc0e 100644
  
  // Class names for top-level flex items within the replay dashboard.
  WebInspector.ReplayDashboardView.RecordingContainerStyleClassName = "recording-container";
-@@ -88,39 +97,82 @@ WebInspector.ReplayDashboardView.prototype = {
+@@ -88,39 +97,76 @@ WebInspector.ReplayDashboardView.prototype = {
          console.assert(WebInspector.replayManager.sessionState !== WebInspector.ReplayManager.SessionState.Capturing, "Tried to start replaying while SessionState is Capturing!");
  
          if (WebInspector.replayManager.sessionState === WebInspector.ReplayManager.SessionState.Inactive)
@@ -494,18 +433,12 @@ index 6e0ccbc..dcffc0e 100644
 +
 +        var button = this._ejectButtonItem;
 +
-+        new Promise(function createEmptySession(resolve, reject) {
-+            // FIXME: this listener should not be necessary when ReplayManager API becomes fully async.
-+            WebInspector.replayManager.addSingleFireEventListener(WebInspector.ReplayManager.Event.SessionAdded, resolve);
-+            WebInspector.replayManager.createSession();
-+        }).then(function forceSessionToBeLoaded(event) {
-+            var sessionId = event.data.sessionId;
-+            return WebInspector.replayManager.getSession(sessionId);
-+        }).then(function switchToEmptySession(session) {
-+            WebInspector.replayManager.switchSession(session.identifier);
++        WebInspector.replayManager.createSession()
++        .then(function switchToEmptySession(sessionId) {
 +            button.enabled = true;
++            return WebInspector.replayManager.switchSession(sessionId);
 +        }).catch(function(error) {
-+            console.error("Failed to eject currect recording: ", error);
++            console.error("Failed to eject current recording: ", error);
 +        });
 +    },
 +

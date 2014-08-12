@@ -1,4 +1,4 @@
-From efa9edcb8079c2a515e32f3fb44c8b960a2bfd86 Mon Sep 17 00:00:00 2001
+From f4a7bfd77668579f69c5121e6b12bb9dfe4c664f Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 12 Jun 2014 16:49:07 -0700
 Subject: [PATCH] Web Replay: capture and replay ResourceLoader callbacks
@@ -7,6 +7,7 @@ Subject: [PATCH] Web Replay: capture and replay ResourceLoader callbacks
 Reviewed by NOBODY (OOPS!).
 
 Source/WebCore:
+
 Our approach to ensuring deterministic page loading is to capture resource loader
 callbacks during capturing, and then manually invoke loader callbacks during replay
 in lieu of using the resource loader scheduler.
@@ -80,12 +81,14 @@ from a frame's document loader given a resource loader ordinal and frame index.
 * replay/WebInputs.json:
 
 Source/WebKit2:
+
 During playback, don't schedule resource loaders. This prevents the NetworkProcess
 from taking over and fulfilling the loads nondeterministically.
 
 * WebProcess/Network/WebResourceLoadScheduler.cpp:
 (WebKit::WebResourceLoadScheduler::scheduleLoad):
 ---
+ Source/JavaScriptCore/replay/EncodedValue.h        |   4 +-
  Source/WebCore/ChangeLog                           |  79 ++++++++++
  Source/WebCore/WebCore.exp.in                      |   8 +
  Source/WebCore/loader/DocumentLoader.cpp           |  40 ++++-
@@ -102,11 +105,40 @@ from taking over and fulfilling the loads nondeterministically.
  Source/WebCore/replay/SerializationMethods.h       |  40 ++++-
  Source/WebCore/replay/WebInputs.json               |  64 ++++++++
  Source/WebKit2/ChangeLog                           |  15 +-
- .../Network/WebResourceLoadScheduler.cpp           |  11 ++
- 17 files changed, 594 insertions(+), 8 deletions(-)
+ .../Network/WebResourceLoadScheduler.cpp           |  12 ++
+ 18 files changed, 597 insertions(+), 10 deletions(-)
 
+diff --git a/Source/JavaScriptCore/replay/EncodedValue.h b/Source/JavaScriptCore/replay/EncodedValue.h
+index c0010e8..3ed089f 100644
+--- a/Source/JavaScriptCore/replay/EncodedValue.h
++++ b/Source/JavaScriptCore/replay/EncodedValue.h
+@@ -132,22 +132,22 @@ struct EncodingTraits<Vector<T, inlineCapacity, OverflowHandler>> {
+ 
+ template<> struct EncodingTraits<EncodedValue> {
+     typedef EncodedValue DecodedType;
+     // We should never attempt to decode or encode an encoded value,
+     // so encodeValue and decodeValue are intentionally omitted here.
+ };
+ 
+ // Specialize byte vectors to use base64 encoding.
+ template<> struct EncodingTraits<Vector<char>> {
+     typedef Vector<char> DecodedType;
+-    static EncodedValue encodeValue(const DecodedType&);
+-    static bool decodeValue(EncodedValue&, DecodedType&);
++    static JS_EXPORT_PRIVATE EncodedValue encodeValue(const DecodedType&);
++    static JS_EXPORT_PRIVATE bool decodeValue(EncodedValue&, DecodedType&);
+ };
+ 
+ template<typename T>
+ struct ScalarEncodingTraits {
+     typedef T DecodedType;
+ 
+     static JS_EXPORT_PRIVATE EncodedValue encodeValue(const DecodedType& decodedValue);
+     static bool decodeValue(EncodedValue& encodedValue, DecodedType& decodedValue)
+     {
+         decodedValue = encodedValue.convertTo<DecodedType>();
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index a27ce35..2179d82 100644
+index 25b443f..246606d 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,91 @@
@@ -202,10 +234,10 @@ index a27ce35..2179d82 100644
  
          No new tests. No behavior was changed.
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index 6495a4f..703d485 100644
+index 72d16dd..f4731e7 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -3462,10 +3462,18 @@ __ZN7WebCore32WebVideoFullscreenInterfaceAVKitC2Ev
+@@ -3464,10 +3464,18 @@ __ZN7WebCore32WebVideoFullscreenInterfaceAVKitC2Ev
  __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
  #endif
  
@@ -225,7 +257,7 @@ index 6495a4f..703d485 100644
 +__ZNK7WebCore20ResourceResponseBase18resourceLoadTimingEv
 +#endif
 diff --git a/Source/WebCore/loader/DocumentLoader.cpp b/Source/WebCore/loader/DocumentLoader.cpp
-index 14eb58f..2f6c75a 100644
+index bc333828..ccf2039 100644
 --- a/Source/WebCore/loader/DocumentLoader.cpp
 +++ b/Source/WebCore/loader/DocumentLoader.cpp
 @@ -69,20 +69,24 @@
@@ -235,7 +267,7 @@ index 14eb58f..2f6c75a 100644
  #include "ArchiveFactory.h"
  #endif
  
- #if USE(CONTENT_FILTERING)
+ #if ENABLE(CONTENT_FILTERING)
  #include "ContentFilter.h"
  #endif
  
@@ -323,10 +355,10 @@ index 14eb58f..2f6c75a 100644
 +
  } // namespace WebCore
 diff --git a/Source/WebCore/loader/DocumentLoader.h b/Source/WebCore/loader/DocumentLoader.h
-index 4ee9e93..27739f7 100644
+index 55080e2..ca07c64 100644
 --- a/Source/WebCore/loader/DocumentLoader.h
 +++ b/Source/WebCore/loader/DocumentLoader.h
-@@ -221,20 +221,24 @@ namespace WebCore {
+@@ -225,20 +225,24 @@ namespace WebCore {
          void stopLoadingPlugIns();
          void stopLoadingSubresources();
  
@@ -351,16 +383,16 @@ index 4ee9e93..27739f7 100644
              // Don't include data urls here, as if a lot of data is loaded
              // that way, we hold on to the (large) url string for too long.
              if (protocolIs(url, "data"))
-@@ -409,20 +413,24 @@ namespace WebCore {
-         RefPtr<IconDataCallback> m_iconDataCallback;
- 
-         bool m_subresourceLoadersArePageCacheAcceptable;
- 
+@@ -422,20 +426,24 @@ namespace WebCore {
          friend class ApplicationCacheHost;  // for substitute resource delivery
          OwnPtr<ApplicationCacheHost> m_applicationCacheHost;
  
- #if USE(CONTENT_FILTERING)
+ #if ENABLE(CONTENT_FILTERING)
          std::unique_ptr<ContentFilter> m_contentFilter;
+ #endif
+ 
+ #if USE(QUICK_LOOK)
+         std::unique_ptr<QuickLookHandle> m_quickLookHandle;
  #endif
 +
 +#if ENABLE(WEB_REPLAY)
@@ -432,7 +464,7 @@ index a70d243..e265001 100644
      }
  }
 diff --git a/Source/WebCore/loader/ResourceLoader.cpp b/Source/WebCore/loader/ResourceLoader.cpp
-index da5a60c..80b1479 100644
+index 9b65156..b4e0f03 100644
 --- a/Source/WebCore/loader/ResourceLoader.cpp
 +++ b/Source/WebCore/loader/ResourceLoader.cpp
 @@ -44,20 +44,25 @@
@@ -461,13 +493,13 @@ index da5a60c..80b1479 100644
      , m_notifiedLoadComplete(false)
      , m_cancellationStatus(NotCancelled)
      , m_defersLoading(frame->page()->defersLoading())
-@@ -615,11 +620,29 @@ void ResourceLoader::unschedule(SchedulePair& pair)
- 
+@@ -617,11 +622,29 @@ void ResourceLoader::unschedule(SchedulePair& pair)
  #endif
  
  #if USE(QUICK_LOOK)
  void ResourceLoader::didCreateQuickLookHandle(QuickLookHandle& handle)
  {
+     m_isQuickLookResource = true;
      frameLoader()->client().didCreateQuickLookHandle(handle);
  }
  #endif
@@ -492,7 +524,7 @@ index da5a60c..80b1479 100644
 +
  }
 diff --git a/Source/WebCore/loader/ResourceLoader.h b/Source/WebCore/loader/ResourceLoader.h
-index 97e3651..bfd4477 100644
+index 86475e1..9c97082 100644
 --- a/Source/WebCore/loader/ResourceLoader.h
 +++ b/Source/WebCore/loader/ResourceLoader.h
 @@ -33,20 +33,26 @@
@@ -522,7 +554,7 @@ index 97e3651..bfd4477 100644
  class ResourceBuffer;
  
  #if USE(QUICK_LOOK)
-@@ -130,20 +136,24 @@ public:
+@@ -131,20 +137,24 @@ public:
  
      void setDataBufferingPolicy(DataBufferingPolicy);
  
@@ -1431,7 +1463,7 @@ index 9d8af6e..b793e6f 100644
      ]
  }
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 134c6d4..ae51101 100644
+index f980251..7b8b68b 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,11 +1,24 @@
@@ -1461,7 +1493,7 @@ index 134c6d4..ae51101 100644
  
          * Shared/SessionTracker.cpp:
 diff --git a/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp b/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
-index cabc3c3..a2eb7eb 100644
+index cabc3c3..593ed21 100644
 --- a/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
 +++ b/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
 @@ -46,20 +46,24 @@
@@ -1489,7 +1521,7 @@ index cabc3c3..a2eb7eb 100644
      : m_internallyFailedLoadTimer(RunLoop::main(), this, &WebResourceLoadScheduler::internallyFailedLoadTimerFired)
      , m_suspendPendingRequestsCount(0)
  {
-@@ -103,26 +107,33 @@ void WebResourceLoadScheduler::scheduleLoad(ResourceLoader* resourceLoader, Cach
+@@ -103,28 +107,36 @@ void WebResourceLoadScheduler::scheduleLoad(ResourceLoader* resourceLoader, Cach
          return;
      }
  #endif
@@ -1507,14 +1539,15 @@ index cabc3c3..a2eb7eb 100644
          m_webResourceLoaders.set(identifier, WebResourceLoader::create(resourceLoader));
          return;
      }
-+
+ #endif
+ 
 +#if ENABLE(WEB_REPLAY)
 +    if (InputCursor* cursor = resourceLoader->activeInputCursor()) {
 +        if (cursor->isReplaying())
 +            return;
 +    }
- #endif
- 
++#endif
++
      LOG(NetworkScheduling, "(WebProcess) WebResourceLoadScheduler::scheduleLoad, url '%s' will be scheduled with the NetworkProcess with priority %i", resourceLoader->url().string().utf8().data(), priority);
  
      ContentSniffingPolicy contentSniffingPolicy = resourceLoader->shouldSniffContent() ? SniffContent : DoNotSniffContent;
@@ -1523,6 +1556,8 @@ index cabc3c3..a2eb7eb 100644
      // FIXME: Some entities in WebCore use WebCore's "EmptyFrameLoaderClient" instead of having a proper WebFrameLoaderClient.
      // EmptyFrameLoaderClient shouldn't exist and everything should be using a WebFrameLoaderClient,
      // but in the meantime we have to make sure not to mis-cast.
+     WebFrameLoaderClient* webFrameLoaderClient = toWebFrameLoaderClient(resourceLoader->frameLoader()->client());
+     WebFrame* webFrame = webFrameLoaderClient ? webFrameLoaderClient->webFrame() : 0;
 -- 
 2.0.1
 

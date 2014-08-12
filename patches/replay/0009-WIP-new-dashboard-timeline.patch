@@ -1,4 +1,4 @@
-From d7a7da18575dd92aac43db7d61973ac8767ea14c Mon Sep 17 00:00:00 2001
+From 76c625d816873ab7de6f8784ce5d26e491514ef7 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 31 Jul 2014 09:54:28 -0700
 Subject: [PATCH] WIP - new dashboard timeline
@@ -16,7 +16,7 @@ Subject: [PATCH] WIP - new dashboard timeline
  create mode 100644 Source/WebInspectorUI/UserInterface/Views/SimpleNetworkTimelineOverviewGraph.js
 
 diff --git a/Source/WebInspectorUI/UserInterface/Main.html b/Source/WebInspectorUI/UserInterface/Main.html
-index 7017d29..8929cab 100644
+index 35ac809..f3ea2b9 100644
 --- a/Source/WebInspectorUI/UserInterface/Main.html
 +++ b/Source/WebInspectorUI/UserInterface/Main.html
 @@ -49,20 +49,21 @@
@@ -41,7 +41,7 @@ index 7017d29..8929cab 100644
      <link rel="stylesheet" href="Views/DefaultDashboardView.css">
      <link rel="stylesheet" href="Views/DataGrid.css">
      <link rel="stylesheet" href="Views/DatabaseContentView.css">
-@@ -345,20 +346,21 @@
+@@ -346,20 +347,21 @@
      <script src="Views/DOMNodeDetailsSidebarPanel.js"></script>
      <script src="Views/DOMStorageContentView.js"></script>
      <script src="Views/DOMStorageTreeElement.js"></script>
@@ -63,7 +63,7 @@ index 7017d29..8929cab 100644
      <script src="Views/DashboardView.js"></script>
      <script src="Views/DebuggerDashboardView.js"></script>
      <script src="Views/DefaultDashboardView.js"></script>
-@@ -434,20 +436,21 @@
+@@ -435,20 +437,21 @@
      <script src="Views/ScopeVariableTreeElement.js"></script>
      <script src="Views/ScriptContentView.js"></script>
      <script src="Views/ScriptTimelineDataGrid.js"></script>
@@ -574,11 +574,10 @@ index 0000000..87d1566
 +    }
 +};
 diff --git a/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.css b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.css
-index 84cfa22..520d001 100644
+index d76f0e8..f517164 100644
 --- a/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.css
 +++ b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.css
-@@ -31,37 +31,30 @@
-     text-align: center;
+@@ -32,37 +32,30 @@
      text-shadow: rgba(255, 255, 255, 0.5) 0 1px 0;
      color: rgb(60, 60, 60);
      padding: 0 5px;
@@ -586,6 +585,7 @@ index 84cfa22..520d001 100644
  
  .toolbar .dashboard.replay div.navigation-bar {
      border-bottom: none !important;
+     box-shadow: none !important;
  }
  
 -.toolbar .dashboard.replay > .recording-container {
@@ -593,10 +593,10 @@ index 84cfa22..520d001 100644
 -    -webkit-order: 2;
 -    border: 1px solid #aaa;
 -    height: 22px;
--    margin-left: 4px;
+-    margin: 0 14px 0 4px;
 -}
 -
--.toolbar.label-only .dashboard.replay > .recording-container {
+-.toolbar.small-size .dashboard.replay > .recording-container {
 -    height: 16px;
 -}
 -
@@ -621,7 +621,7 @@ index 84cfa22..520d001 100644
 +    margin-left: 4px;
 +}
 diff --git a/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js
-index 84a91a2..82ae49d 100644
+index a66d909..a482220 100644
 --- a/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js
 +++ b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js
 @@ -40,22 +40,35 @@ WebInspector.ReplayDashboardView = function(representedObject)
@@ -686,15 +686,15 @@ index 84a91a2..82ae49d 100644
  
      // Private
  
-@@ -143,28 +153,32 @@ WebInspector.ReplayDashboardView.prototype = {
-                 button.enabled = true;
-             });
+@@ -121,28 +131,32 @@ WebInspector.ReplayDashboardView.prototype = {
+             console.error("Failed to eject current recording: ", error);
+         });
      },
  
      _captureStarted: function()
      {
-         this._captureButtonItem.activated = true;
          this._captureButtonItem.hidden = false;
+         this._captureButtonItem.activated = true;
          this._replayButtonItem.hidden = true;
          this._ejectButtonItem.hidden = true;
 +
@@ -713,13 +713,13 @@ index 84a91a2..82ae49d 100644
  
      _playbackStarted: function()
      {
-         // Show the pause button.
          this._replayButtonItem.toggled = true;
      },
  
      _playbackPaused: function()
      {
-@@ -185,12 +199,107 @@ WebInspector.ReplayDashboardView.prototype = {
+         this._replayButtonItem.toggled = false;
+@@ -161,12 +175,107 @@ WebInspector.ReplayDashboardView.prototype = {
                  if (!session.segments.length) {
                      view._captureButtonItem.hidden = false;
                      view._replayButtonItem.hidden = true;

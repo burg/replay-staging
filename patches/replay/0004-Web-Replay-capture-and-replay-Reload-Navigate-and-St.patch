@@ -1,4 +1,4 @@
-From 941f796771b0c5eb78089fd9215263ebc75461a1 Mon Sep 17 00:00:00 2001
+From 810bca671cfe20ba8d677814050d019577505153 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 11:45:23 -0700
 Subject: [PATCH] Web Replay: capture and replay Reload, Navigate, and Stop
@@ -102,7 +102,7 @@ an enum with uint64_t-sized storage rather than int.
  14 files changed, 513 insertions(+), 11 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 2179d82..ff7f280 100644
+index 246606d..3b91736 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,83 @@
@@ -1139,7 +1139,7 @@ index b793e6f..385f45a 100644
      ]
  }
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index ae51101..6ba9525 100644
+index 7b8b68b..d7b5266 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,25 @@
@@ -1196,12 +1196,12 @@ index 56c4cc2..a41d065 100644
  
      size_t size = hostsToServe.size();
 diff --git a/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp b/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
-index a2eb7eb..63e6f47 100644
+index 593ed21..acdbf26 100644
 --- a/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
 +++ b/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
-@@ -122,21 +122,21 @@ void WebResourceLoadScheduler::scheduleLoad(ResourceLoader* resourceLoader, Cach
-         return;
+@@ -123,21 +123,21 @@ void WebResourceLoadScheduler::scheduleLoad(ResourceLoader* resourceLoader, Cach
      }
+ #endif
  
  #if ENABLE(WEB_REPLAY)
      if (InputCursor* cursor = resourceLoader->activeInputCursor()) {

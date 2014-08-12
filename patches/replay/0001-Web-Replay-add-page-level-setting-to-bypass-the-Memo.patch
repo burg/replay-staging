@@ -1,4 +1,4 @@
-From 000d78d980886341ce3bca671f72d6b17cc32b6b Mon Sep 17 00:00:00 2001
+From 4bb1947caf0453928cb3c81a33ba4c21d2baf1b6 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 11 Jun 2014 15:33:16 -0700
 Subject: [PATCH] Web Replay: add page-level setting to bypass the MemoryCache
@@ -62,7 +62,7 @@ and bypass cache session id are both considered to be non-ephemeral.
  11 files changed, 104 insertions(+), 11 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 8b7d903..e70edfd 100644
+index 3442d07..2b041c1 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,58 @@
@@ -114,16 +114,16 @@ index 8b7d903..e70edfd 100644
 +        (WebCore::ReplayController::setForceDeterministicSettings):
 +        * replay/ReplayController.h:
 +
- 2014-07-30  Dan Bernstein  <mitz@apple.com>
+ 2014-08-11  Beth Dakin  <bdakin@apple.com>
  
-         <rdar://problem/17199364> [Mac] Popup button arrows appear on the left, underlapping text, when the UI layout direction is right-to-left
-         https://bugs.webkit.org/show_bug.cgi?id=135426
+         Fixed backgrounds don't paint in blurred inset areas
+         https://bugs.webkit.org/show_bug.cgi?id=135712
  
-         Reviewed by Dean Jackson.
+         Reviewed by Simon Fraser.
  
-         No test, because the UI layout direction in the test harness is always left-to-right.
+         Background geometry calculations for fixed background need to use the larger 
+         visible rect.
  
-         * rendering/RenderThemeMac.mm:
 diff --git a/Source/WebCore/loader/cache/CachedResourceLoader.cpp b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
 index fa3c54f..8e9c6c6 100644
 --- a/Source/WebCore/loader/cache/CachedResourceLoader.cpp
@@ -221,10 +221,10 @@ index 02fb309..4913bd8 100644
      }
      originMap->set(resource->cachePartition(), resource);
 diff --git a/Source/WebCore/page/Page.cpp b/Source/WebCore/page/Page.cpp
-index 745107f..6b52ac4 100644
+index 7dd285e..eb1f27e 100644
 --- a/Source/WebCore/page/Page.cpp
 +++ b/Source/WebCore/page/Page.cpp
-@@ -1159,22 +1159,22 @@ void Page::storageBlockingStateChanged()
+@@ -1173,22 +1173,22 @@ void Page::storageBlockingStateChanged()
      // Collect the PluginViews in to a vector to ensure that action the plug-in takes
      // from below storageBlockingStateChanged does not affect their lifetime.
      auto views = pluginViews();
@@ -249,7 +249,7 @@ index 745107f..6b52ac4 100644
      ASSERT(m_subframeCount >= 0);
  
      int subframeCount = 0;
-@@ -1589,20 +1589,23 @@ void Page::setUserContentController(UserContentController* userContentController
+@@ -1603,20 +1603,23 @@ void Page::setUserContentController(UserContentController* userContentController
  VisitedLinkStore& Page::visitedLinkStore()
  {
      if (m_visitedLinkStore)
@@ -307,7 +307,7 @@ index 5efd74a..883babb 100644
  
  #endif // SessionID_h
 diff --git a/Source/WebCore/page/Settings.cpp b/Source/WebCore/page/Settings.cpp
-index e8653df..74925e4 100644
+index d713412..adadf9b 100644
 --- a/Source/WebCore/page/Settings.cpp
 +++ b/Source/WebCore/page/Settings.cpp
 @@ -34,20 +34,21 @@
@@ -332,7 +332,7 @@ index e8653df..74925e4 100644
  
  namespace WebCore {
  
-@@ -170,20 +171,21 @@ Settings::Settings(Page* page)
+@@ -172,20 +173,21 @@ Settings::Settings(Page* page)
      SETTINGS_INITIALIZER_LIST
      , m_screenFontSubstitutionEnabled(shouldEnableScreenFontSubstitutionByDefault())
      , m_isJavaEnabled(false)
@@ -354,7 +354,7 @@ index e8653df..74925e4 100644
      , m_scrollingPerformanceLoggingEnabled(false)
      , m_timeWithoutMouseMovementBeforeHidingControls(3)
      , m_setImageLoadingSettingsTimer(this, &Settings::imageLoadingSettingsTimerFired)
-@@ -475,20 +477,30 @@ double Settings::domTimerAlignmentInterval() const
+@@ -477,20 +479,30 @@ double Settings::domTimerAlignmentInterval() const
      return m_page->timerAlignmentInterval();
  }
  
@@ -438,7 +438,7 @@ index ba283ea..74d9ac0 100644
      bool m_scrollingPerformanceLoggingEnabled : 1;
  
 diff --git a/Source/WebCore/replay/ReplayController.cpp b/Source/WebCore/replay/ReplayController.cpp
-index 83135d2..f8dac30 100644
+index 119f490..a463a09 100644
 --- a/Source/WebCore/replay/ReplayController.cpp
 +++ b/Source/WebCore/replay/ReplayController.cpp
 @@ -123,24 +123,27 @@ ReplayController::ReplayController(Page& page)
@@ -470,10 +470,10 @@ index 83135d2..f8dac30 100644
  
  void ReplayController::setSessionState(SessionState state)
 diff --git a/Source/WebCore/replay/ReplayController.h b/Source/WebCore/replay/ReplayController.h
-index 929477a..77eaaf7 100644
+index ea1419d..70a60d8 100644
 --- a/Source/WebCore/replay/ReplayController.h
 +++ b/Source/WebCore/replay/ReplayController.h
-@@ -153,24 +153,26 @@ private:
+@@ -158,24 +158,26 @@ private:
      void loadSegmentAtIndex(size_t);
      void unloadSegment(bool suppressNotifications = false);
  
@@ -502,7 +502,7 @@ index 929477a..77eaaf7 100644
      // The active cursor is set to nullptr when invalid.
      RefPtr<JSC::InputCursor> m_activeCursor;
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 79585c8..134c6d4 100644
+index df4cdcc..f980251 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,24 @@
@@ -520,16 +520,16 @@ index 79585c8..134c6d4 100644
 +        (WebKit::SessionTracker::session):
 +        (WebKit::SessionTracker::setSession):
 +
- 2014-07-30  Dan Bernstein  <mitz@apple.com>
+ 2014-08-11  Joseph Pecoraro  <pecoraro@apple.com>
  
-         Get rid of the WKNSURLProtectionSpace wrapper
-         https://bugs.webkit.org/show_bug.cgi?id=135425
+         Add Private WKPreferences API for developer extras (show inspector)
+         https://bugs.webkit.org/show_bug.cgi?id=135811
  
-         Reviewed by Sam Weinig.
+         Reviewed by Timothy Hatcher.
  
-         * Shared/Cocoa/APIObject.mm:
-         (API::Object::newObject): Don’t allocate WKNSURLProtectionSpace wrappers.
- 
+         * UIProcess/API/Cocoa/WKPreferences.mm:
+         (-[WKPreferences _developerExtrasEnabled]):
+         (-[WKPreferences _setDeveloperExtrasEnabled:]):
 diff --git a/Source/WebKit2/Shared/SessionTracker.cpp b/Source/WebKit2/Shared/SessionTracker.cpp
 index ac79a9d..0886af1 100644
 --- a/Source/WebKit2/Shared/SessionTracker.cpp
