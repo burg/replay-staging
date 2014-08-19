@@ -1,4 +1,4 @@
-From ce7a02bbb0b0648d0137889426254db3804eae4c Mon Sep 17 00:00:00 2001
+From bdb53f822e1476e6d8939ce744cae8ca0067ee0f Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 14:34:56 -0700
 Subject: [PATCH] Web Replay: make calls into FrameLoader::checkLoadComplete()
@@ -89,8 +89,8 @@ Source/WebKit2:
  Source/WebCore/loader/FrameLoader.cpp              |   4 +-
  Source/WebCore/loader/FrameLoader.h                |   6 +-
  .../WebCore/replay/ReplayInputDispatchMethods.cpp  |  11 ++
- Source/WebCore/replay/ReplayableTimer.cpp          | 104 +++++++++++++++++
- Source/WebCore/replay/ReplayableTimer.h            | 127 +++++++++++++++++++++
+ Source/WebCore/replay/ReplayableTimer.cpp          | 107 ++++++++++++++++++
+ Source/WebCore/replay/ReplayableTimer.h            | 124 +++++++++++++++++++++
  Source/WebCore/replay/ReplayableTimers.cpp         |  79 +++++++++++++
  Source/WebCore/replay/ReplayableTimers.h           |  55 +++++++++
  Source/WebCore/replay/WebInputs.json               |   9 ++
@@ -105,10 +105,10 @@ Source/WebKit2:
  create mode 100644 Source/WebCore/replay/ReplayableTimers.h
 
 diff --git a/Source/WebCore/CMakeLists.txt b/Source/WebCore/CMakeLists.txt
-index f8ade84..b3337ee 100644
+index ce1581d..4e3c145 100644
 --- a/Source/WebCore/CMakeLists.txt
 +++ b/Source/WebCore/CMakeLists.txt
-@@ -2477,20 +2477,21 @@ set(WebCore_SOURCES
+@@ -2503,20 +2503,21 @@ set(WebCore_SOURCES
      rendering/svg/SVGTextLayoutAttributes.cpp
      rendering/svg/SVGTextLayoutAttributesBuilder.cpp
      rendering/svg/SVGTextLayoutEngine.cpp
@@ -131,7 +131,7 @@ index f8ade84..b3337ee 100644
      storage/StorageNamespace.cpp
      storage/StorageNamespaceImpl.cpp
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 3b91736..201a560 100644
+index 40403f4..185eda8 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,80 @@
@@ -205,16 +205,16 @@ index 3b91736..201a560 100644
 +
 +        * replay/WebInputs.json:
 +
- 2014-07-14  Brian J. Burg  <burg@cs.washington.edu>
+ 2014-08-19  Brian J. Burg  <burg@cs.washington.edu>
  
-         [WIP] Web Replay: capture and replay Reload, Navigate, and Stop commands
-         https://bugs.webkit.org/show_bug.cgi?id=129447
+         Web Replay: Check event loop extents during replaying
+         Need a Bug URL (OOPS!)
  
          Reviewed by NOBODY (OOPS!).
  
-         Add support for capturing and replaying basic navigation commands that
-         come to WebCore from WK1/WK2 WebProcess. This handles most UI-driven
-         navigation commands, such as clicking the stop or reload buttons, or
+         Sometimes we see different nondeterminism during capture and replay
+         executions, so we should support determinism checks during replay too.
+ 
 diff --git a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
 index f0b9d0c..5a3b68a 100644
 --- a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
@@ -330,10 +330,10 @@ index 360b79a..0011f6a 100644
      </ClInclude>
      <ClInclude Include="..\xml\XMLErrors.h">
 diff --git a/Source/WebCore/WebCore.vcxproj/copyForwardingHeaders.cmd b/Source/WebCore/WebCore.vcxproj/copyForwardingHeaders.cmd
-index db4f2a3..2ebbc75 100644
+index fbf69f1..3fe4742 100644
 --- a/Source/WebCore/WebCore.vcxproj/copyForwardingHeaders.cmd
 +++ b/Source/WebCore/WebCore.vcxproj/copyForwardingHeaders.cmd
-@@ -75,20 +75,21 @@ xcopy /y /d "%ProjectDir%..\page\animation\*.h" "%CONFIGURATIONBUILDDIR%\include
+@@ -76,20 +76,21 @@ xcopy /y /d "%ProjectDir%..\page\animation\*.h" "%CONFIGURATIONBUILDDIR%\include
  xcopy /y /d "%ProjectDir%..\page\win\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
  xcopy /y /d "%ProjectDir%..\bridge\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
  xcopy /y /d "%ProjectDir%..\bridge\jsc\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
@@ -356,10 +356,10 @@ index db4f2a3..2ebbc75 100644
  xcopy /y /d "%ProjectDir%..\storage\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
  xcopy /y /d "%ProjectDir%..\style\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index f5615b9..e1a9e19 100644
+index 161d5c8..dcda922 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -5527,20 +5527,24 @@
+@@ -5528,20 +5528,24 @@
  		C375D7FD16639519006184AB /* TypeAhead.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C375D7FB16639519006184AB /* TypeAhead.cpp */; };
  		C375D7FE16639519006184AB /* TypeAhead.h in Headers */ = {isa = PBXBuildFile; fileRef = C375D7FC16639519006184AB /* TypeAhead.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		C37CDEBD149EF2030042090D /* ColorChooserClient.h in Headers */ = {isa = PBXBuildFile; fileRef = C37CDEBC149EF2030042090D /* ColorChooserClient.h */; settings = {ATTRIBUTES = (Private, ); }; };
@@ -384,7 +384,7 @@ index f5615b9..e1a9e19 100644
  		C5102ED00FD9EF8C00FAFF04 /* StorageAreaSync.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C5102ECE0FD9EF8C00FAFF04 /* StorageAreaSync.cpp */; };
  		C5137CF211A58378004ADB99 /* JSDOMStringList.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */; };
  		C5137CF311A58378004ADB99 /* JSDOMStringList.h in Headers */ = {isa = PBXBuildFile; fileRef = C5137CF111A58378004ADB99 /* JSDOMStringList.h */; };
-@@ -12946,20 +12950,24 @@
+@@ -12952,20 +12956,24 @@
  		C375D7FC16639519006184AB /* TypeAhead.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TypeAhead.h; sourceTree = "<group>"; };
  		C37CDEBC149EF2030042090D /* ColorChooserClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ColorChooserClient.h; sourceTree = "<group>"; };
  		C3CF17A015B0063F00276D39 /* IdTargetObserver.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = IdTargetObserver.cpp; sourceTree = "<group>"; };
@@ -409,7 +409,7 @@ index f5615b9..e1a9e19 100644
  		C5102ECE0FD9EF8C00FAFF04 /* StorageAreaSync.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = StorageAreaSync.cpp; sourceTree = "<group>"; };
  		C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = JSDOMStringList.cpp; sourceTree = "<group>"; };
  		C5137CF111A58378004ADB99 /* JSDOMStringList.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSDOMStringList.h; sourceTree = "<group>"; };
-@@ -18378,30 +18386,34 @@
+@@ -18406,30 +18414,34 @@
  				99CC0B3A18BE9849006CEBCC /* CapturingInputCursor.h */,
  				C400D10818F1C8F60090D863 /* EventLoopInput.cpp */,
  				99E45A1618A063BE0026D88F /* EventLoopInput.h */,
@@ -446,7 +446,7 @@ index f5615b9..e1a9e19 100644
  			);
  			path = replay;
  			sourceTree = "<group>";
-@@ -24098,20 +24110,21 @@
+@@ -24127,20 +24139,21 @@
  				316FE0800E6CCC2800BF6088 /* DOMWebKitCSSKeyframesRule.h in Headers */,
  				316FE0820E6CCC2800BF6088 /* DOMWebKitCSSKeyframesRuleInternal.h in Headers */,
  				498391500F1E76B400C23782 /* DOMWebKitCSSMatrix.h in Headers */,
@@ -468,7 +468,7 @@ index f5615b9..e1a9e19 100644
  				FC9A0F75164094CF003D6B8D /* DOMWindowCSS.h in Headers */,
  				51FA2D78152132B300C1BA0B /* DOMWindowExtension.h in Headers */,
  				51D719B7181106E00016DC51 /* DOMWindowIndexedDatabase.h in Headers */,
-@@ -26576,20 +26589,21 @@
+@@ -26608,20 +26621,21 @@
  				31288E730E3005D6003619AE /* WebKitCSSKeyframeRule.h in Headers */,
  				31288E750E3005D6003619AE /* WebKitCSSKeyframesRule.h in Headers */,
  				498391590F1E776900C23782 /* WebKitCSSMatrix.h in Headers */,
@@ -490,7 +490,7 @@ index f5615b9..e1a9e19 100644
  				97AABD1E14FA09D5007457AE /* WebSocketChannel.h in Headers */,
  				97AABD1F14FA09D5007457AE /* WebSocketChannelClient.h in Headers */,
  				4A38BF5114FE1C0900612512 /* WebSocketDeflateFramer.h in Headers */,
-@@ -28112,20 +28126,21 @@
+@@ -28145,20 +28159,21 @@
  				073AB4B717F92ECF006E0D6F /* JSCapabilityRange.cpp in Sources */,
  				93F9B7A00BA6032600854064 /* JSCDATASection.cpp in Sources */,
  				93BA59B20F2AA5FE008E8E99 /* JSCDATASectionCustom.cpp in Sources */,
@@ -512,7 +512,7 @@ index f5615b9..e1a9e19 100644
  				FDA15EBD12B03F0B003A583A /* JSConvolverNode.cpp in Sources */,
  				FE6FD48D0F676E9300092873 /* JSCoordinates.cpp in Sources */,
  				930705D809E0C9B700B17FE4 /* JSCounter.cpp in Sources */,
-@@ -28875,20 +28890,21 @@
+@@ -28909,20 +28924,21 @@
  				078E093317D16B0600420AA1 /* MediaStreamCenter.cpp in Sources */,
  				078E093117D1684200420AA1 /* MediaStreamCenterMac.cpp in Sources */,
  				078E090017D14CEE00420AA1 /* MediaStreamEvent.cpp in Sources */,
@@ -535,7 +535,7 @@ index f5615b9..e1a9e19 100644
  				E1ADECCF0E76AD8B004A1A5E /* MessageChannel.cpp in Sources */,
  				75793E830D0CE0B3007FC0AC /* MessageEvent.cpp in Sources */,
 diff --git a/Source/WebCore/css/CSSFontSelector.cpp b/Source/WebCore/css/CSSFontSelector.cpp
-index f7815ef..5d4cc75 100644
+index 4648897..bbfe5aa 100644
 --- a/Source/WebCore/css/CSSFontSelector.cpp
 +++ b/Source/WebCore/css/CSSFontSelector.cpp
 @@ -577,24 +577,24 @@ void CSSFontSelector::clearDocument()
@@ -842,7 +842,7 @@ index 01415ab..62143d3 100644
      bool m_hasPreparedForDestruction;
  
 diff --git a/Source/WebCore/loader/FrameLoader.cpp b/Source/WebCore/loader/FrameLoader.cpp
-index d4f4854..d8d9a94 100644
+index 3258bce..2f5e11d 100644
 --- a/Source/WebCore/loader/FrameLoader.cpp
 +++ b/Source/WebCore/loader/FrameLoader.cpp
 @@ -843,41 +843,41 @@ void FrameLoader::checkCompleted()
@@ -890,7 +890,7 @@ index d4f4854..d8d9a94 100644
  void FrameLoader::scheduleCheckLoadComplete()
  {
 diff --git a/Source/WebCore/loader/FrameLoader.h b/Source/WebCore/loader/FrameLoader.h
-index 9f90775..4a3b099 100644
+index 7619f22..64cdca8 100644
 --- a/Source/WebCore/loader/FrameLoader.h
 +++ b/Source/WebCore/loader/FrameLoader.h
 @@ -31,24 +31,24 @@
@@ -966,10 +966,10 @@ index 9f90775..4a3b099 100644
  
      bool m_currentNavigationHasShownBeforeUnloadConfirmPanel;
 diff --git a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
-index 43e1fcf..cd67cf0 100644
+index 6454a48..5bd4446 100644
 --- a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
 +++ b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
-@@ -22,30 +22,33 @@
+@@ -22,26 +22,29 @@
   * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
   * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
   * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
@@ -981,37 +981,33 @@ index 43e1fcf..cd67cf0 100644
  
  #include "AllReplayInputs.h"
 +#include "Document.h"
- #include "DocumentLoader.h"
  #include "MainFrame.h"
  #include "NavigationScheduler.h"
  #include "Page.h"
  #include "ReplayController.h"
 +#include "ReplayableTimers.h"
- #include "ResourceError.h"
- #include "ResourceLoader.h"
- #include "SerializationMethods.h"
  #include "URL.h"
  #include "UserInputBridge.h"
 +#include <cinttypes>
  
  namespace WebCore {
  
- static ResourceLoader* resourceLoaderForOrdinal(Page& page, unsigned long ordinal, int frameIndex)
+ // Sentinel inputs.
+ void BeginSegmentSentinel::dispatch(ReplayController&)
  {
-     Frame* frame = frameFromFrameIndex(&page, frameIndex);
-     ASSERT(frame);
- 
-     const Vector<unsigned long>& usedIdentifiers = frame->mainFrame().loader().activeDocumentLoader()->usedIdentifiers();
-     ASSERT(ordinal < usedIdentifiers.size());
-@@ -163,13 +166,21 @@ void ResourceLoaderDidReceiveResponse::dispatch(ReplayController& controller)
-     // FIXME: signal error if the callback couldn't be fired.
  }
  
- void ResourceLoaderDidSendData::dispatch(ReplayController& controller)
+ void EndSegmentSentinel::dispatch(ReplayController&)
  {
-     if (ResourceLoader* loader = resourceLoaderForOrdinal(controller.page(), ordinal(), frameIndex()))
-         loader->didSendData(m_bytesSent, m_totalBytesToBeSent);
-     // FIXME: signal error if the callback couldn't be fired.
+@@ -85,13 +88,21 @@ void HandleWheelEvent::dispatch(ReplayController& controller)
+ void LogicalScrollPage::dispatch(ReplayController& controller)
+ {
+     controller.page().userInputBridge().logicalScrollRecursively(direction(), granularity(), InputSource::Synthetic);
+ }
+ 
+ void ScrollPage::dispatch(ReplayController& controller)
+ {
+     controller.page().userInputBridge().scrollRecursively(direction(), granularity(), InputSource::Synthetic);
  }
  
 +// Other event loop inputs.
@@ -1027,10 +1023,10 @@ index 43e1fcf..cd67cf0 100644
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebCore/replay/ReplayableTimer.cpp b/Source/WebCore/replay/ReplayableTimer.cpp
 new file mode 100644
-index 0000000..fd46096
+index 0000000..3049aed
 --- /dev/null
 +++ b/Source/WebCore/replay/ReplayableTimer.cpp
-@@ -0,0 +1,104 @@
+@@ -0,0 +1,107 @@
 +/*
 + * Copyright (C) 2013, 2014 University of Washington. All rights reserved.
 + *
@@ -1084,7 +1080,9 @@ index 0000000..fd46096
 +
 +void ReplayableTimerBase::timerFired(Timer<ReplayableTimerBase>&)
 +{
++    ASSERT(m_ordinal);
 +    ASSERT(m_document);
++
 +    Document* document = m_document;
 +    m_document = nullptr;
 +
@@ -1092,10 +1090,11 @@ index 0000000..fd46096
 +    ASSERT(!cursor.isReplaying());
 +
 +    if (cursor.isCapturing()) {
-+        LOG(WebReplay, "ReplayableTimer(%p)::timerFired m_document=%p", this, document);
++        LOG(WebReplay, "ReplayableTimer(%p)::timerFired m_document=%p, ordinal=%" PRIu64, this, document, m_ordinal);
 +        cursor.appendInput<AsyncTimerFired>(frameIndexFromDocument(document), m_ordinal);
 +    }
 +
++    EventLoopInputExtent extent(cursor);
 +    fired();
 +}
 +
@@ -1105,12 +1104,12 @@ index 0000000..fd46096
 +    m_document = document;
 +
 +    if (!m_ordinal)
-+        document->replayableTimers().registerTimer(this);
++        m_ordinal = document->replayableTimers().registerTimer(this);
 +
 +    InputCursor& cursor = document->inputCursor();
 +#if !LOG_DISABLED
 +    if (cursor.isCapturing() || cursor.isReplaying())
-+        LOG(WebReplay, "ReplayableTimer(%p)::startOneShot interval=%f, document=%p", this, interval, document);
++        LOG(WebReplay, "ReplayableTimer(%p)::startOneShot interval=%f, document=%p, ordinal=%" PRIu64, this, interval, document, m_ordinal);
 +#endif
 +    if (!cursor.isReplaying())
 +        m_timer.startOneShot(interval);
@@ -1124,7 +1123,7 @@ index 0000000..fd46096
 +    InputCursor& cursor = m_document->inputCursor();
 +#if !LOG_DISABLED
 +    if (cursor.isCapturing() || cursor.isReplaying())
-+        LOG(WebReplay, "ReplayableTimer(%p)::stop m_document=%p", this, m_document);
++        LOG(WebReplay, "ReplayableTimer(%p)::stop m_document=%p, ordinal=%" PRIu64, this, m_document, m_ordinal);
 +#endif
 +    if (!cursor.isReplaying())
 +        m_timer.stop();
@@ -1137,10 +1136,10 @@ index 0000000..fd46096
 +#endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebCore/replay/ReplayableTimer.h b/Source/WebCore/replay/ReplayableTimer.h
 new file mode 100644
-index 0000000..28ece9a
+index 0000000..6c9ecfb
 --- /dev/null
 +++ b/Source/WebCore/replay/ReplayableTimer.h
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,124 @@
 +/*
 + * Copyright (C) 2006 Apple Computer, Inc.  All rights reserved.
 + * Copyright (C) 2013, 2014 University of Washington. All rights reserved.
@@ -1203,9 +1202,6 @@ index 0000000..28ece9a
 +    virtual void fired() =0;
 +private:
 +    void timerFired(Timer<ReplayableTimerBase>&);
-+
-+    // Called by ReplayableTimers::registerTimer
-+    void setOrdinal(uint64_t ordinal) { m_ordinal = ordinal; }
 +
 +    Timer<ReplayableTimerBase> m_timer;
 +    Document* m_document;
@@ -1415,10 +1411,10 @@ index 0000000..3f7fc11
 +
 +#endif // ReplayableTimers_h
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
-index 385f45a..d76bbee 100644
+index 9d8af6e..4fbc592 100644
 --- a/Source/WebCore/replay/WebInputs.json
 +++ b/Source/WebCore/replay/WebInputs.json
-@@ -208,20 +208,29 @@
+@@ -152,20 +152,29 @@
              },
              {
                  "name": "URL", "mode": "HEAVY_SCALAR",
@@ -1475,7 +1471,7 @@ index e8d692e..f60bc77 100644
      "${JAVASCRIPTCORE_DIR}/API"
      "${JAVASCRIPTCORE_DIR}/assembler"
 diff --git a/Source/WebKit/ChangeLog b/Source/WebKit/ChangeLog
-index 249f356..2accc58 100644
+index e7a7bf0..9c62439 100644
 --- a/Source/WebKit/ChangeLog
 +++ b/Source/WebKit/ChangeLog
 @@ -1,10 +1,19 @@
@@ -1488,18 +1484,18 @@ index 249f356..2accc58 100644
 +
 +        * CMakeLists.txt: Add replay/ directory to header include paths.
 +
- 2014-08-07  Brent Fulgham  <bfulgham@apple.com>
+ 2014-08-15  Andy Estes  <aestes@apple.com>
  
-         [Win] Unreviewed gardening.
+         [Cocoa] Add migrate-headers.sh and postprocess-headers.sh to WebKit.xcodeproj
+         https://bugs.webkit.org/show_bug.cgi?id=135984
  
-         * WebKit.vcxproj/WebKit/WebKitCommon.props: Add $(DebugSuffix) to libraries so
-         that the DebugSuffix target works properly.
+         Reviewed by Daniel Bates.
  
- 2014-08-07  Timothy Hatcher  <timothy@apple.com>
+         It's nice to be able to look at these files in Xcode.
  
-         Web Inspector: Update glyphs to be more like Xcode 6
+         * WebKit.xcodeproj/project.pbxproj:
 diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
-index 0e6cad9..b12c8a5 100644
+index d058eb1..31ac6a3 100644
 --- a/Source/WebKit2/CMakeLists.txt
 +++ b/Source/WebKit2/CMakeLists.txt
 @@ -100,20 +100,21 @@ set(WebKit2_INCLUDE_DIRECTORIES
@@ -1525,7 +1521,7 @@ index 0e6cad9..b12c8a5 100644
      "${JAVASCRIPTCORE_DIR}/assembler"
      "${JAVASCRIPTCORE_DIR}/bytecode"
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index d7b5266..0de3e87 100644
+index e925720..ecd3554f 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,19 @@
@@ -1538,16 +1534,16 @@ index d7b5266..0de3e87 100644
 +
 +        * CMakeLists.txt: Add replay/ directory to header include paths.
 +
- 2014-07-14  Brian J. Burg  <burg@cs.washington.edu>
+ 2014-08-19  Peyton Randolph  <prandolph@apple.com>
  
-         Web Replay: capture and replay Reload, Navigate, and Stop commands
-         https://bugs.webkit.org/show_bug.cgi?id=129447
+         Extend injected bundle node snapshotting to support forced white and black text
+         https://bugs.webkit.org/show_bug.cgi?id=136061
  
-         Reviewed by NOBODY (OOPS!).
+         Reviewed by Beth Dakin.
  
-         Update resource logging formatters for ResourceLoadPriority. It is now
-         an enum with uint64_t-sized storage rather than int.
- 
+         * Shared/API/c/WKImage.h:
+         Add -ForceBlackText and -ForceWhiteText snapshotting options.
+         * Shared/API/c/WKSharedAPICast.h:
 -- 
 2.0.1
 

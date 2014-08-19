@@ -1,4 +1,4 @@
-From fb2260d63de7df89a7a842793240c654a854b9c3 Mon Sep 17 00:00:00 2001
+From 6aa814da6e839e7e9df398dda3f82149607dd89b Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 12 Jun 2014 09:30:20 -0700
 Subject: [PATCH] Move createUniqueIdentifier() from ProgressTracker to
@@ -48,7 +48,7 @@ No new tests. No behavior was changed.
  12 files changed, 66 insertions(+), 39 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 2b041c1..25b443f 100644
+index f820270..85887b8 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,11 +1,45 @@
@@ -159,10 +159,10 @@ index 39ed463..de22b87 100644
      LOG(Network, "WebSocketChannel %p connect()", this);
      ASSERT(!m_handle);
 diff --git a/Source/WebCore/html/HTMLMediaElement.cpp b/Source/WebCore/html/HTMLMediaElement.cpp
-index eae5fc8..2c823de 100644
+index 6bb6fd7..9b95a97 100644
 --- a/Source/WebCore/html/HTMLMediaElement.cpp
 +++ b/Source/WebCore/html/HTMLMediaElement.cpp
-@@ -59,21 +59,20 @@
+@@ -60,21 +60,20 @@
  #include "MediaError.h"
  #include "MediaFragmentURIParser.h"
  #include "MediaKeyEvent.h"
@@ -208,7 +208,7 @@ index eae5fc8..2c823de 100644
  {
      if (Frame* frame = document().frame()) {
 diff --git a/Source/WebCore/inspector/InspectorResourceAgent.cpp b/Source/WebCore/inspector/InspectorResourceAgent.cpp
-index a47030d..3fd3762 100644
+index b468f35..54d73f8 100644
 --- a/Source/WebCore/inspector/InspectorResourceAgent.cpp
 +++ b/Source/WebCore/inspector/InspectorResourceAgent.cpp
 @@ -43,24 +43,24 @@
@@ -433,14 +433,14 @@ index 4e2a710..55080e2 100644
          mutable DocumentWriter m_writer;
  
 diff --git a/Source/WebCore/loader/FrameLoader.cpp b/Source/WebCore/loader/FrameLoader.cpp
-index e5c8da2..d4f4854 100644
+index 2f5e11d..f3f8d0fb 100644
 --- a/Source/WebCore/loader/FrameLoader.cpp
 +++ b/Source/WebCore/loader/FrameLoader.cpp
-@@ -2983,25 +2983,22 @@ void FrameLoader::continueLoadAfterNewWindowPolicy(const ResourceRequest& reques
+@@ -2987,25 +2987,22 @@ void FrameLoader::continueLoadAfterNewWindowPolicy(const ResourceRequest& reques
          mainFrame->loader().setOpener(&frame.get());
          mainFrame->document()->setReferrerPolicy(frame->document()->referrerPolicy());
      }
-     mainFrame->loader().loadWithNavigationAction(request, NavigationAction(request), LockHistory::No, FrameLoadType::Standard, formState);
+     mainFrame->loader().loadWithNavigationAction(request, NavigationAction(request), LockHistory::No, FrameLoadType::Standard, formState, allowNavigationToInvalidURL);
  }
  
  void FrameLoader::requestFromDelegate(ResourceRequest& request, unsigned long& identifier, ResourceError& error)
@@ -523,7 +523,7 @@ index fb69a75..224b9a1 100644
      InspectorInstrumentation::continueAfterPingLoader(frame, identifier, frame.loader().activeDocumentLoader(), request, ResourceResponse());
  
 diff --git a/Source/WebCore/loader/ProgressTracker.cpp b/Source/WebCore/loader/ProgressTracker.cpp
-index ece0d4e..98a9166 100644
+index 20d4461..7207d20 100644
 --- a/Source/WebCore/loader/ProgressTracker.cpp
 +++ b/Source/WebCore/loader/ProgressTracker.cpp
 @@ -68,22 +68,20 @@ public:

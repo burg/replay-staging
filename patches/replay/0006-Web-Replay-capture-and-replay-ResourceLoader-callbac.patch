@@ -1,4 +1,4 @@
-From f4a7bfd77668579f69c5121e6b12bb9dfe4c664f Mon Sep 17 00:00:00 2001
+From d66ec8a3114abddb28cdfcacba2c6663aaa43897 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 12 Jun 2014 16:49:07 -0700
 Subject: [PATCH] Web Replay: capture and replay ResourceLoader callbacks
@@ -96,7 +96,7 @@ from taking over and fulfilling the loads nondeterministically.
  Source/WebCore/loader/ResourceLoadScheduler.cpp    |   9 ++
  Source/WebCore/loader/ResourceLoader.cpp           |  23 +++
  Source/WebCore/loader/ResourceLoader.h             |  10 ++
- Source/WebCore/loader/SubresourceLoader.cpp        |  59 ++++++-
+ Source/WebCore/loader/SubresourceLoader.cpp        |  69 ++++++++-
  Source/WebCore/loader/SubresourceLoader.h          |   4 +
  .../WebCore/platform/network/ResourceErrorBase.cpp |   8 +
  .../WebCore/platform/network/ResourceErrorBase.h   |   1 +
@@ -106,7 +106,7 @@ from taking over and fulfilling the loads nondeterministically.
  Source/WebCore/replay/WebInputs.json               |  64 ++++++++
  Source/WebKit2/ChangeLog                           |  15 +-
  .../Network/WebResourceLoadScheduler.cpp           |  12 ++
- 18 files changed, 597 insertions(+), 10 deletions(-)
+ 18 files changed, 607 insertions(+), 10 deletions(-)
 
 diff --git a/Source/JavaScriptCore/replay/EncodedValue.h b/Source/JavaScriptCore/replay/EncodedValue.h
 index c0010e8..3ed089f 100644
@@ -138,7 +138,7 @@ index c0010e8..3ed089f 100644
      {
          decodedValue = encodedValue.convertTo<DecodedType>();
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 25b443f..246606d 100644
+index 85887b8..036db6d 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,91 @@
@@ -234,10 +234,10 @@ index 25b443f..246606d 100644
  
          No new tests. No behavior was changed.
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index 72d16dd..f4731e7 100644
+index 03b20be..44e24dd 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -3464,10 +3464,18 @@ __ZN7WebCore32WebVideoFullscreenInterfaceAVKitC2Ev
+@@ -3470,10 +3470,18 @@ __ZN7WebCore32WebVideoFullscreenInterfaceAVKitC2Ev
  __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
  #endif
  
@@ -580,7 +580,7 @@ index 86475e1..9c97082 100644
      void didFinishLoadingOnePart(double finishTime);
      void cleanupForError(const ResourceError&);
 diff --git a/Source/WebCore/loader/SubresourceLoader.cpp b/Source/WebCore/loader/SubresourceLoader.cpp
-index f1fceac..0ca2671 100644
+index f1fceac..a6287f0 100644
 --- a/Source/WebCore/loader/SubresourceLoader.cpp
 +++ b/Source/WebCore/loader/SubresourceLoader.cpp
 @@ -41,20 +41,28 @@
@@ -612,7 +612,7 @@ index f1fceac..0ca2671 100644
  {
      m_cachedResourceLoader->incrementRequestCount(m_resource);
  }
-@@ -176,32 +184,47 @@ void SubresourceLoader::willSendRequest(ResourceRequest& newRequest, const Resou
+@@ -176,32 +184,51 @@ void SubresourceLoader::willSendRequest(ResourceRequest& newRequest, const Resou
  
      ResourceLoader::willSendRequest(newRequest, redirectResponse);
      if (newRequest.isNull())
@@ -628,6 +628,8 @@ index f1fceac..0ca2671 100644
 +    InputCursor* cursor = activeInputCursor();
 +    if (cursor && cursor->isCapturing())
 +        cursor->appendInput<ResourceLoaderDidSendData>(ordinalForIdentifier(), frameIndexFromFrame(m_frame.get()), bytesSent, totalBytesToBeSent);
++
++    EventLoopInputExtent extent(cursor);
 +#endif
 +
      m_resource->didSendData(bytesSent, totalBytesToBeSent);
@@ -648,6 +650,8 @@ index f1fceac..0ca2671 100644
 +        OwnPtr<ResourceResponse> ownedResponse = ResourceResponse::adopt(response.copyData());
 +        cursor->appendInput<ResourceLoaderDidReceiveResponse>(ordinalForIdentifier(), frameIndexFromFrame(m_frame.get()), std::unique_ptr<ResourceResponse>(ownedResponse.leakPtr()));
 +    }
++
++    EventLoopInputExtent extent(cursor);
 +#endif
 +
      if (m_resource->resourceToRevalidate()) {
@@ -660,7 +664,7 @@ index f1fceac..0ca2671 100644
                  ResourceLoader::didReceiveResponse(response);
              return;
          }
-@@ -259,21 +282,31 @@ void SubresourceLoader::didReceiveDataOrBuffer(const char* data, int length, Pas
+@@ -259,21 +286,33 @@ void SubresourceLoader::didReceiveDataOrBuffer(const char* data, int length, Pas
  {
      if (m_resource->response().httpStatusCode() >= 400 && !m_resource->shouldIgnoreHTTPStatusCodeErrors())
          return;
@@ -681,6 +685,8 @@ index f1fceac..0ca2671 100644
 +            serializedBuffer = SharedBuffer::create(data, length);
 +        cursor->appendInput<ResourceLoaderDidReceiveData>(ordinalForIdentifier(), frameIndexFromFrame(m_frame.get()), serializedBuffer, encodedDataLength);
 +    }
++
++    EventLoopInputExtent extent(cursor);
 +#endif
 +
      ResourceLoader::didReceiveDataOrBuffer(data, length, buffer, encodedDataLength, dataPayloadType);
@@ -693,7 +699,7 @@ index f1fceac..0ca2671 100644
      }
  }
  
-@@ -293,20 +326,26 @@ void SubresourceLoader::didFinishLoading(double finishTime)
+@@ -293,20 +332,28 @@ void SubresourceLoader::didFinishLoading(double finishTime)
      if (m_state != Initialized)
          return;
      ASSERT(!reachedTerminalState());
@@ -708,6 +714,8 @@ index f1fceac..0ca2671 100644
 +    InputCursor* cursor = activeInputCursor();
 +    if (cursor && cursor->isCapturing())
 +        cursor->appendInput<ResourceLoaderDidFinishLoading>(ordinalForIdentifier(), frameIndexFromFrame(m_frame.get()), finishTime);
++
++    EventLoopInputExtent extent(cursor);
 +#endif
 +
  #if PLATFORM(IOS)
@@ -720,7 +728,7 @@ index f1fceac..0ca2671 100644
      m_resource->finishLoading(resourceData());
  
      if (wasCancelled())
-@@ -321,20 +360,27 @@ void SubresourceLoader::didFinishLoading(double finishTime)
+@@ -321,20 +368,29 @@ void SubresourceLoader::didFinishLoading(double finishTime)
  }
  
  void SubresourceLoader::didFail(const ResourceError& error)
@@ -736,6 +744,8 @@ index f1fceac..0ca2671 100644
 +    InputCursor* cursor = activeInputCursor();
 +    if (cursor && cursor->isCapturing())
 +        cursor->appendInput<ResourceLoaderDidFail>(ordinalForIdentifier(), frameIndexFromFrame(m_frame.get()), std::move(error.ownedCopy()));
++
++    EventLoopInputExtent extent(cursor);
 +#endif
 +
      CachedResourceHandle<CachedResource> protectResource(m_resource);
@@ -748,7 +758,7 @@ index f1fceac..0ca2671 100644
      m_resource->error(CachedResource::LoadError);
      cleanupForError(error);
      notifyDone();
-@@ -400,11 +446,22 @@ void SubresourceLoader::releaseResources()
+@@ -400,11 +456,22 @@ void SubresourceLoader::releaseResources()
  #if PLATFORM(IOS)
      if (m_state != Uninitialized && m_state != CancelledWhileInitializing)
  #else
@@ -860,7 +870,7 @@ index 50794e4..e5759a0 100644
      void setIsCancellation(bool isCancellation) { m_isCancellation = isCancellation; }
      bool isCancellation() const { return m_isCancellation; }
 diff --git a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
-index 6454a48..15df745 100644
+index 5bd4446..97daede 100644
 --- a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
 +++ b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
 @@ -1,12 +1,12 @@
@@ -877,8 +887,7 @@ index 6454a48..15df745 100644
   * 2. Redistributions in binary form must reproduce the above copyright
   *    notice, this list of conditions and the following disclaimer in the
   *    documentation and/or other materials provided with the distribution.
-@@ -22,29 +22,45 @@
-  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+@@ -23,31 +23,47 @@
   * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
   * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   */
@@ -888,16 +897,19 @@ index 6454a48..15df745 100644
  #if ENABLE(WEB_REPLAY)
  
  #include "AllReplayInputs.h"
+ #include "Document.h"
 +#include "DocumentLoader.h"
  #include "MainFrame.h"
  #include "NavigationScheduler.h"
  #include "Page.h"
  #include "ReplayController.h"
+ #include "ReplayableTimers.h"
 +#include "ResourceError.h"
 +#include "ResourceLoader.h"
 +#include "SerializationMethods.h"
  #include "URL.h"
  #include "UserInputBridge.h"
+ #include <cinttypes>
  
  namespace WebCore {
  
@@ -923,7 +935,7 @@ index 6454a48..15df745 100644
  }
  
  // Navigation inputs.
-@@ -85,13 +101,49 @@ void HandleWheelEvent::dispatch(ReplayController& controller)
+@@ -88,20 +104,56 @@ void HandleWheelEvent::dispatch(ReplayController& controller)
  void LogicalScrollPage::dispatch(ReplayController& controller)
  {
      controller.page().userInputBridge().logicalScrollRecursively(direction(), granularity(), InputSource::Synthetic);
@@ -970,9 +982,16 @@ index 6454a48..15df745 100644
 +    // FIXME: signal error if the callback couldn't be fired.
 +}
 +
+ // Other event loop inputs.
+ void AsyncTimerFired::dispatch(ReplayController& controller)
+ {
+     Document* document = documentFromFrameIndex(&controller.page(), m_frameIndex);
+     if (!document || !document->replayableTimers().fireTimer(m_ordinal))
+         LOG_ERROR("%-30s REPLAY DIVERGENCE! Couldn't find async timer %d/%" PRIu64 ".\n", "[ReplayController]", m_frameIndex, m_ordinal);
+ }
+ 
  } // namespace WebCore
  
- #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebCore/replay/SerializationMethods.cpp b/Source/WebCore/replay/SerializationMethods.cpp
 index 6a9d2c0..a4bbcc2 100644
 --- a/Source/WebCore/replay/SerializationMethods.cpp
@@ -1356,7 +1375,7 @@ index e7ec315..38a1d50 100644
  
  #endif // SerializationMethods_h
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
-index 9d8af6e..b793e6f 100644
+index 4fbc592..a444b03 100644
 --- a/Source/WebCore/replay/WebInputs.json
 +++ b/Source/WebCore/replay/WebInputs.json
 @@ -114,24 +114,36 @@
@@ -1396,7 +1415,7 @@ index 9d8af6e..b793e6f 100644
                      "RawKeyDown",
                      "Char",
                      "MouseMoved",
-@@ -248,13 +260,65 @@
+@@ -257,13 +269,65 @@
              ]
          },
          {
@@ -1463,7 +1482,7 @@ index 9d8af6e..b793e6f 100644
      ]
  }
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index f980251..7b8b68b 100644
+index 0c68023..003d529 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,11 +1,24 @@

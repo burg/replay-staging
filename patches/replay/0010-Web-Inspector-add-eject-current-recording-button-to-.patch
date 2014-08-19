@@ -1,4 +1,4 @@
-From 47bf66919ad25804a795e6084a99ec92fee9ba00 Mon Sep 17 00:00:00 2001
+From 17cfe49b7285f67df9a85a561da414d4f59c157c Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Mon, 11 Aug 2014 23:52:17 -0700
 Subject: [PATCH] Web Inspector: add eject current recording button to the
@@ -48,7 +48,7 @@ This will be replaced soon with a mini-timeline content view.
  Source/WebCore/inspector/InspectorReplayAgent.h    |   1 +
  Source/WebCore/inspector/protocol/Replay.json      |   7 +++
  Source/WebInspectorUI/ChangeLog                    |  32 ++++++++++++++
- .../Localizations/en.lproj/localizedStrings.js     | Bin 54870 -> 54984 bytes
+ .../Localizations/en.lproj/localizedStrings.js     | Bin 55000 -> 55114 bytes
  .../UserInterface/Controllers/ReplayManager.js     |  33 ++++++++++++++
  .../UserInterface/Images/ReplayEjectButton.svg     |   8 ++++
  .../UserInterface/Views/ReplayDashboardView.css    |  13 ++++++
@@ -57,7 +57,7 @@ This will be replaced soon with a mini-timeline content view.
  create mode 100644 Source/WebInspectorUI/UserInterface/Images/ReplayEjectButton.svg
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index b6d90ac..75b74b3 100644
+index 8e44aee..836bebf 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,25 @@
@@ -87,13 +87,13 @@ index b6d90ac..75b74b3 100644
          interleaving of callbacks and other event loop items (which run JS) is also
          nondeterministic.
 diff --git a/Source/WebCore/inspector/InspectorReplayAgent.cpp b/Source/WebCore/inspector/InspectorReplayAgent.cpp
-index df0818e..1586493 100644
+index f480c54..36bbeb7 100644
 --- a/Source/WebCore/inspector/InspectorReplayAgent.cpp
 +++ b/Source/WebCore/inspector/InspectorReplayAgent.cpp
 @@ -381,20 +381,27 @@ void InspectorReplayAgent::pausePlayback(ErrorString* errorString)
  void InspectorReplayAgent::cancelPlayback(ErrorString* errorString)
  {
-     if (sessionState() == SessionState::Capturing) {
+     if (sessionState() == WebCore::SessionState::Capturing) {
          *errorString = ASCIILiteral("Can't cancel playback if capture is in progress.");
          return;
      }
@@ -108,18 +108,18 @@ index df0818e..1586493 100644
 +    *identifier = WTF::safeCast<int>(session->identifier());
 +}
 +
- void InspectorReplayAgent::switchSession(ErrorString* errorString, SessionIdentifier identifier)
+ void InspectorReplayAgent::switchSession(ErrorString* errorString, TypeBuilder::Replay::SessionIdentifier identifier)
  {
      ASSERT(identifier > 0);
  
-     if (sessionState() != SessionState::Inactive) {
+     if (sessionState() != WebCore::SessionState::Inactive) {
          *errorString = ASCIILiteral("Can't switch sessions unless the session is neither capturing or replaying.");
          return;
      }
  
      RefPtr<ReplaySession> session = findSession(errorString, identifier);
 diff --git a/Source/WebCore/inspector/InspectorReplayAgent.h b/Source/WebCore/inspector/InspectorReplayAgent.h
-index 69c14b6..0ed0712 100644
+index f7bce6f4..cad692d 100644
 --- a/Source/WebCore/inspector/InspectorReplayAgent.h
 +++ b/Source/WebCore/inspector/InspectorReplayAgent.h
 @@ -93,20 +93,21 @@ public:
@@ -135,13 +135,13 @@ index 69c14b6..0ed0712 100644
  
 +    virtual void createSession(ErrorString*, SessionIdentifier*) override;
      virtual void switchSession(ErrorString*, SessionIdentifier) override;
-     virtual void insertSessionSegment(ErrorString*, SessionIdentifier, SegmentIdentifier, int segmentIndex) override;
-     virtual void removeSessionSegment(ErrorString*, SessionIdentifier, int segmentIndex) override;
+     virtual void insertSessionSegment(ErrorString*, Inspector::TypeBuilder::Replay::SessionIdentifier, Inspector::TypeBuilder::Replay::SegmentIdentifier, int segmentIndex) override;
+     virtual void removeSessionSegment(ErrorString*, Inspector::TypeBuilder::Replay::SessionIdentifier, int segmentIndex) override;
  
-     virtual void currentReplayState(ErrorString*, SessionIdentifier*, Inspector::TypeBuilder::OptOutput<int>* segmentIdentifier, Inspector::TypeBuilder::Replay::SessionState::Enum* sessionState, Inspector::TypeBuilder::Replay::SegmentState::Enum* segmentState, RefPtr<Inspector::TypeBuilder::Replay::ReplayPosition>&) override;
-     virtual void getAvailableSessions(ErrorString*, RefPtr<Inspector::TypeBuilder::Array<SessionIdentifier>>&) override;
-     virtual void getSessionData(ErrorString*, SessionIdentifier, RefPtr<Inspector::TypeBuilder::Replay::ReplaySession>&) override;
-     virtual void getSegmentData(ErrorString*, SegmentIdentifier, RefPtr<Inspector::TypeBuilder::Replay::SessionSegment>&) override;
+     virtual void currentReplayState(ErrorString*, Inspector::TypeBuilder::Replay::SessionIdentifier*, Inspector::TypeBuilder::OptOutput<Inspector::TypeBuilder::Replay::SegmentIdentifier>*, Inspector::TypeBuilder::Replay::SessionState*, Inspector::TypeBuilder::Replay::SegmentState* segmentState, RefPtr<Inspector::TypeBuilder::Replay::ReplayPosition>&) override;
+     virtual void getAvailableSessions(ErrorString*, RefPtr<Inspector::TypeBuilder::Array<Inspector::TypeBuilder::Replay::SessionIdentifier>>&) override;
+     virtual void getSessionData(ErrorString*, Inspector::TypeBuilder::Replay::SessionIdentifier, RefPtr<Inspector::TypeBuilder::Replay::ReplaySession>&) override;
+     virtual void getSegmentData(ErrorString*, Inspector::TypeBuilder::Replay::SegmentIdentifier, RefPtr<Inspector::TypeBuilder::Replay::SessionSegment>&) override;
  
  private:
 diff --git a/Source/WebCore/inspector/protocol/Replay.json b/Source/WebCore/inspector/protocol/Replay.json
@@ -177,12 +177,12 @@ index be26988..1c9a7a5 100644
              "description": "Splices the specified session segment into the session at the specified index.",
              "parameters": [
 diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
-index a5ce429..1918e90 100644
+index 2bda1b9..07d5aeb 100644
 --- a/Source/WebInspectorUI/ChangeLog
 +++ b/Source/WebInspectorUI/ChangeLog
-@@ -1,12 +1,44 @@
- 2014-08-11  Brian J. Burg  <burg@cs.washington.edu>
- 
+@@ -1,10 +1,42 @@
++2014-08-11  Brian J. Burg  <burg@cs.washington.edu>
++
 +        Web Inspector: add eject current recording button to the replay dashboard
 +        https://bugs.webkit.org/show_bug.cgi?id=135225
 +
@@ -213,27 +213,33 @@ index a5ce429..1918e90 100644
 +        (WebInspector.ReplayDashboardView.prototype._playbackFinished):
 +        (WebInspector.ReplayDashboardView.prototype._activeSessionChanged):
 +
-+2014-08-11  Brian J. Burg  <burg@cs.washington.edu>
-+
-         Web Inspector: show a replay dashboard when capturing or replaying
-         https://bugs.webkit.org/show_bug.cgi?id=135170
+ 2014-08-18  Saam Barati  <sbarati@apple.com>
  
-         Reviewed by Timothy Hatcher.
+         Web Inspector: Introduce an inspector Abstract Syntax Tree.
+         https://bugs.webkit.org/show_bug.cgi?id=135763
  
-         This patch adds a replay dashboard with record/play/pause buttons. It
-         is shown automatically when the user starts capturing an execution from
-         the replay menu in the Timelines sidebar panel.
+         Reviewed by Joseph Pecoraro.
  
-         * UserInterface/Base/Main.js:
+         This patch adds an Abstract Syntax Tree to the Web inspector. 
+         This syntax tree is modeled off the Esprima.js syntax tree
+         which complies with the Mozilla Parser API:
 diff --git a/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js b/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js
-index 432d08870a7dbfd21670ee0e70489bf1d079ed8f..7e4100927c6baf3f235560ec39ed49a7256b36d8 100644
+index c1de418f45fbbf9de08cabc2c19827b2b9d1a996..63a602e880ac42879f62ddadd2ce7331f316219d 100644
 GIT binary patch
-delta 60
-zcmcb%hWW%=<_+JSII|d18Il=F7!)Q4%#r7IWkBYOPVU{SF?qkUz~pFWo5}s2Qk$cl
-He@_AccVrcK
+delta 472
+zcmcbymig2=X3qcr$`}$EiWn3oZcyB)T__~PAfuqlP|P5!pukW9lu2U9nY=()cXGav
+zE+<@Sv!L)oJ!S?qg~?kTHNo^l$It3;X(fhO1_cINAXZ{<Wk_Mj1e&A(m!163!(#H<
+zaH+|@&N{4F45<vslh5o`=5}QOvq4HHf0$!Cncr1l@?B?}$^X5jHs5vb=41vMF!`ac
+zBQwxxlh^y|qwswLeZl<uex@k$Fg{RT5~v^O8K8Z6Kqu)k<TB&~=~Sp`cw}K_rw7QQ
+zm<{8@<h29kQRHEKnEc#8a};?P-#5^0vV92K=Kdh=Vnh&6et1-6^6{gB2$9VXk4_Xo
+Ta3^oPrZRc{HBJ-}bw&mNzRGtN
 
-delta 26
-kcmV+#0OkM4tpnDq1F-i(lRr-mlg&dslkZC!v&}>MlCMP#EC2ui
+delta 431
+zcmX@Lj`_w~X0Ct#8Oj(E8HyMbCJTxvZqzCi5>k+1P-Q4qkY!L{C;>_(G2~31FRVK`
+zPe_*&F11-ec%dGXg4$$9NAbz?9ECy5Ku_JtJWj_sV2XfpVhB#4r{!e12&u_-kvfwP
+z`14KnbFrCR;3Ku!&!wA_8K`CQ9bZRgprw-){Pa=y`vQHz`~ZJb6nPjQC@%@r4|FC&
+zDnlMa3WF{~E<-+$PKBC=M;2!GjR08`vtfLg{G32}6nPjQCeIgSjv^1^?+bLBydi{b
+jQ!sZiBJ3uM95Y4XscbGgmMee=s<k?L$Q)H>YX&X=!JlRE
 
 diff --git a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
 index 46c0505..364a6b4 100644

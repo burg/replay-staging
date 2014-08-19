@@ -1,4 +1,4 @@
-From 4bb1947caf0453928cb3c81a33ba4c21d2baf1b6 Mon Sep 17 00:00:00 2001
+From 1901945de2b34eb09e18507aedd869e6702d947b Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 11 Jun 2014 15:33:16 -0700
 Subject: [PATCH] Web Replay: add page-level setting to bypass the MemoryCache
@@ -62,7 +62,7 @@ and bypass cache session id are both considered to be non-ephemeral.
  11 files changed, 104 insertions(+), 11 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 3442d07..2b041c1 100644
+index 3b2da30..f820270 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,58 @@
@@ -114,16 +114,16 @@ index 3442d07..2b041c1 100644
 +        (WebCore::ReplayController::setForceDeterministicSettings):
 +        * replay/ReplayController.h:
 +
- 2014-08-11  Beth Dakin  <bdakin@apple.com>
+ 2014-08-18  Brian J. Burg  <burg@cs.washington.edu>
  
-         Fixed backgrounds don't paint in blurred inset areas
-         https://bugs.webkit.org/show_bug.cgi?id=135712
+         Web Replay: EventSender dispatches should be deterministic and per-Document
+         https://bugs.webkit.org/show_bug.cgi?id=136051
  
-         Reviewed by Simon Fraser.
+         EventSender uses a Timer to asynchronously dispatch the same event to multiple
+         elements of the same type on a future run loop. This is nondeterministic because
+         static instances are shared between all Documents in the same process.
  
-         Background geometry calculations for fixed background need to use the larger 
-         visible rect.
- 
+         This patch shares EventSender instances among elements in the same Document.
 diff --git a/Source/WebCore/loader/cache/CachedResourceLoader.cpp b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
 index fa3c54f..8e9c6c6 100644
 --- a/Source/WebCore/loader/cache/CachedResourceLoader.cpp
@@ -438,7 +438,7 @@ index ba283ea..74d9ac0 100644
      bool m_scrollingPerformanceLoggingEnabled : 1;
  
 diff --git a/Source/WebCore/replay/ReplayController.cpp b/Source/WebCore/replay/ReplayController.cpp
-index 119f490..a463a09 100644
+index 8edceb2..d8bc172 100644
 --- a/Source/WebCore/replay/ReplayController.cpp
 +++ b/Source/WebCore/replay/ReplayController.cpp
 @@ -123,24 +123,27 @@ ReplayController::ReplayController(Page& page)
@@ -502,7 +502,7 @@ index ea1419d..70a60d8 100644
      // The active cursor is set to nullptr when invalid.
      RefPtr<JSC::InputCursor> m_activeCursor;
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index df4cdcc..f980251 100644
+index ecd3554f..0c68023 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,24 @@
@@ -520,16 +520,16 @@ index df4cdcc..f980251 100644
 +        (WebKit::SessionTracker::session):
 +        (WebKit::SessionTracker::setSession):
 +
- 2014-08-11  Joseph Pecoraro  <pecoraro@apple.com>
+ 2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
  
-         Add Private WKPreferences API for developer extras (show inspector)
-         https://bugs.webkit.org/show_bug.cgi?id=135811
+         Web Replay: make calls into FrameLoader::checkLoadComplete() deterministic
+         https://bugs.webkit.org/show_bug.cgi?id=129451
  
-         Reviewed by Timothy Hatcher.
+         Reviewed by NOBODY (OOPS!).
  
-         * UIProcess/API/Cocoa/WKPreferences.mm:
-         (-[WKPreferences _developerExtrasEnabled]):
-         (-[WKPreferences _setDeveloperExtrasEnabled:]):
+         * CMakeLists.txt: Add replay/ directory to header include paths.
+ 
+ 2014-08-19  Peyton Randolph  <prandolph@apple.com>
 diff --git a/Source/WebKit2/Shared/SessionTracker.cpp b/Source/WebKit2/Shared/SessionTracker.cpp
 index ac79a9d..0886af1 100644
 --- a/Source/WebKit2/Shared/SessionTracker.cpp

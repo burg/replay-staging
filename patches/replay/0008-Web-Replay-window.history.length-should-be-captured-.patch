@@ -1,4 +1,4 @@
-From 1b5ba7982f959839fe126b970bc0cffbab906fdd Mon Sep 17 00:00:00 2001
+From 5e40e19565315ce4b62ed108b9554c6d3f4d5a6c Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 15:34:16 -0700
 Subject: [PATCH] Web Replay: window.history.length should be captured at main
@@ -85,7 +85,7 @@ LayoutTests:
  create mode 100644 LayoutTests/inspector/replay/history-length-single-segment.html
 
 diff --git a/LayoutTests/ChangeLog b/LayoutTests/ChangeLog
-index 44f4225..8417d4e 100644
+index 9bd54ba..18c5ba1 100644
 --- a/LayoutTests/ChangeLog
 +++ b/LayoutTests/ChangeLog
 @@ -1,10 +1,20 @@
@@ -99,16 +99,16 @@ index 44f4225..8417d4e 100644
 +        * inspector/replay/history-length-single-segment-expected.txt: Added.
 +        * inspector/replay/history-length-single-segment.html: Added.
 +
- 2014-08-11  Beth Dakin  <bdakin@apple.com>
+ 2014-08-19  Alexey Proskuryakov  <ap@apple.com>
  
-         Fixed backgrounds don't paint in blurred inset areas
-         https://bugs.webkit.org/show_bug.cgi?id=135712
+         ASSERT_NOT_REACHED on css3/shapes/shape-outside/values/shape-image-threshold-001.html
+         https://bugs.webkit.org/show_bug.cgi?id=136075
  
-         Reviewed by Simon Fraser.
+         * TestExpectations: Skipped the test in debug mode.
  
-         * platform/mac-wk1/TestExpectations:
-         * platform/mac-wk1/fast: Added.
-         * platform/mac-wk1/fast/backgrounds: Added.
+ 2014-08-19  Carlos Alberto Lopez Perez  <clopez@igalia.com>
+ 
+         [GTK] Unreviewed GTK gardening.
 diff --git a/LayoutTests/inspector/replay/history-length-single-segment-expected.txt b/LayoutTests/inspector/replay/history-length-single-segment-expected.txt
 new file mode 100644
 index 0000000..b797ffd
@@ -165,12 +165,12 @@ index 0000000..a88d9c1
 +</body>
 +</html>
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 201a560..d39ca4d 100644
+index bf22504..62e627f 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
-@@ -1,12 +1,66 @@
- 2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
- 
+@@ -1,10 +1,64 @@
++2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
++
 +        Web Replay: save and restore page history state at main frame navigations
 +        https://bugs.webkit.org/show_bug.cgi?id=131043
 +
@@ -223,18 +223,16 @@ index 201a560..d39ca4d 100644
 +
 +        * replay/WebInputs.json: Add type HistoryItem and input InitializeHistory.
 +
-+2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
-+
-         Web Replay: make calls into FrameLoader::checkLoadComplete() deterministic
-         https://bugs.webkit.org/show_bug.cgi?id=129451
+ 2014-07-14  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         [WIP] Web Replay: capture and replay Reload, Navigate, and Stop commands
+         https://bugs.webkit.org/show_bug.cgi?id=129447
  
          Reviewed by NOBODY (OOPS!).
  
-         To ensure deterministic JavaScript execution, calls to checkLoadComplete()
-         that originate from asynchronous Timer firings should be captured and replayed.
- 
-         This patch introduces the ReplayableTimer class, which can be used as a drop-in
-         replacement for one-shot timers. It will automatically capture or replay the
+         Add support for capturing and replaying basic navigation commands that
+         come to WebCore from WK1/WK2 WebProcess. This handles most UI-driven
+         navigation commands, such as clicking the stop or reload buttons, or
 diff --git a/Source/WebCore/history/BackForwardClient.h b/Source/WebCore/history/BackForwardClient.h
 index 4718736..2c65273 100644
 --- a/Source/WebCore/history/BackForwardClient.h
@@ -371,7 +369,7 @@ index 3b05be9..6624e7f 100644
      virtual void setCurrent(unsigned newCurrent) override;
  
 diff --git a/Source/WebCore/replay/ReplayController.cpp b/Source/WebCore/replay/ReplayController.cpp
-index a463a09..29e9b5f 100644
+index d8bc172..c897142 100644
 --- a/Source/WebCore/replay/ReplayController.cpp
 +++ b/Source/WebCore/replay/ReplayController.cpp
 @@ -224,22 +224,28 @@ void ReplayController::createSegment()
@@ -471,7 +469,7 @@ index 0ed3e23..67f8762 100644
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
-index cd67cf0..2e8ec05 100644
+index cd67cf0..d242aae 100644
 --- a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
 +++ b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
 @@ -22,29 +22,34 @@
@@ -522,7 +520,7 @@ index cd67cf0..2e8ec05 100644
  
 +void InitializeHistory::dispatch(ReplayController& controller)
 +{
-+    // return; // HACK
++    return; // HACK
 +
 +    // FIXME: Load the empty document, so that when we prune the back-forward list it
 +    // is the single remaining entry. <https://webkit.org/b/131989>
@@ -899,12 +897,12 @@ index d76bbee..bcf3002 100644
              ]
          },
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 0de3e87..565fd4d 100644
+index 7181e6b..d9c9453 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
-@@ -1,12 +1,23 @@
- 2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
- 
+@@ -1,10 +1,21 @@
++2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
++
 +        Web Replay: save and restore page history state at main frame navigations
 +        https://bugs.webkit.org/show_bug.cgi?id=131043
 +
@@ -914,18 +912,16 @@ index 0de3e87..565fd4d 100644
 +
 +        * WebProcess/WebPage/WebBackForwardListProxy.h:
 +
-+2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
-+
-         Web Replay: make calls into FrameLoader::checkLoadComplete() deterministic
-         https://bugs.webkit.org/show_bug.cgi?id=129451
- 
-         Reviewed by NOBODY (OOPS!).
- 
-         * CMakeLists.txt: Add replay/ directory to header include paths.
- 
  2014-07-14  Brian J. Burg  <burg@cs.washington.edu>
  
          Web Replay: capture and replay Reload, Navigate, and Stop commands
+         https://bugs.webkit.org/show_bug.cgi?id=129447
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Update resource logging formatters for ResourceLoadPriority. It is now
+         an enum with uint64_t-sized storage rather than int.
+ 
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebBackForwardListProxy.h b/Source/WebKit2/WebProcess/WebPage/WebBackForwardListProxy.h
 index ef219e0..53724a7 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebBackForwardListProxy.h

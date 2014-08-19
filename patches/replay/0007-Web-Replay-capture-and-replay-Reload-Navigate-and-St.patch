@@ -1,4 +1,4 @@
-From 810bca671cfe20ba8d677814050d019577505153 Mon Sep 17 00:00:00 2001
+From f8c5c20b6563c47ab0c1f4944ca8e5f2ffe85dc0 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 11:45:23 -0700
 Subject: [PATCH] Web Replay: capture and replay Reload, Navigate, and Stop
@@ -102,7 +102,7 @@ an enum with uint64_t-sized storage rather than int.
  14 files changed, 513 insertions(+), 11 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 246606d..3b91736 100644
+index 036db6d..bf22504 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,83 @@
@@ -334,10 +334,10 @@ index 90b074d..6006e85 100644
          UpdateHTTPBody
      };
 diff --git a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
-index 15df745..43e1fcf 100644
+index 97daede..cd67cf0 100644
 --- a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
 +++ b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
-@@ -62,20 +62,46 @@ void BeginSegmentSentinel::dispatch(ReplayController&)
+@@ -65,20 +65,46 @@ void BeginSegmentSentinel::dispatch(ReplayController&)
  void EndSegmentSentinel::dispatch(ReplayController&)
  {
  }
@@ -953,7 +953,7 @@ index 45845af..bc8145b 100644
  
  } // namespace WebCore
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
-index b793e6f..385f45a 100644
+index a444b03..d76bbee 100644
 --- a/Source/WebCore/replay/WebInputs.json
 +++ b/Source/WebCore/replay/WebInputs.json
 @@ -31,20 +31,25 @@
@@ -1063,7 +1063,7 @@ index b793e6f..385f45a 100644
                      "KeyUp",
                      "RawKeyDown",
                      "Char",
-@@ -244,29 +288,46 @@
+@@ -253,29 +297,46 @@
          },
          {
              "name": "FetchPluginData",
@@ -1110,7 +1110,7 @@ index b793e6f..385f45a 100644
          },
          {
              "name": "ResourceLoaderDidFail",
-@@ -312,13 +373,27 @@
+@@ -321,13 +382,27 @@
          {
              "name": "ResourceLoaderDidReceiveData",
              "description": "A resource loader received some data.",
@@ -1139,7 +1139,7 @@ index b793e6f..385f45a 100644
      ]
  }
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 7b8b68b..d7b5266 100644
+index 003d529..7181e6b 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,25 @@
