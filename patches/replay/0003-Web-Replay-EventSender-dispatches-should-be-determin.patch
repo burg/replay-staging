@@ -1,4 +1,4 @@
-From ebcc2a17b425b2e21f47e147efd63a7aae57337b Mon Sep 17 00:00:00 2001
+From fcce0d38e4c4792aedfd1c069cb496babc2936d7 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Mon, 18 Aug 2014 18:50:22 -0700
 Subject: [PATCH] Web Replay: EventSender dispatches should be deterministic
@@ -85,7 +85,7 @@ the event sender) may not be available in a synchronous document write.
  create mode 100644 Source/WebCore/dom/SharedEventSenders.h
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 185eda8..3b2da30 100644
+index 6b24220..fa3d637 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,77 @@
@@ -167,10 +167,10 @@ index 185eda8..3b2da30 100644
          that originate from asynchronous Timer firings should be captured and replayed.
  
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index dcda922..da88c10 100644
+index 891d99d..7330d9e 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -5526,20 +5526,23 @@
+@@ -5528,20 +5528,23 @@
  		C348612315FDE21E007A1CC9 /* InputTypeNames.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C348612115FDE21E007A1CC9 /* InputTypeNames.cpp */; };
  		C348612415FDE21E007A1CC9 /* InputTypeNames.h in Headers */ = {isa = PBXBuildFile; fileRef = C348612215FDE21E007A1CC9 /* InputTypeNames.h */; };
  		C375D7FD16639519006184AB /* TypeAhead.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C375D7FB16639519006184AB /* TypeAhead.cpp */; };
@@ -194,7 +194,7 @@ index dcda922..da88c10 100644
  		C50B561712119D23008B46E0 /* GroupSettings.h in Headers */ = {isa = PBXBuildFile; fileRef = C50B561512119D23008B46E0 /* GroupSettings.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		C50D0E820FF4272900AC2644 /* StorageNamespace.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C50D0E800FF4272900AC2644 /* StorageNamespace.cpp */; };
  		C50D0E830FF4272900AC2644 /* StorageNamespace.h in Headers */ = {isa = PBXBuildFile; fileRef = C50D0E810FF4272900AC2644 /* StorageNamespace.h */; settings = {ATTRIBUTES = (Private, ); }; };
-@@ -12954,20 +12957,22 @@
+@@ -12956,20 +12959,22 @@
  		C348612215FDE21E007A1CC9 /* InputTypeNames.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = InputTypeNames.h; sourceTree = "<group>"; };
  		C375D7FB16639519006184AB /* TypeAhead.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = TypeAhead.cpp; sourceTree = "<group>"; };
  		C375D7FC16639519006184AB /* TypeAhead.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TypeAhead.h; sourceTree = "<group>"; };
@@ -217,7 +217,7 @@ index dcda922..da88c10 100644
  		C50B561512119D23008B46E0 /* GroupSettings.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GroupSettings.h; sourceTree = "<group>"; };
  		C50D0E800FF4272900AC2644 /* StorageNamespace.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = StorageNamespace.cpp; sourceTree = "<group>"; };
  		C50D0E810FF4272900AC2644 /* StorageNamespace.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = StorageNamespace.h; sourceTree = "<group>"; };
-@@ -22835,20 +22840,22 @@
+@@ -22843,20 +22848,22 @@
  				8A413ADF1207BBA50082016E /* ScriptRunner.cpp */,
  				8A413ADE1207BBA50082016E /* ScriptRunner.h */,
  				976F36E814686225005E93B4 /* SecurityContext.cpp */,
@@ -240,7 +240,7 @@ index dcda922..da88c10 100644
  				81AC6C34131C57C20009A7E0 /* StringCallback.idl */,
  				A8C4A7EC09D563270003AC8D /* StyledElement.cpp */,
  				A8C4A7EB09D563270003AC8D /* StyledElement.h */,
-@@ -23426,20 +23433,21 @@
+@@ -23434,20 +23441,21 @@
  				7EE6846112D26E3800E79415 /* AuthenticationChallenge.h in Headers */,
  				934F713A0D5A6F1000018D69 /* AuthenticationChallengeBase.h in Headers */,
  				E124748410AA161D00B79493 /* AuthenticationClient.h in Headers */,
@@ -262,7 +262,7 @@ index dcda922..da88c10 100644
  				BC124EE80C2641CD009E2349 /* BarProp.h in Headers */,
  				379E61CA126CA5C400B63E8D /* BaseButtonInputType.h in Headers */,
  				379E61CC126CA5C400B63E8D /* BaseCheckableInputType.h in Headers */,
-@@ -26472,20 +26480,21 @@
+@@ -26479,20 +26487,21 @@
  				1419D2C50CEA6F6100FF507A /* TreeShared.h in Headers */,
  				854FE7390A2297BE0058D7AD /* TreeWalker.h in Headers */,
  				2D76BB821945632400CFD29A /* RunLoopObserver.h in Headers */,
@@ -284,7 +284,7 @@ index dcda922..da88c10 100644
  				A72763BF16689BFB002FCACB /* UserActionElementSet.h in Headers */,
  				868160D618766A130021E79D /* UserActivity.h in Headers */,
  				26255F0318878E110006E1FD /* UserAgent.h in Headers */,
-@@ -28144,20 +28153,21 @@
+@@ -28151,20 +28160,21 @@
  				BE6DF713171CA2DA00DD52B8 /* JSAudioTrackListCustom.cpp in Sources */,
  				BC124EFF0C26447A009E2349 /* JSBarProp.cpp in Sources */,
  				BC946346107A934B00857193 /* JSBeforeLoadEvent.cpp in Sources */,
@@ -387,7 +387,7 @@ index aa30785..bcfc450 100644
      enqueuePageshowEvent(PageshowEventNotPersisted);
      enqueuePopstateEvent(m_pendingStateObject ? m_pendingStateObject.release() : SerializedScriptValue::nullValue());
 diff --git a/Source/WebCore/dom/Document.h b/Source/WebCore/dom/Document.h
-index 62143d3..89b8fa5 100644
+index a666fd8..472086c 100644
 --- a/Source/WebCore/dom/Document.h
 +++ b/Source/WebCore/dom/Document.h
 @@ -138,20 +138,21 @@ class RenderView;
@@ -425,8 +425,8 @@ index 62143d3..89b8fa5 100644
  
 +    SharedEventSenders& sharedEventSenders() const { return *m_sharedEventSenders; }
 +
-     void addMediaCanStartListener(MediaCanStartListener*);
-     void removeMediaCanStartListener(MediaCanStartListener*);
+     WEBCORE_EXPORT void addMediaCanStartListener(MediaCanStartListener*);
+     WEBCORE_EXPORT void removeMediaCanStartListener(MediaCanStartListener*);
      MediaCanStartListener* takeAnyMediaCanStartListener();
  
  #if ENABLE(FULLSCREEN_API)

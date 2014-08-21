@@ -1,4 +1,4 @@
-From 17cfe49b7285f67df9a85a561da414d4f59c157c Mon Sep 17 00:00:00 2001
+From 35b116d98bbbcc5617face0822abc585069bfd55 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Mon, 11 Aug 2014 23:52:17 -0700
 Subject: [PATCH] Web Inspector: add eject current recording button to the
@@ -57,7 +57,7 @@ This will be replaced soon with a mini-timeline content view.
  create mode 100644 Source/WebInspectorUI/UserInterface/Images/ReplayEjectButton.svg
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 8e44aee..836bebf 100644
+index 29a2f39..057794f 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,25 @@

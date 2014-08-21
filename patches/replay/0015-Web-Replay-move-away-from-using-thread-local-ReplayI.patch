@@ -1,0 +1,1001 @@
+From 67c52a06f4436c3062b1a8c21003f0b3d6975824 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Wed, 20 Aug 2014 12:18:16 -0700
+Subject: [PATCH] Web Replay: move away from using thread-local
+ ReplayInputTypes Need the bug URL (OOPS!).
+
+Reviewed by NOBODY (OOPS!).
+
+Source/JavaScriptCore:
+
+This pattern doesn't work when we want to define some inputs in WebKit2.
+The ReplayInputTypes class is generated from WebCore inputs only. This
+patch moves all input traits to use static local AtomicStrings as type tags.
+
+* replay/scripts/CodeGeneratorReplayInputs.py: Remove configuration of how
+type names are generated, since all framework targets now generate the same code.
+Improve the header includes generation to account for WebKit2 and paths with
+more than one directory component.
+(Generator.generate_include_string.chomp_leading_path_component): Added.
+(Generator.generate_include_string):
+(Generator.generate_input_trait_implementation):
+(Generator.generate_includes):
+(Generator.generate_input_encode_implementation):
+* replay/scripts/CodeGeneratorReplayInputsTemplates.py: Simplify templates.
+
+Source/WebCore:
+
+This pattern doesn't work when we want to define some inputs in WebKit2,
+since the ReplayInputTypes class is generated from WebCore inputs only.
+
+Replace tag-checking uses of ReplayInputTypes with InputTraits<T>::type().
+
+* CMakeLists.txt:
+* WebCore.xcodeproj/project.pbxproj:
+* platform/ThreadGlobalData.cpp:
+(WebCore::ThreadGlobalData::ThreadGlobalData):
+(WebCore::ThreadGlobalData::destroy):
+* platform/ThreadGlobalData.h:
+(WebCore::ThreadGlobalData::inputTypes): Deleted.
+* replay/AllReplayInputs.h:
+* replay/EventLoopInputDispatcher.cpp:
+(WebCore::EventLoopInputDispatcher::dispatchInput):
+* replay/MemoizedDOMResult.cpp:
+(WebCore::MemoizedDOMResultBase::type):
+(JSC::InputTraits<MemoizedDOMResultBase>::type):
+* replay/ReplayInputTypes.cpp: Removed.
+* replay/ReplayInputTypes.h: Removed.
+* replay/SerializationMethods.cpp:
+(JSC::EncodingTraits<NondeterministicInputBase>::encodeValue):
+(JSC::EncodingTraits<NondeterministicInputBase>::decodeValue):
+---
+ Source/JavaScriptCore/ChangeLog                    | 22 ++++++++
+ .../replay/scripts/CodeGeneratorReplayInputs.py    | 23 ++++----
+ .../scripts/CodeGeneratorReplayInputsTemplates.py  |  9 +---
+ Source/WebCore/CMakeLists.txt                      |  1 -
+ Source/WebCore/ChangeLog                           | 31 +++++++++++
+ Source/WebCore/WebCore.xcodeproj/project.pbxproj   |  8 ---
+ Source/WebCore/platform/ThreadGlobalData.cpp       | 11 ----
+ Source/WebCore/platform/ThreadGlobalData.h         |  8 ---
+ Source/WebCore/replay/AllReplayInputs.h            |  2 -
+ Source/WebCore/replay/EventLoopInputDispatcher.cpp |  4 +-
+ Source/WebCore/replay/MemoizedDOMResult.cpp        |  7 +--
+ Source/WebCore/replay/ReplayInputTypes.cpp         | 49 -----------------
+ Source/WebCore/replay/ReplayInputTypes.h           | 62 ----------------------
+ Source/WebCore/replay/SerializationMethods.cpp     | 10 ++--
+ 14 files changed, 77 insertions(+), 170 deletions(-)
+ delete mode 100644 Source/WebCore/replay/ReplayInputTypes.cpp
+ delete mode 100644 Source/WebCore/replay/ReplayInputTypes.h
+
+diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
+index cdec929..c928b82 100644
+--- a/Source/JavaScriptCore/ChangeLog
++++ b/Source/JavaScriptCore/ChangeLog
+@@ -1,10 +1,32 @@
++2014-08-20  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Replay: move away from using thread-local ReplayInputTypes
++        Need the bug URL (OOPS!).
++
++        Reviewed by NOBODY (OOPS!).
++
++        This pattern doesn't work when we want to define some inputs in WebKit2.
++        The ReplayInputTypes class is generated from WebCore inputs only. This
++        patch moves all input traits to use static local AtomicStrings as type tags.
++
++        * replay/scripts/CodeGeneratorReplayInputs.py: Remove configuration of how
++        type names are generated, since all framework targets now generate the same code.
++        Improve the header includes generation to account for WebKit2 and paths with
++        more than one directory component.
++        (Generator.generate_include_string.chomp_leading_path_component): Added.
++        (Generator.generate_include_string):
++        (Generator.generate_input_trait_implementation):
++        (Generator.generate_includes):
++        (Generator.generate_input_encode_implementation):
++        * replay/scripts/CodeGeneratorReplayInputsTemplates.py: Simplify templates.
++
+ 2014-08-19  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         Web Replay: Check event loop extents during replaying
+         Need a Bug URL (OOPS!)
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Sometimes we see different nondeterminism during capture and replay
+         executions, so we should support determinism checks during replay too.
+ 
+diff --git a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
+index 2039d329..256e1a6 100644
+--- a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
++++ b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
+@@ -65,32 +65,29 @@ GLOBAL_CONFIG = {
+         (["Test"],
+             ("WebCore", "platform/ExternalNamespaceHeaderIncludeDummy.h")
+         ),
+         (["Test"],
+             ("Test", "platform/InternalNamespaceHeaderIncludeDummy.h")
+         )
+     ],
+ 
+     "implIncludes": [
+         (["WebKit", "WebCore"],
+-            ("WebCore", "replay/ReplayInputTypes.h")
+-        ),
+-        (["WebKit", "WebCore"],
+             ("WebCore", "replay/SerializationMethods.h")
+         ),
+         (["WebKit", "WebCore", "JavaScriptCore"],
+             ("JavaScriptCore", "inspector/InspectorValues.h")
+         ),
+-        (["JavaScriptCore"],
++        (["WebKit", "WebCore", "JavaScriptCore"],
+             ("WTF", "wtf/NeverDestroyed.h")
+         ),
+-        (["JavaScriptCore"],
++        (["WebKit", "WebCore", "JavaScriptCore"],
+             ("WTF", "wtf/text/AtomicString.h")
+         ),
+ 
+         # Testing fixtures.
+         (["Test"],
+             ("WebCore", "platform/ExternalNamespaceImplIncludeDummy.h")
+         ),
+         (["Test"],
+             ("Test", "platform/InternalNamespaceImplIncludeDummy.h")
+         )
+@@ -104,37 +101,33 @@ FRAMEWORK_CONFIG_MAP = {
+     },
+ 
+     "WTF": {
+         "prefix": "WTF",
+         "namespace": "WTF",
+     },
+     "JavaScriptCore": {
+         "prefix": "JS",
+         "namespace": "JSC",
+         "exportMacro": "JS_EXPORT_PRIVATE",
+-        "inputTypeTemplate": Templates.InputTypeFromStaticLocal,
+     },
+     "WebCore": {
+         "prefix": "Web",
+         "namespace": "WebCore",
+-        "inputTypeTemplate": Templates.InputTypeFromThreadLocal,
+     },
+     "WebKit": {
+         "prefix": "WK",
+         "namespace": "WebKit",
+-        "inputTypeTemplate": Templates.InputTypeFromThreadLocal,
+     },
+     # Used for bindings tests.
+     "Test": {
+         "prefix": "Test",
+         "namespace": "Test",
+-        "inputTypeTemplate": Templates.InputTypeFromStaticLocal,
+     }
+ }
+ 
+ # These settings are specific to an input queue.
+ QUEUE_CONFIG_MAP = {
+     "SCRIPT_MEMOIZED": {
+         "enumValue": "ScriptMemoizedData",
+         "baseClass": "JSC::NondeterministicInput<%s>",
+     },
+     "LOADER_MEMOIZED": {
+@@ -632,24 +625,32 @@ class Generator:
+             'inputTraitImplementations': "\n\n".join([self.generate_input_trait_implementation(_input) for _input in self._model.inputs]),
+             'enumTraitImplementations': "\n\n".join([wrap_with_guard(self.generate_enum_trait_implementation(_type), _type.guard) for _type in self._model.enum_types()]),
+         }
+ 
+         return Template(Templates.ImplementationSkeleton).substitute(template_arguments)
+ 
+     def generate_license(self):
+         return Template(Templates.CopyrightBlock).substitute(None, inputFilename=os.path.basename(self._input_filepath))
+ 
+     def generate_include_string(self, framework_name, header_path):
++        def chomp_leading_path_component(path):
++            components = [path]
++            while components[0] is not os.path.basename(components[0]):
++                (head, tail) = os.path.split(components[0])
++                components[0:1] = [head, tail]
++
++            return os.path.join(*components[1:])
++
+         if self.target_framework.name == framework_name:
+             return "#include \"%s\"" % os.path.basename(header_path)
+         elif self.target_framework is Frameworks.WebKit:
+-            return "#include <%s/%s>" % (framework_name, os.path.basename(header_path))
++            return "#include <%s/%s>" % (framework_name, chomp_leading_path_component(header_path))
+         else:
+             return "#include <%s>" % header_path
+ 
+     def generate_includes(self, defaults=[], includes_for_types=False):
+         lines = set()
+ 
+         for _type in self._model.types:
+             # Types in the "global" framework are implicitly declared and available in all namespaces.
+             if _type.framework is Frameworks.Global:
+                 continue
+@@ -880,21 +881,21 @@ class Generator:
+             'enumName': _type.type_name(qualified=should_qualify_type),
+             'encodeCases': "\n".join(encodeLines),
+             'decodeCases': "\n".join(decodeLines)
+         }
+ 
+         return Template(enum_trait_template).substitute(template_arguments)
+ 
+     def generate_input_trait_implementation(self, _input):
+         template_arguments = {
+             'inputsNamespace': self.target_framework.setting('namespace'),
+-            'inputTypeImplementation': Template(self.setting('inputTypeTemplate')).substitute(None, inputName=_input.name),
++            'inputNameStringLiteral': '"%s"' % _input.name,
+             'qualifiedInputName': self.qualified_input_name(_input),
+             'constructorArguments': self.generate_constructor_arguments_list(_input),
+             'constructorFormalsList': self.generate_constructor_formals_list(_input),
+             'encodeSteps': self.generate_input_encode_implementation(_input),
+             'decodeSteps': self.generate_input_decode_implementation(_input),
+         }
+         return wrap_with_guard(Template(Templates.InputTraitsImplementation).substitute(template_arguments), _input.guard)
+ 
+     def generate_input_encode_implementation(self, _input):
+         steps = []
+diff --git a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputsTemplates.py b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputsTemplates.py
+index 1095dfd..f72513a 100644
+--- a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputsTemplates.py
++++ b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputsTemplates.py
+@@ -147,21 +147,22 @@ namespace ${traitsNamespace} {
+ ${inputTraitImplementations}
+ ${enumTraitImplementations}
+ } // namespace ${traitsNamespace}
+ 
+ #endif // ${guardCondition}
+ """)
+ 
+     InputTraitsImplementation = (
+     """const AtomicString& InputTraits<${qualifiedInputName}>::type()
+ {
+-$inputTypeImplementation
++    static NeverDestroyed<const AtomicString> type(${inputNameStringLiteral}, AtomicString::ConstructFromLiteral);
++    return type;
+ }
+ 
+ void InputTraits<${qualifiedInputName}>::encode(EncodedValue& encodedValue, const ${qualifiedInputName}& input)
+ {
+ ${encodeSteps}
+ }
+ 
+ bool InputTraits<${qualifiedInputName}>::decode(EncodedValue& encodedValue, std::unique_ptr<${qualifiedInputName}>& input)
+ {
+ ${decodeSteps}
+@@ -219,25 +220,19 @@ ${decodeCases}
+     """    if (enumValue & ${qualifiedEnumValue}) {
+         encodedValue.append<String>(ASCIILiteral("${enumStringValue}"));
+         if (enumValue == ${qualifiedEnumValue})
+             return encodedValue;
+     }""")
+ 
+     EnumDecodeCase = (
+     """        if (enumString == "${enumStringValue}")
+             enumValue = static_cast<${qualifiedEnumName}>(enumValue | ${qualifiedEnumValue});""")
+ 
+-    InputTypeFromStaticLocal = (
+-    """    static NeverDestroyed<const AtomicString> type("${inputName}", AtomicString::ConstructFromLiteral);
+-    return type;""")
+-
+-    InputTypeFromThreadLocal = "    return WebCore::inputTypes().${inputName};"
+-
+     InputClassImplementation = (
+     """${inputName}::${inputName}(${constructorFormalsList})
+ ${initializerList}
+ {
+ }
+ 
+ ${inputName}::~${inputName}()
+ {
+ }""")
+diff --git a/Source/WebCore/CMakeLists.txt b/Source/WebCore/CMakeLists.txt
+index 4e3c145..7b39a38 100644
+--- a/Source/WebCore/CMakeLists.txt
++++ b/Source/WebCore/CMakeLists.txt
+@@ -3190,21 +3190,20 @@ if (ENABLE_WEB_REPLAY)
+     list(APPEND WebCore_SOURCES
+         inspector/InspectorReplayAgent.cpp
+         replay/CapturingInputCursor.cpp
+         replay/EventLoopInput.cpp
+         replay/EventLoopInputDispatcher.cpp
+         replay/MemoizedDOMResult.cpp
+         replay/ReplayController.cpp
+         replay/ReplayingInputCursor.cpp
+         replay/ReplayInputCreationMethods.cpp
+         replay/ReplayInputDispatchMethods.cpp
+-        replay/ReplayInputTypes.cpp
+         replay/ReplaySession.cpp
+         replay/ReplaySessionSegment.cpp
+         replay/SegmentedInputStorage.cpp
+         replay/SerializationMethods.cpp
+         replay/UserInputBridge.cpp
+ 
+         ${DERIVED_SOURCES_WEBCORE_DIR}/WebReplayInputs.cpp
+     )
+ endif ()
+ 
+diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
+index 057794f..e475acb 100644
+--- a/Source/WebCore/ChangeLog
++++ b/Source/WebCore/ChangeLog
+@@ -1,10 +1,41 @@
++2014-08-20  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Replay: move away from using thread-local ReplayInputTypes
++        Need the bug URL (OOPS!).
++
++        Reviewed by NOBODY (OOPS!).
++
++        This pattern doesn't work when we want to define some inputs in WebKit2,
++        since the ReplayInputTypes class is generated from WebCore inputs only.
++
++        Replace tag-checking uses of ReplayInputTypes with InputTraits<T>::type().
++
++        * CMakeLists.txt:
++        * WebCore.xcodeproj/project.pbxproj:
++        * platform/ThreadGlobalData.cpp:
++        (WebCore::ThreadGlobalData::ThreadGlobalData):
++        (WebCore::ThreadGlobalData::destroy):
++        * platform/ThreadGlobalData.h:
++        (WebCore::ThreadGlobalData::inputTypes): Deleted.
++        * replay/AllReplayInputs.h:
++        * replay/EventLoopInputDispatcher.cpp:
++        (WebCore::EventLoopInputDispatcher::dispatchInput):
++        * replay/MemoizedDOMResult.cpp:
++        (WebCore::MemoizedDOMResultBase::type):
++        (JSC::InputTraits<MemoizedDOMResultBase>::type):
++        * replay/ReplayInputTypes.cpp: Removed.
++        * replay/ReplayInputTypes.h: Removed.
++        * replay/SerializationMethods.cpp:
++        (JSC::EncodingTraits<NondeterministicInputBase>::encodeValue):
++        (JSC::EncodingTraits<NondeterministicInputBase>::decodeValue):
++
+ 2014-08-11  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         Web Inspector: add eject current recording button to the replay dashboard
+         https://bugs.webkit.org/show_bug.cgi?id=135225
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Add a protocol method that creates an empty replay session. To eject, the
+         frontend creates an empty session and then switches to it.
+ 
+diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
+index 16d3112..bb99151 100644
+--- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
++++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
+@@ -3608,22 +3608,20 @@
+ 		97E4029013A696ED00913D67 /* IconController.h in Headers */ = {isa = PBXBuildFile; fileRef = 97E4028E13A696ED00913D67 /* IconController.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		97F8E665151D4A4B00D2D181 /* WorkerGlobalScopeNotifications.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 97F8E661151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.cpp */; };
+ 		97F8E666151D4A4E00D2D181 /* WorkerGlobalScopeNotifications.h in Headers */ = {isa = PBXBuildFile; fileRef = 97F8E662151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.h */; };
+ 		9831AE4A154225C900FE2644 /* ReferrerPolicy.h in Headers */ = {isa = PBXBuildFile; fileRef = 9831AE49154225A200FE2644 /* ReferrerPolicy.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		984264F112D5280A000D88A4 /* LinkLoaderClient.h in Headers */ = {isa = PBXBuildFile; fileRef = 984264EF12D5280A000D88A4 /* LinkLoaderClient.h */; };
+ 		985BB96D13A94058007A0B69 /* LinkRelAttribute.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 985BB96B13A94058007A0B69 /* LinkRelAttribute.cpp */; };
+ 		985BB96E13A94058007A0B69 /* LinkRelAttribute.h in Headers */ = {isa = PBXBuildFile; fileRef = 985BB96C13A94058007A0B69 /* LinkRelAttribute.h */; };
+ 		98CE4326129E00BD005821DC /* LinkLoader.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 98CE4325129E00BD005821DC /* LinkLoader.cpp */; };
+ 		98CE432A129E00E5005821DC /* LinkLoader.h in Headers */ = {isa = PBXBuildFile; fileRef = 98CE4329129E00E5005821DC /* LinkLoader.h */; };
+ 		98EB1F951313FE0500D0E1EA /* NotImplemented.h in Headers */ = {isa = PBXBuildFile; fileRef = 98EB1F941313FE0500D0E1EA /* NotImplemented.h */; settings = {ATTRIBUTES = (Private, ); }; };
+-		990A1A0418ADA48400183FD1 /* ReplayInputTypes.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 990A19F418ADA48400183FD1 /* ReplayInputTypes.cpp */; };
+-		990A1A0518ADA48400183FD1 /* ReplayInputTypes.h in Headers */ = {isa = PBXBuildFile; fileRef = 990A19F518ADA48400183FD1 /* ReplayInputTypes.h */; };
+ 		9920398218B95BC600B39AF9 /* UserInputBridge.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9920398018B95BC600B39AF9 /* UserInputBridge.cpp */; };
+ 		9920398318B95BC600B39AF9 /* UserInputBridge.h in Headers */ = {isa = PBXBuildFile; fileRef = 9920398118B95BC600B39AF9 /* UserInputBridge.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		996231F318D18AC300C03FDA /* InspectorWebBackendCommands.js in Headers */ = {isa = PBXBuildFile; fileRef = 996231F118D189BD00C03FDA /* InspectorWebBackendCommands.js */; };
+ 		996231F418D22FA200C03FDA /* InspectorWebBackendCommands.js in Copy Generated Headers */ = {isa = PBXBuildFile; fileRef = 996231F118D189BD00C03FDA /* InspectorWebBackendCommands.js */; };
+ 		99C7CCB318C663E40032E413 /* MemoizedDOMResult.h in Headers */ = {isa = PBXBuildFile; fileRef = 99C7CCB218C663E40032E413 /* MemoizedDOMResult.h */; };
+ 		99C7CCB518C6B8990032E413 /* MemoizedDOMResult.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99C7CCB418C6B8990032E413 /* MemoizedDOMResult.cpp */; };
+ 		99CC0B4D18BE9849006CEBCC /* AllReplayInputs.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B3818BE9849006CEBCC /* AllReplayInputs.h */; };
+ 		99CC0B4E18BE9849006CEBCC /* CapturingInputCursor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B3918BE9849006CEBCC /* CapturingInputCursor.cpp */; };
+ 		99CC0B4F18BE9849006CEBCC /* CapturingInputCursor.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B3A18BE9849006CEBCC /* CapturingInputCursor.h */; };
+ 		99CC0B5018BE9849006CEBCC /* EventLoopInputDispatcher.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B3B18BE9849006CEBCC /* EventLoopInputDispatcher.cpp */; };
+@@ -10784,22 +10782,20 @@
+ 		97F8E661151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WorkerGlobalScopeNotifications.cpp; sourceTree = "<group>"; };
+ 		97F8E662151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WorkerGlobalScopeNotifications.h; sourceTree = "<group>"; };
+ 		97F8E663151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.idl */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = WorkerGlobalScopeNotifications.idl; sourceTree = "<group>"; };
+ 		9831AE49154225A200FE2644 /* ReferrerPolicy.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ReferrerPolicy.h; sourceTree = "<group>"; };
+ 		984264EF12D5280A000D88A4 /* LinkLoaderClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = LinkLoaderClient.h; sourceTree = "<group>"; };
+ 		985BB96B13A94058007A0B69 /* LinkRelAttribute.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = LinkRelAttribute.cpp; sourceTree = "<group>"; };
+ 		985BB96C13A94058007A0B69 /* LinkRelAttribute.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = LinkRelAttribute.h; sourceTree = "<group>"; };
+ 		98CE4325129E00BD005821DC /* LinkLoader.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = LinkLoader.cpp; sourceTree = "<group>"; };
+ 		98CE4329129E00E5005821DC /* LinkLoader.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = LinkLoader.h; sourceTree = "<group>"; };
+ 		98EB1F941313FE0500D0E1EA /* NotImplemented.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = NotImplemented.h; sourceTree = "<group>"; };
+-		990A19F418ADA48400183FD1 /* ReplayInputTypes.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReplayInputTypes.cpp; sourceTree = "<group>"; };
+-		990A19F518ADA48400183FD1 /* ReplayInputTypes.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ReplayInputTypes.h; sourceTree = "<group>"; };
+ 		9920398018B95BC600B39AF9 /* UserInputBridge.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = UserInputBridge.cpp; sourceTree = "<group>"; };
+ 		9920398118B95BC600B39AF9 /* UserInputBridge.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = UserInputBridge.h; sourceTree = "<group>"; };
+ 		996231F118D189BD00C03FDA /* InspectorWebBackendCommands.js */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.javascript; path = InspectorWebBackendCommands.js; sourceTree = "<group>"; };
+ 		99C7CCB218C663E40032E413 /* MemoizedDOMResult.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = MemoizedDOMResult.h; sourceTree = "<group>"; };
+ 		99C7CCB418C6B8990032E413 /* MemoizedDOMResult.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MemoizedDOMResult.cpp; sourceTree = "<group>"; };
+ 		99CC0B3818BE9849006CEBCC /* AllReplayInputs.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AllReplayInputs.h; sourceTree = "<group>"; };
+ 		99CC0B3918BE9849006CEBCC /* CapturingInputCursor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CapturingInputCursor.cpp; sourceTree = "<group>"; };
+ 		99CC0B3A18BE9849006CEBCC /* CapturingInputCursor.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = CapturingInputCursor.h; sourceTree = "<group>"; };
+ 		99CC0B3B18BE9849006CEBCC /* EventLoopInputDispatcher.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = EventLoopInputDispatcher.cpp; sourceTree = "<group>"; };
+ 		99CC0B3C18BE9849006CEBCC /* EventLoopInputDispatcher.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = EventLoopInputDispatcher.h; sourceTree = "<group>"; };
+@@ -18432,22 +18428,20 @@
+ 				99E45A1618A063BE0026D88F /* EventLoopInput.h */,
+ 				99CC0B3B18BE9849006CEBCC /* EventLoopInputDispatcher.cpp */,
+ 				99CC0B3C18BE9849006CEBCC /* EventLoopInputDispatcher.h */,
+ 				99CC0B3D18BE9849006CEBCC /* FunctorInputCursor.h */,
+ 				99C7CCB418C6B8990032E413 /* MemoizedDOMResult.cpp */,
+ 				99C7CCB218C663E40032E413 /* MemoizedDOMResult.h */,
+ 				99CC0B3E18BE9849006CEBCC /* ReplayController.cpp */,
+ 				99CC0B3F18BE9849006CEBCC /* ReplayController.h */,
+ 				99CC0B4218BE9849006CEBCC /* ReplayInputCreationMethods.cpp */,
+ 				99CC0B4318BE9849006CEBCC /* ReplayInputDispatchMethods.cpp */,
+-				990A19F418ADA48400183FD1 /* ReplayInputTypes.cpp */,
+-				990A19F518ADA48400183FD1 /* ReplayInputTypes.h */,
+ 				C49474AB19A3F7A2009B3DE8 /* ReplayClient.h */,
+ 				99CC0B4418BE9849006CEBCC /* ReplaySession.cpp */,
+ 				99CC0B4518BE9849006CEBCC /* ReplaySession.h */,
+ 				99CC0B4618BE9849006CEBCC /* ReplaySessionSegment.cpp */,
+ 				99CC0B4718BE9849006CEBCC /* ReplaySessionSegment.h */,
+ 				C4D4F5271975C88B003EF5BC /* ReplayableTimer.cpp */,
+ 				C4D4F5281975C88B003EF5BC /* ReplayableTimer.h */,
+ 				C4D4F5291975C88B003EF5BC /* ReplayableTimers.cpp */,
+ 				C4D4F52A1975C88B003EF5BC /* ReplayableTimers.h */,
+ 				99CC0B4018BE9849006CEBCC /* ReplayingInputCursor.cpp */,
+@@ -25800,21 +25794,20 @@
+ 				BCEA4887097D93020094C9E4 /* RenderThemeMac.h in Headers */,
+ 				93F1998C08245E59001E9ABC /* RenderTreeAsText.h in Headers */,
+ 				E44614520CD68A3500FADA75 /* RenderVideo.h in Headers */,
+ 				BCEA4868097D93020094C9E4 /* RenderView.h in Headers */,
+ 				BE20507E18A458C20080647E /* RenderVTTCue.h in Headers */,
+ 				A871DFE40A15376B00B12A68 /* RenderWidget.h in Headers */,
+ 				A89CCC530F44E98100B5DA10 /* ReplaceNodeWithSpanCommand.h in Headers */,
+ 				93309E0A099E64920056E581 /* ReplaceSelectionCommand.h in Headers */,
+ 				99CC0B5418BE9849006CEBCC /* ReplayController.h in Headers */,
+ 				99CC0B5618BE984A006CEBCC /* ReplayingInputCursor.h in Headers */,
+-				990A1A0518ADA48400183FD1 /* ReplayInputTypes.h in Headers */,
+ 				99CC0B5A18BE984A006CEBCC /* ReplaySession.h in Headers */,
+ 				99CC0B5C18BE984A006CEBCC /* ReplaySessionSegment.h in Headers */,
+ 				4998AEC613F9D0EA0090B1AA /* RequestAnimationFrameCallback.h in Headers */,
+ 				F55B3DD01251F12D003EF269 /* ResetInputType.h in Headers */,
+ 				514BC843161CF05C004D52F4 /* ResourceBuffer.h in Headers */,
+ 				7EE6846A12D26E3800E79415 /* ResourceError.h in Headers */,
+ 				934F713C0D5A6F1900018D69 /* ResourceErrorBase.h in Headers */,
+ 				514C76790CE923A1007EF3CD /* ResourceHandle.h in Headers */,
+ 				26FAE4CD1852E3A5004C8C46 /* ResourceHandleCFURLConnectionDelegate.h in Headers */,
+ 				26C15CF71857E15E00F15C03 /* ResourceHandleCFURLConnectionDelegateWithOperationQueue.h in Headers */,
+@@ -29265,21 +29258,20 @@
+ 				E44614510CD68A3500FADA75 /* RenderVideo.cpp in Sources */,
+ 				BCEA4867097D93020094C9E4 /* RenderView.cpp in Sources */,
+ 				BE20507D18A458BF0080647E /* RenderVTTCue.cpp in Sources */,
+ 				A871DFE50A15376B00B12A68 /* RenderWidget.cpp in Sources */,
+ 				A89CCC520F44E98100B5DA10 /* ReplaceNodeWithSpanCommand.cpp in Sources */,
+ 				93309E09099E64920056E581 /* ReplaceSelectionCommand.cpp in Sources */,
+ 				99CC0B5318BE9849006CEBCC /* ReplayController.cpp in Sources */,
+ 				99CC0B5518BE9849006CEBCC /* ReplayingInputCursor.cpp in Sources */,
+ 				99CC0B5718BE984A006CEBCC /* ReplayInputCreationMethods.cpp in Sources */,
+ 				99CC0B5818BE984A006CEBCC /* ReplayInputDispatchMethods.cpp in Sources */,
+-				990A1A0418ADA48400183FD1 /* ReplayInputTypes.cpp in Sources */,
+ 				99CC0B5918BE984A006CEBCC /* ReplaySession.cpp in Sources */,
+ 				99CC0B5B18BE984A006CEBCC /* ReplaySessionSegment.cpp in Sources */,
+ 				F55B3DCF1251F12D003EF269 /* ResetInputType.cpp in Sources */,
+ 				514BC842161CF05C004D52F4 /* ResourceBuffer.cpp in Sources */,
+ 				514BC83F161CF04A004D52F4 /* ResourceBuffer.mm in Sources */,
+ 				934F713E0D5A6F2800018D69 /* ResourceErrorBase.cpp in Sources */,
+ 				7EE6846B12D26E3800E79415 /* ResourceErrorCF.cpp in Sources */,
+ 				514C76500CE9234E007EF3CD /* ResourceErrorMac.mm in Sources */,
+ 				514C76780CE923A1007EF3CD /* ResourceHandle.cpp in Sources */,
+ 				7EE6846C12D26E3800E79415 /* ResourceHandleCFNet.cpp in Sources */,
+diff --git a/Source/WebCore/platform/ThreadGlobalData.cpp b/Source/WebCore/platform/ThreadGlobalData.cpp
+index fd3d1b7..bc57732 100644
+--- a/Source/WebCore/platform/ThreadGlobalData.cpp
++++ b/Source/WebCore/platform/ThreadGlobalData.cpp
+@@ -34,38 +34,31 @@
+ #include <wtf/MainThread.h>
+ #include <wtf/ThreadSpecific.h>
+ #include <wtf/Threading.h>
+ #include <wtf/WTFThreadData.h>
+ #include <wtf/text/StringImpl.h>
+ 
+ #if PLATFORM(MAC)
+ #include "TextCodeCMac.h"
+ #endif
+ 
+-#if ENABLE(WEB_REPLAY)
+-#include "ReplayInputTypes.h"
+-#endif
+-
+ namespace WebCore {
+ 
+ ThreadSpecific<ThreadGlobalData>* ThreadGlobalData::staticData;
+ #if USE(WEB_THREAD)
+ ThreadGlobalData* ThreadGlobalData::sharedMainThreadStaticData;
+ #endif
+ 
+ ThreadGlobalData::ThreadGlobalData()
+     : m_cachedResourceRequestInitiators(adoptPtr(new CachedResourceRequestInitiators))
+     , m_eventNames(adoptPtr(new EventNames))
+     , m_threadTimers(adoptPtr(new ThreadTimers))
+-#if ENABLE(WEB_REPLAY)
+-    , m_inputTypes(std::make_unique<ReplayInputTypes>())
+-#endif
+ #ifndef NDEBUG
+     , m_isMainThread(isMainThread())
+ #endif
+     , m_cachedConverterICU(adoptPtr(new ICUConverterWrapper))
+ #if PLATFORM(MAC)
+     , m_cachedConverterTEC(adoptPtr(new TECConverterWrapper))
+ #endif
+ {
+     // This constructor will have been called on the main thread before being called on
+     // any other thread, and is only called once per thread - this makes this a convenient
+@@ -80,24 +73,20 @@ ThreadGlobalData::~ThreadGlobalData()
+ }
+ 
+ void ThreadGlobalData::destroy()
+ {
+ #if PLATFORM(MAC)
+     m_cachedConverterTEC.clear();
+ #endif
+ 
+     m_cachedConverterICU.clear();
+ 
+-#if ENABLE(WEB_REPLAY)
+-    m_inputTypes = nullptr;
+-#endif
+-
+     m_eventNames.clear();
+     m_threadTimers.clear();
+ }
+ 
+ #if USE(WEB_THREAD)
+ void ThreadGlobalData::setWebCoreThreadData()
+ {
+     ASSERT(isWebThread());
+     ASSERT(&threadGlobalData() != ThreadGlobalData::sharedMainThreadStaticData);
+ 
+diff --git a/Source/WebCore/platform/ThreadGlobalData.h b/Source/WebCore/platform/ThreadGlobalData.h
+index 3bc06c3..40462ce 100644
+--- a/Source/WebCore/platform/ThreadGlobalData.h
++++ b/Source/WebCore/platform/ThreadGlobalData.h
+@@ -33,60 +33,52 @@
+ #include <wtf/OwnPtr.h>
+ #include <wtf/text/StringHash.h>
+ 
+ #include <wtf/ThreadSpecific.h>
+ #include <wtf/Threading.h>
+ using WTF::ThreadSpecific;
+ 
+ namespace WebCore {
+ 
+     class EventNames;
+-    class ReplayInputTypes;
+     class ThreadTimers;
+ 
+     struct CachedResourceRequestInitiators;
+     struct ICUConverterWrapper;
+     struct TECConverterWrapper;
+ 
+     class ThreadGlobalData {
+         WTF_MAKE_NONCOPYABLE(ThreadGlobalData);
+     public:
+         ThreadGlobalData();
+         ~ThreadGlobalData();
+         void destroy(); // called on workers to clean up the ThreadGlobalData before the thread exits.
+ 
+         const CachedResourceRequestInitiators& cachedResourceRequestInitiators() { return *m_cachedResourceRequestInitiators; }
+         EventNames& eventNames() { return *m_eventNames; }
+         ThreadTimers& threadTimers() { return *m_threadTimers; }
+-#if ENABLE(WEB_REPLAY)
+-        ReplayInputTypes& inputTypes() { return *m_inputTypes; }
+-#endif
+ 
+         ICUConverterWrapper& cachedConverterICU() { return *m_cachedConverterICU; }
+ 
+ #if PLATFORM(MAC)
+         TECConverterWrapper& cachedConverterTEC() { return *m_cachedConverterTEC; }
+ #endif
+ 
+ #if USE(WEB_THREAD)
+         void setWebCoreThreadData();
+ #endif
+ 
+     private:
+         OwnPtr<CachedResourceRequestInitiators> m_cachedResourceRequestInitiators;
+         OwnPtr<EventNames> m_eventNames;
+         OwnPtr<ThreadTimers> m_threadTimers;
+ 
+-#if ENABLE(WEB_REPLAY)
+-        std::unique_ptr<ReplayInputTypes> m_inputTypes;
+-#endif
+-
+ #ifndef NDEBUG
+         bool m_isMainThread;
+ #endif
+ 
+         OwnPtr<ICUConverterWrapper> m_cachedConverterICU;
+ 
+ #if PLATFORM(MAC)
+         OwnPtr<TECConverterWrapper> m_cachedConverterTEC;
+ #endif
+ 
+diff --git a/Source/WebCore/replay/AllReplayInputs.h b/Source/WebCore/replay/AllReplayInputs.h
+index 2151c2e..669bc25 100644
+--- a/Source/WebCore/replay/AllReplayInputs.h
++++ b/Source/WebCore/replay/AllReplayInputs.h
+@@ -22,22 +22,20 @@
+  * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ // This file is the include equivalent for WEB_REPLAY_INPUT_NAMES_FOR_EACH.
+ // Note that there is not an exact correspondence between the two, since
+ // Some input types reside in the same file.
+ 
+-// Make sure that this stays in sync with ReplayInputTypes.h for custom inputs.
+-
+ #ifndef AllReplayInputs_h
+ #define AllReplayInputs_h
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include "MemoizedDOMResult.h"
+ #include "WebReplayInputs.h"
+ #include <JavaScriptCore/JSReplayInputs.h>
+ 
+ #define IMPORT_FROM_JSC_NAMESPACE(name) \
+diff --git a/Source/WebCore/replay/EventLoopInputDispatcher.cpp b/Source/WebCore/replay/EventLoopInputDispatcher.cpp
+index 28942e4..3993ed7 100644
+--- a/Source/WebCore/replay/EventLoopInputDispatcher.cpp
++++ b/Source/WebCore/replay/EventLoopInputDispatcher.cpp
+@@ -24,24 +24,24 @@
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #include "config.h"
+ #include "EventLoopInputDispatcher.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include "Page.h"
+-#include "ReplayInputTypes.h"
+ #include "ReplayClient.h"
+ #include "ReplayController.h"
+ #include "ReplayingInputCursor.h"
++#include "WebReplayInputs.h"
+ #include <wtf/TemporaryChange.h>
+ 
+ #if !LOG_DISABLED
+ #include "Logging.h"
+ #include "SerializationMethods.h"
+ #include <replay/EncodedValue.h>
+ #include <wtf/text/CString.h>
+ #endif
+ 
+ namespace WebCore {
+@@ -153,21 +153,21 @@ void EventLoopInputDispatcher::dispatchInput()
+     {
+         TemporaryChange<bool> change(m_dispatching, true);
+         m_page.replayController().client().dispatchInput(*m_currentWork.input);
+     }
+ 
+     EventLoopInputBase* dispatchedInput = m_currentWork.input;
+     m_currentWork.input = nullptr;
+ 
+     // Notify clients that the event was dispatched.
+     m_client->didDispatchInput(*dispatchedInput);
+-    if (dispatchedInput->type() == inputTypes().EndSegmentSentinel) {
++    if (dispatchedInput->type() == InputTraits<EndSegmentSentinel>::type()) {
+         m_running = false;
+         m_dispatching = false;
+         m_client->didDispatchFinalInput();
+         return;
+     }
+ 
+     // Clients could stop replay during event dispatch, or from any callback above.
+     if (!m_running)
+         return;
+ 
+diff --git a/Source/WebCore/replay/MemoizedDOMResult.cpp b/Source/WebCore/replay/MemoizedDOMResult.cpp
+index 5b63092..a768b80 100644
+--- a/Source/WebCore/replay/MemoizedDOMResult.cpp
++++ b/Source/WebCore/replay/MemoizedDOMResult.cpp
+@@ -22,29 +22,29 @@
+  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #include "config.h"
+ #include "MemoizedDOMResult.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+-#include "ReplayInputTypes.h"
+ #include "SerializationMethods.h"
+ #include "WebReplayInputs.h"
++#include <wtf/NeverDestroyed.h>
+ 
+ namespace WebCore {
+ 
+ const AtomicString& MemoizedDOMResultBase::type() const
+ {
+-    return inputTypes().MemoizedDOMResult;
++    return InputTraits<MemoizedDOMResultBase>::type();
+ }
+ 
+ std::unique_ptr<MemoizedDOMResultBase> MemoizedDOMResultBase::createFromEncodedResult(const String& attribute, EncodedCType ctype, EncodedValue encodedValue, ExceptionCode exceptionCode)
+ {
+     switch (ctype) {
+ #define CREATE_DECODE_SWITCH_CASE(name, type) \
+     case CTypeTraits<type>::encodedType: { \
+         CTypeTraits<type>::CType result; \
+         if (!EncodingTraits<type>::decodeValue(encodedValue, result)) \
+             return nullptr; \
+@@ -64,21 +64,22 @@ FOR_EACH_MEMOIZED_CTYPE(CREATE_DECODE_SWITCH_CASE)
+ 
+ namespace JSC {
+ 
+ using WebCore::EncodedCType;
+ using WebCore::ExceptionCode;
+ using WebCore::MemoizedDOMResult;
+ using WebCore::SerializedScriptValue;
+ 
+ const AtomicString& InputTraits<MemoizedDOMResultBase>::type()
+ {
+-    return WebCore::inputTypes().MemoizedDOMResult;
++    static NeverDestroyed<const AtomicString> type("MemoizedDOMResult", AtomicString::ConstructFromLiteral);
++    return type;
+ }
+ 
+ void InputTraits<MemoizedDOMResultBase>::encode(EncodedValue& encodedValue, const MemoizedDOMResultBase& input)
+ {
+     encodedValue.put<String>(ASCIILiteral("attribute"), input.attribute());
+     encodedValue.put<EncodedCType>(ASCIILiteral("ctype"), input.ctype());
+     encodedValue.put<EncodedValue>(ASCIILiteral("result"), input.encodedResult());
+     if (input.exceptionCode())
+         encodedValue.put<ExceptionCode>(ASCIILiteral("exceptionCode"), input.exceptionCode());
+ }
+diff --git a/Source/WebCore/replay/ReplayInputTypes.cpp b/Source/WebCore/replay/ReplayInputTypes.cpp
+deleted file mode 100644
+index 796819e..0000000
+--- a/Source/WebCore/replay/ReplayInputTypes.cpp
++++ /dev/null
+@@ -1,49 +0,0 @@
+-/*
+- * Copyright (C) 2013 University of Washington. All rights reserved.
+- * Copyright (C) 2014 Apple Inc. All rights resernved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- *
+- * 1.  Redistributions of source code must retain the above copyright
+- *     notice, this list of conditions and the following disclaimer.
+- * 2.  Redistributions in binary form must reproduce the above copyright
+- *     notice, this list of conditions and the following disclaimer in the
+- *     documentation and/or other materials provided with the distribution.
+- *
+- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+- * IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+- * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+- * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+- * HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+- */
+-
+-#include "config.h"
+-#include "ReplayInputTypes.h"
+-
+-#if ENABLE(WEB_REPLAY)
+-
+-namespace WebCore {
+-
+-#define INITIALIZE_INPUT_TYPE(name) \
+-    , name(#name, AtomicString::ConstructFromLiteral)
+-
+-ReplayInputTypes::ReplayInputTypes()
+-    : dummy(0)
+-JS_REPLAY_INPUT_NAMES_FOR_EACH(INITIALIZE_INPUT_TYPE)
+-WEB_REPLAY_INPUT_NAMES_FOR_EACH(INITIALIZE_INPUT_TYPE)
+-INITIALIZE_INPUT_TYPE(MemoizedDOMResult)
+-{
+-    UNUSED_PARAM(dummy);
+-}
+-
+-} // namespace WebCore
+-
+-#endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/WebCore/replay/ReplayInputTypes.h b/Source/WebCore/replay/ReplayInputTypes.h
+deleted file mode 100644
+index c4126f2..0000000
+--- a/Source/WebCore/replay/ReplayInputTypes.h
++++ /dev/null
+@@ -1,62 +0,0 @@
+-/*
+- * Copyright (C) 2013 University of Washington. All rights reserved.
+- * Copyright (C) 2014 Apple Inc. All rights resernved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- *
+- * 1.  Redistributions of source code must retain the above copyright
+- *     notice, this list of conditions and the following disclaimer.
+- * 2.  Redistributions in binary form must reproduce the above copyright
+- *     notice, this list of conditions and the following disclaimer in the
+- *     documentation and/or other materials provided with the distribution.
+- *
+- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+- * IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+- * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+- * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+- * HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+- */
+-
+-#ifndef ReplayInputTypes_h
+-#define ReplayInputTypes_h
+-
+-#if ENABLE(WEB_REPLAY)
+-
+-#include "ThreadGlobalData.h"
+-#include "WebReplayInputs.h"
+-#include <JavaScriptCore/JSReplayInputs.h>
+-#include <wtf/text/AtomicString.h>
+-
+-namespace WebCore {
+-
+-class ReplayInputTypes {
+-    WTF_MAKE_NONCOPYABLE(ReplayInputTypes); WTF_MAKE_FAST_ALLOCATED;
+-    int dummy; // Needed to make initialization macro work.
+-public:
+-    ReplayInputTypes();
+-
+-#define DECLARE_REPLAY_INPUT_TYPES(name) AtomicString name;
+-    JS_REPLAY_INPUT_NAMES_FOR_EACH(DECLARE_REPLAY_INPUT_TYPES)
+-    WEB_REPLAY_INPUT_NAMES_FOR_EACH(DECLARE_REPLAY_INPUT_TYPES)
+-    DECLARE_REPLAY_INPUT_TYPES(MemoizedDOMResult);
+-#undef DECLARE_REPLAY_INPUT_TYPES
+-};
+-
+-inline ReplayInputTypes& inputTypes()
+-{
+-    return threadGlobalData().inputTypes();
+-}
+-
+-} // namespace WebCore
+-
+-#endif // ENABLE(WEB_REPLAY)
+-
+-#endif // ReplayInputTypes_h
+diff --git a/Source/WebCore/replay/SerializationMethods.cpp b/Source/WebCore/replay/SerializationMethods.cpp
+index f2100c7..fb53d04 100644
+--- a/Source/WebCore/replay/SerializationMethods.cpp
++++ b/Source/WebCore/replay/SerializationMethods.cpp
+@@ -37,21 +37,20 @@
+ #include "FrameLoadRequest.h"
+ #include "FrameTree.h"
+ #include "HTTPHeaderMap.h"
+ #include "HistoryItem.h"
+ #include "MainFrame.h"
+ #include "Page.h"
+ #include "PlatformKeyboardEvent.h"
+ #include "PlatformMouseEvent.h"
+ #include "PlatformWheelEvent.h"
+ #include "PluginData.h"
+-#include "ReplayInputTypes.h"
+ #include "ResourceError.h"
+ #include "ResourceLoadTiming.h"
+ #include "ResourceRequest.h"
+ #include "ResourceResponse.h"
+ #include "SecurityOrigin.h"
+ #include "SerializedScriptValue.h"
+ #include "SharedBuffer.h"
+ #include "SubstituteData.h"
+ #include "URL.h"
+ #include <wtf/text/Base64.h>
+@@ -75,21 +74,20 @@ using WebCore::ResourceError;
+ using WebCore::ResourceLoadTiming;
+ using WebCore::ResourceLoadPriority;
+ using WebCore::ResourceRequest;
+ using WebCore::ResourceRequestCachePolicy;
+ using WebCore::ResourceResponse;
+ using WebCore::SecurityOrigin;
+ using WebCore::SerializedScriptValue;
+ using WebCore::SharedBuffer;
+ using WebCore::SubstituteData;
+ using WebCore::URL;
+-using WebCore::inputTypes;
+ 
+ #if PLATFORM(COCOA)
+ using WebCore::KeypressCommand;
+ using WebCore::PlatformWheelEventPhase;
+ #endif
+ 
+ #define IMPORT_FROM_WEBCORE_NAMESPACE(name) \
+ using WebCore::name; \
+ 
+ WEB_REPLAY_INPUT_NAMES_FOR_EACH(IMPORT_FROM_WEBCORE_NAMESPACE)
+@@ -338,31 +336,31 @@ bool EncodingTraits<MimeClassInfo>::decodeValue(EncodedValue& encodedData, MimeC
+ }
+ 
+ EncodedValue EncodingTraits<NondeterministicInputBase>::encodeValue(const NondeterministicInputBase& input)
+ {
+     EncodedValue encodedValue = EncodedValue::createObject();
+     const AtomicString& type = input.type();
+ 
+     ENCODE_TYPE_WITH_KEY(encodedValue, String, type, type.string());
+ 
+ #define ENCODE_IF_TYPE_TAG_MATCHES(name) \
+-    if (type == inputTypes().name) { \
++    if (type == InputTraits<name>::type()) { \
+         InputTraits<name>::encode(encodedValue, static_cast<const name&>(input)); \
+         return encodedValue; \
+     } \
+ 
+     JS_REPLAY_INPUT_NAMES_FOR_EACH(ENCODE_IF_TYPE_TAG_MATCHES)
+     WEB_REPLAY_INPUT_NAMES_FOR_EACH(ENCODE_IF_TYPE_TAG_MATCHES)
+ #undef ENCODE_IF_TYPE_TAG_MATCHES
+ 
+     // The macro won't work here because of the class template argument.
+-    if (type == inputTypes().MemoizedDOMResult) {
++    if (type == InputTraits<MemoizedDOMResultBase>::type()) {
+         InputTraits<MemoizedDOMResultBase>::encode(encodedValue, static_cast<const MemoizedDOMResultBase&>(input));
+         return encodedValue;
+     }
+ 
+     ASSERT_NOT_REACHED();
+     return EncodedValue();
+ }
+ 
+ EncodedValue EncodingTraits<HistoryItem>::encodeValue(RefPtr<HistoryItem> item)
+ {
+@@ -450,34 +448,34 @@ bool EncodingTraits<IntPoint>::decodeValue(EncodedValue& encodedData, IntPoint&
+ 
+     point = IntPoint(x, y);
+     return true;
+ }
+ 
+ bool EncodingTraits<NondeterministicInputBase>::decodeValue(EncodedValue& encodedValue, std::unique_ptr<NondeterministicInputBase>& input)
+ {
+     DECODE_TYPE_WITH_KEY(encodedValue, String, type);
+ 
+ #define DECODE_IF_TYPE_TAG_MATCHES(name) \
+-    if (type == inputTypes().name) { \
++    if (type == InputTraits<name>::type()) { \
+         std::unique_ptr<name> decodedInput; \
+         if (!InputTraits<name>::decode(encodedValue, decodedInput)) \
+             return false; \
+         \
+         input = WTF::move(decodedInput); \
+         return true; \
+     } \
+ 
+     JS_REPLAY_INPUT_NAMES_FOR_EACH(DECODE_IF_TYPE_TAG_MATCHES)
+     WEB_REPLAY_INPUT_NAMES_FOR_EACH(DECODE_IF_TYPE_TAG_MATCHES)
+ #undef DECODE_IF_TYPE_TAG_MATCHES
+ 
+-    if (type == inputTypes().MemoizedDOMResult) {
++    if (type == InputTraits<MemoizedDOMResultBase>::type()) {
+         std::unique_ptr<MemoizedDOMResultBase> decodedInput;
+         if (!InputTraits<MemoizedDOMResultBase>::decode(encodedValue, decodedInput))
+             return false;
+ 
+         input = WTF::move(decodedInput);
+         return true;
+     }
+ 
+     return false;
+ }
+-- 
+2.0.1
+

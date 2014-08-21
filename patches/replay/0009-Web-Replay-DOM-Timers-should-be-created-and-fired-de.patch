@@ -1,4 +1,4 @@
-From 8cfeb929865df1c6c474c00737fdab0ecf0b844b Mon Sep 17 00:00:00 2001
+From 7d1d2cc905f1d629504603a59fa76b066f642bc4 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 16 Jul 2014 14:58:22 -0700
 Subject: [PATCH] Web Replay: DOM Timers should be created and fired
@@ -59,7 +59,7 @@ Move the singleShot parameter to DOMTimer::start since it isn't used here now.
  5 files changed, 233 insertions(+), 21 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 62e627f..8e44aee 100644
+index 4d89fd1..29a2f39 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,62 @@

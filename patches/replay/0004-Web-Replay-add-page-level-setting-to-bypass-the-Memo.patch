@@ -1,4 +1,4 @@
-From 1901945de2b34eb09e18507aedd869e6702d947b Mon Sep 17 00:00:00 2001
+From 0fd67ed631ee853024d97b87a8174e997a079e22 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 11 Jun 2014 15:33:16 -0700
 Subject: [PATCH] Web Replay: add page-level setting to bypass the MemoryCache
@@ -62,7 +62,7 @@ and bypass cache session id are both considered to be non-ephemeral.
  11 files changed, 104 insertions(+), 11 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 3b2da30..f820270 100644
+index fa3d637..d9cd3f5 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,58 @@
@@ -193,7 +193,7 @@ index fa3c54f..8e9c6c6 100644
      memoryCache()->remove(resource);
      memoryCache()->add(newResource.get());
 diff --git a/Source/WebCore/loader/cache/MemoryCache.cpp b/Source/WebCore/loader/cache/MemoryCache.cpp
-index 02fb309..4913bd8 100644
+index 3804134..59f1db5 100644
 --- a/Source/WebCore/loader/cache/MemoryCache.cpp
 +++ b/Source/WebCore/loader/cache/MemoryCache.cpp
 @@ -105,20 +105,23 @@ URL MemoryCache::removeFragmentIdentifierIfNeeded(const URL& originalURL)
@@ -502,7 +502,7 @@ index ea1419d..70a60d8 100644
      // The active cursor is set to nullptr when invalid.
      RefPtr<JSC::InputCursor> m_activeCursor;
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index ecd3554f..0c68023 100644
+index 792749b..0e3e898 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,24 @@
@@ -529,7 +529,7 @@ index ecd3554f..0c68023 100644
  
          * CMakeLists.txt: Add replay/ directory to header include paths.
  
- 2014-08-19  Peyton Randolph  <prandolph@apple.com>
+ 2014-08-20  Alex Christensen  <achristensen@webkit.org>
 diff --git a/Source/WebKit2/Shared/SessionTracker.cpp b/Source/WebKit2/Shared/SessionTracker.cpp
 index ac79a9d..0886af1 100644
 --- a/Source/WebKit2/Shared/SessionTracker.cpp

@@ -1,4 +1,4 @@
-From 5e40e19565315ce4b62ed108b9554c6d3f4d5a6c Mon Sep 17 00:00:00 2001
+From 6f34676ca37dca6eb635a0c53fc199846be3bcba Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 15:34:16 -0700
 Subject: [PATCH] Web Replay: window.history.length should be captured at main
@@ -85,7 +85,7 @@ LayoutTests:
  create mode 100644 LayoutTests/inspector/replay/history-length-single-segment.html
 
 diff --git a/LayoutTests/ChangeLog b/LayoutTests/ChangeLog
-index 9bd54ba..18c5ba1 100644
+index cd96f4e..04454ef 100644
 --- a/LayoutTests/ChangeLog
 +++ b/LayoutTests/ChangeLog
 @@ -1,10 +1,20 @@
@@ -99,16 +99,16 @@ index 9bd54ba..18c5ba1 100644
 +        * inspector/replay/history-length-single-segment-expected.txt: Added.
 +        * inspector/replay/history-length-single-segment.html: Added.
 +
- 2014-08-19  Alexey Proskuryakov  <ap@apple.com>
+ 2014-08-20  Alexey Proskuryakov  <ap@apple.com>
  
-         ASSERT_NOT_REACHED on css3/shapes/shape-outside/values/shape-image-threshold-001.html
-         https://bugs.webkit.org/show_bug.cgi?id=136075
+         fast/multicol/mixed-opacity-fixed-test.html fails in compositing mode
+         https://bugs.webkit.org/show_bug.cgi?id=136109
  
-         * TestExpectations: Skipped the test in debug mode.
+         * platform/mac-wk2/TestExpectations: Updated test expectations to a non-flaky failure,
+         and to point to the new bug.
  
- 2014-08-19  Carlos Alberto Lopez Perez  <clopez@igalia.com>
+ 2014-08-20  Zalan Bujtas  <zalan@apple.com>
  
-         [GTK] Unreviewed GTK gardening.
 diff --git a/LayoutTests/inspector/replay/history-length-single-segment-expected.txt b/LayoutTests/inspector/replay/history-length-single-segment-expected.txt
 new file mode 100644
 index 0000000..b797ffd
@@ -165,7 +165,7 @@ index 0000000..a88d9c1
 +</body>
 +</html>
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index bf22504..62e627f 100644
+index 1df47dd..4d89fd1 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,64 @@
@@ -286,7 +286,7 @@ index 9c16722..b914f80 100644
  
  } // namespace WebCore
 diff --git a/Source/WebCore/history/BackForwardController.h b/Source/WebCore/history/BackForwardController.h
-index 6387746..e0d8632 100644
+index f23b7e4..31a3290 100644
 --- a/Source/WebCore/history/BackForwardController.h
 +++ b/Source/WebCore/history/BackForwardController.h
 @@ -52,20 +52,21 @@ public:
@@ -295,10 +295,10 @@ index 6387746..e0d8632 100644
      void setCurrentItem(HistoryItem*);
          
      int count() const;
-     int backCount() const;
-     int forwardCount() const;
+     WEBCORE_EXPORT int backCount() const;
+     WEBCORE_EXPORT int forwardCount() const;
  
-     HistoryItem* itemAtIndex(int);
+     WEBCORE_EXPORT HistoryItem* itemAtIndex(int);
  
 +    void clear();
      void close();
@@ -343,26 +343,26 @@ index 1e5e774..0bd8429 100644
      m_closed = true;
  }
 diff --git a/Source/WebCore/history/BackForwardList.h b/Source/WebCore/history/BackForwardList.h
-index 3b05be9..6624e7f 100644
+index ae3c97d..983570c 100644
 --- a/Source/WebCore/history/BackForwardList.h
 +++ b/Source/WebCore/history/BackForwardList.h
 @@ -60,20 +60,21 @@ public:
-     void forwardListWithLimit(int, HistoryItemVector&);
+     WEBCORE_EXPORT void forwardListWithLimit(int, HistoryItemVector&);
  
-     int capacity();
-     void setCapacity(int);
-     bool enabled();
-     void setEnabled(bool);
+     WEBCORE_EXPORT int capacity();
+     WEBCORE_EXPORT void setCapacity(int);
+     WEBCORE_EXPORT bool enabled();
+     WEBCORE_EXPORT void setEnabled(bool);
      virtual int backListCount() override;
      virtual int forwardListCount() override;
-     bool containsItem(HistoryItem*);
+     WEBCORE_EXPORT bool containsItem(HistoryItem*);
  
 +    virtual void clear() override;
      virtual void close() override;
-     bool closed();
+     WEBCORE_EXPORT bool closed();
  
-     void removeItem(HistoryItem*);
-     HistoryItemVector& entries();
+     WEBCORE_EXPORT void removeItem(HistoryItem*);
+     WEBCORE_EXPORT HistoryItemVector& entries();
  
  #if PLATFORM(IOS)
      virtual unsigned current() override;
@@ -897,7 +897,7 @@ index d76bbee..bcf3002 100644
              ]
          },
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 7181e6b..d9c9453 100644
+index 30e9e9c..17d65f6 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,21 @@

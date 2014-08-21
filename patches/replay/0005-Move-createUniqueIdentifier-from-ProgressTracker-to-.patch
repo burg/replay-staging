@@ -1,4 +1,4 @@
-From 6aa814da6e839e7e9df398dda3f82149607dd89b Mon Sep 17 00:00:00 2001
+From ddcf06d832fc3a860f0ef065503eff5b03e73d09 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 12 Jun 2014 09:30:20 -0700
 Subject: [PATCH] Move createUniqueIdentifier() from ProgressTracker to
@@ -48,7 +48,7 @@ No new tests. No behavior was changed.
  12 files changed, 66 insertions(+), 39 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index f820270..85887b8 100644
+index d9cd3f5..06e7f48 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,11 +1,45 @@
@@ -261,7 +261,7 @@ index b468f35..54d73f8 100644
  
      RefPtr<Inspector::TypeBuilder::Network::Initiator> initiatorObject = buildInitiatorObject(loader->frame() ? loader->frame()->document() : nullptr);
 diff --git a/Source/WebCore/loader/DocumentLoader.cpp b/Source/WebCore/loader/DocumentLoader.cpp
-index bebcbf3..bc333828 100644
+index ac124ab..39d336c 100644
 --- a/Source/WebCore/loader/DocumentLoader.cpp
 +++ b/Source/WebCore/loader/DocumentLoader.cpp
 @@ -48,21 +48,20 @@
@@ -309,7 +309,7 @@ index bebcbf3..bc333828 100644
      , m_originalRequestCopy(req)
      , m_request(req)
      , m_originalSubstituteDataWasValid(substituteData.isValid())
-@@ -1325,20 +1326,26 @@ void DocumentLoader::setMainResourceDataBufferingPolicy(DataBufferingPolicy data
+@@ -1320,20 +1321,26 @@ void DocumentLoader::setMainResourceDataBufferingPolicy(DataBufferingPolicy data
  void DocumentLoader::stopLoadingPlugIns()
  {
      cancelAll(m_plugInStreamLoaders);
@@ -336,7 +336,7 @@ index bebcbf3..bc333828 100644
      if (!m_gotFirstByte)
          return;
      ASSERT(loader->identifier());
-@@ -1417,21 +1424,21 @@ void DocumentLoader::startLoadingMainResource()
+@@ -1412,21 +1419,21 @@ void DocumentLoader::startLoadingMainResource()
      timing()->markFetchStart();
      willSendRequest(m_request, ResourceResponse());
  
@@ -359,7 +359,7 @@ index bebcbf3..bc333828 100644
      // FIXME: Remove PLATFORM(IOS)-guard once we upstream the iOS changes to ResourceRequest.h.
      m_request.deprecatedSetMainResourceRequest(true);
  #endif
-@@ -1444,21 +1451,21 @@ void DocumentLoader::startLoadingMainResource()
+@@ -1439,21 +1446,21 @@ void DocumentLoader::startLoadingMainResource()
          setRequest(ResourceRequest());
          // If the load was aborted by clearing m_request, it's possible the ApplicationCacheHost
          // is now in a state where starting an empty load will be inconsistent. Replace it with
@@ -383,7 +383,7 @@ index bebcbf3..bc333828 100644
      // If there was a fragment identifier on m_request, the cache will have stripped it. m_request should include
      // the fragment identifier, so add that back in.
 diff --git a/Source/WebCore/loader/DocumentLoader.h b/Source/WebCore/loader/DocumentLoader.h
-index 4e2a710..55080e2 100644
+index aa483aa..a8aceab 100644
 --- a/Source/WebCore/loader/DocumentLoader.h
 +++ b/Source/WebCore/loader/DocumentLoader.h
 @@ -218,20 +218,22 @@ namespace WebCore {
@@ -401,8 +401,8 @@ index 4e2a710..55080e2 100644
 +
          void addSubresourceLoader(ResourceLoader*);
          void removeSubresourceLoader(ResourceLoader*);
-         void addPlugInStreamLoader(ResourceLoader*);
-         void removePlugInStreamLoader(ResourceLoader*);
+         WEBCORE_EXPORT void addPlugInStreamLoader(ResourceLoader*);
+         WEBCORE_EXPORT void removePlugInStreamLoader(ResourceLoader*);
  
          void subresourceLoaderFinishedLoadingOnePart(ResourceLoader*);
  

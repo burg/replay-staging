@@ -1,0 +1,1356 @@
+From 8130922eb8d6646c2b1c9f105b0cddc5f5e8a7bd Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Tue, 19 Aug 2014 18:50:22 -0700
+Subject: [PATCH] [WIP] WK2 Replay: support generating inputs for WebKit
+ framework
+
+---
+ .../replay/scripts/CodeGeneratorReplayInputs.py    | 69 ++++++++++++++--------
+ ...s-with-guarded-values.json-TestReplayInputs.cpp |  4 +-
+ ...ers-with-guarded-values.json-TestReplayInputs.h |  8 +--
+ ...enum-encoding-helpers.json-TestReplayInputs.cpp |  4 +-
+ ...e-enum-encoding-helpers.json-TestReplayInputs.h |  8 +--
+ ...erate-enum-with-guard.json-TestReplayInputs.cpp |  4 +-
+ ...enerate-enum-with-guard.json-TestReplayInputs.h | 10 ++--
+ ...s-with-same-base-name.json-TestReplayInputs.cpp |  4 +-
+ ...ums-with-same-base-name.json-TestReplayInputs.h | 20 +++----
+ ...rate-input-with-guard.json-TestReplayInputs.cpp |  4 +-
+ ...nerate-input-with-guard.json-TestReplayInputs.h |  4 +-
+ ...t-with-vector-members.json-TestReplayInputs.cpp |  8 +--
+ ...put-with-vector-members.json-TestReplayInputs.h | 20 +++----
+ ...ate-inputs-with-flags.json-TestReplayInputs.cpp |  4 +-
+ ...erate-inputs-with-flags.json-TestReplayInputs.h |  4 +-
+ ...e-memoized-type-modes.json-TestReplayInputs.cpp |  4 +-
+ ...ate-memoized-type-modes.json-TestReplayInputs.h |  4 +-
+ Source/WebCore/WebCore.xcodeproj/project.pbxproj   |  2 +-
+ Source/WebKit2/CMakeLists.txt                      | 14 +++++
+ Source/WebKit2/Configurations/BaseTarget.xcconfig  |  1 +
+ Source/WebKit2/DerivedSources.make                 | 17 ++++++
+ Source/WebKit2/WebKit2.xcodeproj/project.pbxproj   | 20 ++++++-
+ Source/WebKit2/WebProcess/Replay/WKInputs.json     | 25 ++++++++
+ 23 files changed, 177 insertions(+), 85 deletions(-)
+ create mode 100644 Source/WebKit2/WebProcess/Replay/WKInputs.json
+
+diff --git a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
+index 71384df..2039d329 100644
+--- a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
++++ b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
+@@ -41,50 +41,50 @@ except ImportError:
+ # Configuration values are first looked up in the framework configuration,
+ # and then in the global configuration if there is no framework-specific value.
+ GLOBAL_CONFIG = {
+     "baseFilename": "ReplayInputs",
+     "guardCondition": "ENABLE(WEB_REPLAY)",
+     "traitsFrameworkName": "JavaScriptCore",
+ 
+     # These are formatted as ([allowed_frameworks], (framework, header_path)).
+     # The generator can figure out how to format the includes.
+     "headerIncludes": [
+-        (["WebCore"],
++        (["WebKit", "WebCore"],
+             ("WebCore", "replay/EventLoopInput.h")
+         ),
+-        (["JavaScriptCore", "WebCore"],
++        (["WebKit", "WebCore", "JavaScriptCore"],
+             ("JavaScriptCore", "replay/EncodedValue.h")
+         ),
+         (["JavaScriptCore"],
+             ("JavaScriptCore", "replay/NondeterministicInput.h")
+         ),
+         (["WebCore"],
+             ("WTF", "wtf/text/WTFString.h")
+         ),
+ 
+         # Testing fixtures.
+         (["Test"],
+             ("WebCore", "platform/ExternalNamespaceHeaderIncludeDummy.h")
+         ),
+         (["Test"],
+             ("Test", "platform/InternalNamespaceHeaderIncludeDummy.h")
+         )
+     ],
+ 
+     "implIncludes": [
+-        (["WebCore"],
++        (["WebKit", "WebCore"],
+             ("WebCore", "replay/ReplayInputTypes.h")
+         ),
+-        (["WebCore"],
++        (["WebKit", "WebCore"],
+             ("WebCore", "replay/SerializationMethods.h")
+         ),
+-        (["WebCore", "JavaScriptCore"],
++        (["WebKit", "WebCore", "JavaScriptCore"],
+             ("JavaScriptCore", "inspector/InspectorValues.h")
+         ),
+         (["JavaScriptCore"],
+             ("WTF", "wtf/NeverDestroyed.h")
+         ),
+         (["JavaScriptCore"],
+             ("WTF", "wtf/text/AtomicString.h")
+         ),
+ 
+         # Testing fixtures.
+@@ -111,41 +111,46 @@ FRAMEWORK_CONFIG_MAP = {
+         "prefix": "JS",
+         "namespace": "JSC",
+         "exportMacro": "JS_EXPORT_PRIVATE",
+         "inputTypeTemplate": Templates.InputTypeFromStaticLocal,
+     },
+     "WebCore": {
+         "prefix": "Web",
+         "namespace": "WebCore",
+         "inputTypeTemplate": Templates.InputTypeFromThreadLocal,
+     },
++    "WebKit": {
++        "prefix": "WK",
++        "namespace": "WebKit",
++        "inputTypeTemplate": Templates.InputTypeFromThreadLocal,
++    },
+     # Used for bindings tests.
+     "Test": {
+         "prefix": "Test",
+         "namespace": "Test",
+         "inputTypeTemplate": Templates.InputTypeFromStaticLocal,
+     }
+ }
+ 
+ # These settings are specific to an input queue.
+ QUEUE_CONFIG_MAP = {
+     "SCRIPT_MEMOIZED": {
+         "enumValue": "ScriptMemoizedData",
+-        "baseClass": "NondeterministicInput<%s>",
++        "baseClass": "JSC::NondeterministicInput<%s>",
+     },
+     "LOADER_MEMOIZED": {
+         "enumValue": "LoaderMemoizedData",
+-        "baseClass": "NondeterministicInput<%s>",
++        "baseClass": "JSC::NondeterministicInput<%s>",
+     },
+     "EVENT_LOOP": {
+         "enumValue": "EventLoopInput",
+-        "baseClass": "EventLoopInput<%s>",
++        "baseClass": "WebCore::EventLoopInput<%s>",
+     },
+ }
+ 
+ # Use a global logger, which normally only logs errors.
+ # It can be configured to log debug messages from the CLI.
+ logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.ERROR)
+ log = logging.getLogger('global')
+ 
+ 
+ # Model classes, which transliterate JSON input.
+@@ -172,31 +177,35 @@ class Framework:
+ 
+         if frameworkString == "WTF":
+             return Frameworks.WTF
+ 
+         if frameworkString == "JavaScriptCore":
+             return Frameworks.JavaScriptCore
+ 
+         if frameworkString == "WebCore":
+             return Frameworks.WebCore
+ 
++        if frameworkString == "WebKit":
++            return Frameworks.WebKit
++
+         if frameworkString == "Test":
+             return Frameworks.Test
+ 
+         raise ParseException("Unknown framework: " + frameworkString)
+ 
+ 
+ class Frameworks:
+     Global = Framework("Global")
+     WTF = Framework("WTF")
+     JavaScriptCore = Framework("JavaScriptCore")
+     WebCore = Framework("WebCore")
++    WebKit = Framework("WebKit")
+     Test = Framework("Test")
+ 
+ 
+ class InputQueue:
+     def __init__(self, settings):
+         self._settings = settings
+ 
+     def setting(self, key, default=''):
+         return self._settings.get(key, default)
+ 
+@@ -351,24 +360,24 @@ class Type:
+             return self.type_name(qualified)
+         elif self.mode == TypeModes.SHARED:
+             return "PassRefPtr<%s>" % self.type_name(qualified)
+         else:
+             return "const %s&" % self.type_name(qualified)
+ 
+     def argument_type(self, qualified=False):
+         if self.mode == TypeModes.SHARED:
+             return "PassRefPtr<%s>" % self.type_name(qualified)
+         else:
+-            return self.storage_type()
++            return self.storage_type(qualified)
+ 
+     def encoding_type_argument(self, qualified=False):
+-        return self.type_name(qualified=qualified)
++        return self.type_name(qualified)
+ 
+ 
+ def check_for_required_properties(props, obj, what):
+     for prop in props:
+         if prop not in obj:
+             raise ParseException("When parsing %s, required property missing: %s" % (what, prop))
+ 
+ 
+ class VectorType(Type):
+     def __init__(self, element_type):
+@@ -622,53 +631,55 @@ class Generator:
+             'inputClassImplementations': "\n\n".join([self.generate_class_implementation(_input) for _input in self._model.inputs]),
+             'inputTraitImplementations': "\n\n".join([self.generate_input_trait_implementation(_input) for _input in self._model.inputs]),
+             'enumTraitImplementations': "\n\n".join([wrap_with_guard(self.generate_enum_trait_implementation(_type), _type.guard) for _type in self._model.enum_types()]),
+         }
+ 
+         return Template(Templates.ImplementationSkeleton).substitute(template_arguments)
+ 
+     def generate_license(self):
+         return Template(Templates.CopyrightBlock).substitute(None, inputFilename=os.path.basename(self._input_filepath))
+ 
++    def generate_include_string(self, framework_name, header_path):
++        if self.target_framework.name == framework_name:
++            return "#include \"%s\"" % os.path.basename(header_path)
++        elif self.target_framework is Frameworks.WebKit:
++            return "#include <%s/%s>" % (framework_name, os.path.basename(header_path))
++        else:
++            return "#include <%s>" % header_path
++
+     def generate_includes(self, defaults=[], includes_for_types=False):
+         lines = set()
+ 
+         for _type in self._model.types:
+             # Types in the "global" framework are implicitly declared and available in all namespaces.
+             if _type.framework is Frameworks.Global:
+                 continue
+             # For RefCounted types, we reverse when to include the header so that the destructor can be
+             # used in the header file.
+             include_for_destructor = _type.mode is TypeModes.SHARED
+             # Enums within classes cannot be forward declared, so we include
+             # headers with the relevant class declaration.
+             include_for_enclosing_class = _type.enclosing_class is not None
+             # Include headers for types like URL and String which are copied, not owned or shared.
+             include_for_copyable_member = _type.mode is TypeModes.HEAVY_SCALAR
+             if (not includes_for_types) ^ (include_for_destructor or include_for_enclosing_class or include_for_copyable_member):
+                 continue
+ 
+-            if self.target_framework != _type.framework:
+-                lines.add("#include <%s>" % _type.header)
+-            else:
+-                lines.add("#include \"%s\"" % os.path.basename(_type.header))
++            lines.add(self.generate_include_string(_type.framework.name, _type.header))
+ 
+         for entry in defaults:
+             (allowed_framework_names, data) = entry
+-            (framework_name, header_path) = data
+-
+             if self.target_framework.name not in allowed_framework_names:
+                 continue
+-            if self.target_framework.name != framework_name:
+-                lines.add("#include <%s>" % header_path)
+-            else:
+-                lines.add("#include \"%s\"" % os.path.basename(header_path))
++
++            (framework_name, header_path) = data
++            lines.add(self.generate_include_string(framework_name, header_path))
+ 
+         return "\n".join(sorted(list(lines)))
+ 
+     def generate_type_forward_declarations(self):
+         lines = []
+ 
+         decls_by_framework = {}
+         frameworks = [Framework.fromString(s) for s in FRAMEWORK_CONFIG_MAP.keys() if s != Frameworks.Global.name]
+         for framework in frameworks:
+             decls_by_framework[framework] = []
+@@ -700,26 +711,26 @@ class Generator:
+             lines.append("")
+ 
+         return "\n".join(lines)
+ 
+     def generate_class_declaration(self, _input):
+         extra_declarations = []
+         if _input.queue == InputQueues.EVENT_LOOP:
+             extra_declarations.extend([
+                 "",
+                 "    // EventLoopInput API",
+-                "    virtual void dispatch(Page&) override final;",
++                "    virtual void dispatch(WebCore::Page&) override final;",
+             ])
+ 
+             if _input.setting('CREATE_FROM_PAGE'):
+                 extra_declarations.extend([
+-                    "    static std::unique_ptr<%s> createFromPage(const Page&);" % _input.name
++                    "    static std::unique_ptr<%s> createFromPage(const WebCore::Page&);" % _input.name
+                 ])
+ 
+         member_getters = [self.generate_input_member_getter(_member) for _member in _input.members]
+ 
+         member_declarations = [self.generate_input_member_declaration(_member) for _member in _input.members]
+         if len(member_declarations) > 0:
+             member_declarations.insert(0, "private:")
+ 
+         template_arguments = {
+             'inputConstructor': self.generate_input_constructor_declaration(_input),
+@@ -740,25 +751,27 @@ class Generator:
+         if self.setting('exportMacro'):
+             terms.append(self.setting('exportMacro'))
+         terms.append("%s(%s)" % (_input.name, formals_list))
+         return "    %s;" % " ".join(terms)
+ 
+     def generate_input_destructor_declaration(self, _input):
+         return "    virtual ~%s();" % _input.name
+ 
+     def generate_input_member_getter(self, _member):
+         member_type = self._model.get_type_for_member(_member)
+-        return "    %s %s() const { return %s; }" % (member_type.borrow_type(), _member.memberName, self.generate_member_borrow_expression(_member))
++        shouldQualifyType = self.target_framework is not member_type.framework
++        return "    %s %s() const { return %s; }" % (member_type.borrow_type(shouldQualifyType), _member.memberName, self.generate_member_borrow_expression(_member))
+ 
+     def generate_input_member_declaration(self, _member):
+         member_type = self._model.get_type_for_member(_member)
+-        return "    %s m_%s;" % (member_type.storage_type(), _member.memberName)
++        shouldQualifyType = self.target_framework is not member_type.framework
++        return "    %s m_%s;" % (member_type.storage_type(shouldQualifyType), _member.memberName)
+ 
+     def generate_input_member_tuples(self, _input):
+         return [(_member, self._model.get_type_for_member(_member)) for _member in _input.members]
+ 
+     def qualified_input_name(self, _input):
+         if self.target_framework == self.traits_framework:
+             return _input.name
+         else:
+             return "%s::%s" % (self.target_framework.setting('namespace'), _input.name)
+ 
+@@ -925,22 +938,26 @@ class Generator:
+ 
+     def generate_constructor_initializer_list(self, _input):
+         initializers = []
+         initializers.append("    : %s()" % (_input.setting('baseClass') % _input.name))
+         for _member in _input.members:
+             initializers.append("    , m_%s(%s)" % (_member.memberName, self.generate_member_move_expression(_member)))
+ 
+         return "\n".join(initializers)
+ 
+     def generate_constructor_formals_list(self, _input):
+-        member_tuples = self.generate_input_member_tuples(_input)
+-        return ", ".join(["%s %s" % (_type.argument_type(), _member.memberName) for (_member, _type) in member_tuples])
++        formals_list = []
++        for (_member, _type) in self.generate_input_member_tuples(_input):
++            shouldQualifyType = self.target_framework is not _type.framework
++            formals_list.append("%s %s" % (_type.argument_type(shouldQualifyType), _member.memberName))
++
++        return ", ".join(formals_list)
+ 
+     def generate_member_borrow_expression(self, _member):
+         _type = self._model.get_type_for_member(_member)
+         expression = "m_%s" % _member.memberName
+         if _type.mode == TypeModes.OWNED:
+             expression = "*" + expression
+ 
+         return expression
+ 
+     def generate_member_move_expression(self, _member):
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers-with-guarded-values.json-TestReplayInputs.cpp b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers-with-guarded-values.json-TestReplayInputs.cpp
+index 48f13fe..0a74b7b 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers-with-guarded-values.json-TestReplayInputs.cpp
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers-with-guarded-values.json-TestReplayInputs.cpp
+@@ -29,22 +29,22 @@
+ 
+ #include "config.h"
+ #include "generate-enum-encoding-helpers-with-guarded-values.json-TestReplayInputs.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ #include "InternalNamespaceImplIncludeDummy.h"
+ #include <platform/ExternalNamespaceImplIncludeDummy.h>
+ #include <platform/PlatformMouseEvent.h>
+ 
+ namespace Test {
+-SavedMouseButton::SavedMouseButton(MouseButton button)
+-    : NondeterministicInput<SavedMouseButton>()
++SavedMouseButton::SavedMouseButton(WebCore::MouseButton button)
++    : JSC::NondeterministicInput<SavedMouseButton>()
+     , m_button(button)
+ {
+ }
+ 
+ SavedMouseButton::~SavedMouseButton()
+ {
+ }
+ } // namespace Test
+ 
+ namespace JSC {
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers-with-guarded-values.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers-with-guarded-values.json-TestReplayInputs.h
+index 14937cd..1830bc3 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers-with-guarded-values.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers-with-guarded-values.json-TestReplayInputs.h
+@@ -53,28 +53,28 @@ template<> struct InputTraits<Test::SavedMouseButton> {
+ };
+ template<> struct EncodingTraits<WebCore::MouseButton> {
+     typedef WebCore::MouseButton DecodedType;
+ 
+     static EncodedValue encodeValue(const WebCore::MouseButton& value);
+     static bool decodeValue(EncodedValue&, WebCore::MouseButton& value);
+ };
+ } // namespace JSC
+ 
+ namespace Test {
+-class SavedMouseButton : public NondeterministicInput<SavedMouseButton> {
++class SavedMouseButton : public JSC::NondeterministicInput<SavedMouseButton> {
+ public:
+-    SavedMouseButton(MouseButton button);
++    SavedMouseButton(WebCore::MouseButton button);
+     virtual ~SavedMouseButton();
+ 
+-    MouseButton button() const { return m_button; }
++    WebCore::MouseButton button() const { return m_button; }
+ private:
+-    MouseButton m_button;
++    WebCore::MouseButton m_button;
+ };
+ } // namespace Test
+ 
+ #define TEST_REPLAY_INPUT_NAMES_FOR_EACH(macro) \
+     macro(SavedMouseButton) \
+     \
+ // end of TEST_REPLAY_INPUT_NAMES_FOR_EACH
+ 
+ #endif // ENABLE(WEB_REPLAY)
+ 
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers.json-TestReplayInputs.cpp b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers.json-TestReplayInputs.cpp
+index 6406994..6b5f13a 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers.json-TestReplayInputs.cpp
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers.json-TestReplayInputs.cpp
+@@ -30,22 +30,22 @@
+ #include "config.h"
+ #include "generate-enum-encoding-helpers.json-TestReplayInputs.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ #include "InternalNamespaceImplIncludeDummy.h"
+ #include <platform/ExternalNamespaceImplIncludeDummy.h>
+ #include <platform/PlatformMouseEvent.h>
+ #include <replay/NondeterministicInput.h>
+ 
+ namespace Test {
+-SavedMouseButton::SavedMouseButton(MouseButton button)
+-    : NondeterministicInput<SavedMouseButton>()
++SavedMouseButton::SavedMouseButton(WebCore::MouseButton button)
++    : JSC::NondeterministicInput<SavedMouseButton>()
+     , m_button(button)
+ {
+ }
+ 
+ SavedMouseButton::~SavedMouseButton()
+ {
+ }
+ } // namespace Test
+ 
+ namespace JSC {
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers.json-TestReplayInputs.h
+index 824bb93..dd87dd2 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers.json-TestReplayInputs.h
+@@ -64,28 +64,28 @@ template<> struct EncodingTraits<InputQueue> {
+ 
+ template<> struct EncodingTraits<WebCore::MouseButton> {
+     typedef WebCore::MouseButton DecodedType;
+ 
+     static EncodedValue encodeValue(const WebCore::MouseButton& value);
+     static bool decodeValue(EncodedValue&, WebCore::MouseButton& value);
+ };
+ } // namespace JSC
+ 
+ namespace Test {
+-class SavedMouseButton : public NondeterministicInput<SavedMouseButton> {
++class SavedMouseButton : public JSC::NondeterministicInput<SavedMouseButton> {
+ public:
+-    SavedMouseButton(MouseButton button);
++    SavedMouseButton(WebCore::MouseButton button);
+     virtual ~SavedMouseButton();
+ 
+-    MouseButton button() const { return m_button; }
++    WebCore::MouseButton button() const { return m_button; }
+ private:
+-    MouseButton m_button;
++    WebCore::MouseButton m_button;
+ };
+ } // namespace Test
+ 
+ #define TEST_REPLAY_INPUT_NAMES_FOR_EACH(macro) \
+     macro(SavedMouseButton) \
+     \
+ // end of TEST_REPLAY_INPUT_NAMES_FOR_EACH
+ 
+ #endif // ENABLE(WEB_REPLAY)
+ 
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.cpp b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.cpp
+index 5a7c907..8bfa049 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.cpp
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.cpp
+@@ -29,22 +29,22 @@
+ 
+ #include "config.h"
+ #include "generate-enum-with-guard.json-TestReplayInputs.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ #include "InternalNamespaceImplIncludeDummy.h"
+ #include <platform/ExternalNamespaceImplIncludeDummy.h>
+ #include <platform/PlatformWheelEvent.h>
+ 
+ namespace Test {
+-HandleWheelEvent::HandleWheelEvent(std::unique_ptr<PlatformWheelEvent> platformEvent)
+-    : EventLoopInput<HandleWheelEvent>()
++HandleWheelEvent::HandleWheelEvent(std::unique_ptr<WebCore::PlatformWheelEvent> platformEvent)
++    : WebCore::EventLoopInput<HandleWheelEvent>()
+     , m_platformEvent(WTF::move(platformEvent))
+ {
+ }
+ 
+ HandleWheelEvent::~HandleWheelEvent()
+ {
+ }
+ } // namespace Test
+ 
+ namespace JSC {
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h
+index 44958a1..4d46bf7 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h
+@@ -56,30 +56,30 @@ template<> struct InputTraits<Test::HandleWheelEvent> {
+ template<> struct EncodingTraits<WebCore::PlatformWheelEventPhase> {
+     typedef WebCore::PlatformWheelEventPhase DecodedType;
+ 
+     static EncodedValue encodeValue(const WebCore::PlatformWheelEventPhase& value);
+     static bool decodeValue(EncodedValue&, WebCore::PlatformWheelEventPhase& value);
+ };
+ #endif // ENABLE(DUMMY_FEATURE)
+ } // namespace JSC
+ 
+ namespace Test {
+-class HandleWheelEvent : public EventLoopInput<HandleWheelEvent> {
++class HandleWheelEvent : public WebCore::EventLoopInput<HandleWheelEvent> {
+ public:
+-    HandleWheelEvent(std::unique_ptr<PlatformWheelEvent> platformEvent);
++    HandleWheelEvent(std::unique_ptr<WebCore::PlatformWheelEvent> platformEvent);
+     virtual ~HandleWheelEvent();
+ 
+     // EventLoopInput API
+-    virtual void dispatch(Page&) override final;
+-    const PlatformWheelEvent& platformEvent() const { return *m_platformEvent; }
++    virtual void dispatch(WebCore::Page&) override final;
++    const WebCore::PlatformWheelEvent& platformEvent() const { return *m_platformEvent; }
+ private:
+-    std::unique_ptr<PlatformWheelEvent> m_platformEvent;
++    std::unique_ptr<WebCore::PlatformWheelEvent> m_platformEvent;
+ };
+ } // namespace Test
+ 
+ #define TEST_REPLAY_INPUT_NAMES_FOR_EACH(macro) \
+     macro(HandleWheelEvent) \
+     \
+ // end of TEST_REPLAY_INPUT_NAMES_FOR_EACH
+ 
+ #endif // ENABLE(WEB_REPLAY)
+ 
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.cpp b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.cpp
+index 43503b4..1f8ae20 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.cpp
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.cpp
+@@ -28,22 +28,22 @@
+ // by the script: JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
+ 
+ #include "config.h"
+ #include "generate-enums-with-same-base-name.json-TestReplayInputs.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ #include "InternalNamespaceImplIncludeDummy.h"
+ #include <platform/ExternalNamespaceImplIncludeDummy.h>
+ 
+ namespace Test {
+-FormCombo::FormCombo(PlatformEvent1::Type eventType1, PlatformEvent2::Type eventType2, FormData1::Type formType1, FormData2::Type formType2)
+-    : NondeterministicInput<FormCombo>()
++FormCombo::FormCombo(JSC::PlatformEvent1::Type eventType1, JSC::PlatformEvent2::Type eventType2, WebCore::FormData1::Type formType1, WebCore::FormData2::Type formType2)
++    : JSC::NondeterministicInput<FormCombo>()
+     , m_eventType1(eventType1)
+     , m_eventType2(eventType2)
+     , m_formType1(formType1)
+     , m_formType2(formType2)
+ {
+ }
+ 
+ FormCombo::~FormCombo()
+ {
+ }
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.h
+index 37b4847..bc53347 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.h
+@@ -74,34 +74,34 @@ template<> struct EncodingTraits<PlatformEvent1::Type> {
+ 
+ template<> struct EncodingTraits<PlatformEvent2::Type> {
+     typedef PlatformEvent2::Type DecodedType;
+ 
+     static EncodedValue encodeValue(const PlatformEvent2::Type& value);
+     static bool decodeValue(EncodedValue&, PlatformEvent2::Type& value);
+ };
+ } // namespace JSC
+ 
+ namespace Test {
+-class FormCombo : public NondeterministicInput<FormCombo> {
++class FormCombo : public JSC::NondeterministicInput<FormCombo> {
+ public:
+-    FormCombo(PlatformEvent1::Type eventType1, PlatformEvent2::Type eventType2, FormData1::Type formType1, FormData2::Type formType2);
++    FormCombo(JSC::PlatformEvent1::Type eventType1, JSC::PlatformEvent2::Type eventType2, WebCore::FormData1::Type formType1, WebCore::FormData2::Type formType2);
+     virtual ~FormCombo();
+ 
+-    PlatformEvent1::Type eventType1() const { return m_eventType1; }
+-    PlatformEvent2::Type eventType2() const { return m_eventType2; }
+-    FormData1::Type formType1() const { return m_formType1; }
+-    FormData2::Type formType2() const { return m_formType2; }
++    JSC::PlatformEvent1::Type eventType1() const { return m_eventType1; }
++    JSC::PlatformEvent2::Type eventType2() const { return m_eventType2; }
++    WebCore::FormData1::Type formType1() const { return m_formType1; }
++    WebCore::FormData2::Type formType2() const { return m_formType2; }
+ private:
+-    PlatformEvent1::Type m_eventType1;
+-    PlatformEvent2::Type m_eventType2;
+-    FormData1::Type m_formType1;
+-    FormData2::Type m_formType2;
++    JSC::PlatformEvent1::Type m_eventType1;
++    JSC::PlatformEvent2::Type m_eventType2;
++    WebCore::FormData1::Type m_formType1;
++    WebCore::FormData2::Type m_formType2;
+ };
+ } // namespace Test
+ 
+ #define TEST_REPLAY_INPUT_NAMES_FOR_EACH(macro) \
+     macro(FormCombo) \
+     \
+ // end of TEST_REPLAY_INPUT_NAMES_FOR_EACH
+ 
+ #endif // ENABLE(WEB_REPLAY)
+ 
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-guard.json-TestReplayInputs.cpp b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-guard.json-TestReplayInputs.cpp
+index 2306f21..b6eaf23 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-guard.json-TestReplayInputs.cpp
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-guard.json-TestReplayInputs.cpp
+@@ -30,32 +30,32 @@
+ #include "config.h"
+ #include "generate-input-with-guard.json-TestReplayInputs.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ #include "InternalNamespaceImplIncludeDummy.h"
+ #include <platform/ExternalNamespaceImplIncludeDummy.h>
+ 
+ namespace Test {
+ #if ENABLE(DUMMY_FEATURE)
+ GetCurrentTime::GetCurrentTime(double currentTime)
+-    : NondeterministicInput<GetCurrentTime>()
++    : JSC::NondeterministicInput<GetCurrentTime>()
+     , m_currentTime(currentTime)
+ {
+ }
+ 
+ GetCurrentTime::~GetCurrentTime()
+ {
+ }
+ #endif // ENABLE(DUMMY_FEATURE)
+ 
+ SetRandomSeed::SetRandomSeed(uint64_t randomSeed)
+-    : NondeterministicInput<SetRandomSeed>()
++    : JSC::NondeterministicInput<SetRandomSeed>()
+     , m_randomSeed(randomSeed)
+ {
+ }
+ 
+ SetRandomSeed::~SetRandomSeed()
+ {
+ }
+ } // namespace Test
+ 
+ namespace JSC {
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-guard.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-guard.json-TestReplayInputs.h
+index a0d7d39..074ba1f 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-guard.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-guard.json-TestReplayInputs.h
+@@ -59,32 +59,32 @@ template<> struct InputTraits<Test::SetRandomSeed> {
+     static const AtomicString& type();
+ 
+     static void encode(JSC::EncodedValue&, const Test::SetRandomSeed&);
+     static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::SetRandomSeed>&);
+ };
+ 
+ } // namespace JSC
+ 
+ namespace Test {
+ #if ENABLE(DUMMY_FEATURE)
+-class GetCurrentTime : public NondeterministicInput<GetCurrentTime> {
++class GetCurrentTime : public JSC::NondeterministicInput<GetCurrentTime> {
+ public:
+     GetCurrentTime(double currentTime);
+     virtual ~GetCurrentTime();
+ 
+     double currentTime() const { return m_currentTime; }
+ private:
+     double m_currentTime;
+ };
+ #endif // ENABLE(DUMMY_FEATURE)
+ 
+-class SetRandomSeed : public NondeterministicInput<SetRandomSeed> {
++class SetRandomSeed : public JSC::NondeterministicInput<SetRandomSeed> {
+ public:
+     SetRandomSeed(uint64_t randomSeed);
+     virtual ~SetRandomSeed();
+ 
+     uint64_t randomSeed() const { return m_randomSeed; }
+ private:
+     uint64_t m_randomSeed;
+ };
+ } // namespace Test
+ 
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.cpp b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.cpp
+index fb34e2c..640f0f5 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.cpp
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.cpp
+@@ -30,34 +30,34 @@
+ #include "config.h"
+ #include "generate-input-with-vector-members.json-TestReplayInputs.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ #include "InternalNamespaceImplIncludeDummy.h"
+ #include <platform/ExternalNamespaceImplIncludeDummy.h>
+ #include <things/JSThing.h>
+ #include <things/WebThing.h>
+ 
+ namespace Test {
+-ArrayOfThings::ArrayOfThings(Vector<double>& doubles, Vector<JSThing>& jsthings, Vector<WebThing>& webthings)
+-    : NondeterministicInput<ArrayOfThings>()
++ArrayOfThings::ArrayOfThings(Vector<double>& doubles, Vector<JSC::JSThing>& jsthings, Vector<WebCore::WebThing>& webthings)
++    : JSC::NondeterministicInput<ArrayOfThings>()
+     , m_doubles(doubles)
+     , m_jsthings(jsthings)
+     , m_webthings(webthings)
+ {
+ }
+ 
+ ArrayOfThings::~ArrayOfThings()
+ {
+ }
+ 
+-SavedHistory::SavedHistory(Vector<RefPtr<HistoryItem>>& entries)
+-    : NondeterministicInput<SavedHistory>()
++SavedHistory::SavedHistory(Vector<RefPtr<WebCore::HistoryItem>>& entries)
++    : JSC::NondeterministicInput<SavedHistory>()
+     , m_entries(entries)
+ {
+ }
+ 
+ SavedHistory::~SavedHistory()
+ {
+ }
+ } // namespace Test
+ 
+ namespace JSC {
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h
+index 242ff87..46abc45 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h
+@@ -58,42 +58,42 @@ template<> struct InputTraits<Test::SavedHistory> {
+     static InputQueue queue() { return InputQueue::ScriptMemoizedData; }
+     static const AtomicString& type();
+ 
+     static void encode(JSC::EncodedValue&, const Test::SavedHistory&);
+     static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::SavedHistory>&);
+ };
+ 
+ } // namespace JSC
+ 
+ namespace Test {
+-class ArrayOfThings : public NondeterministicInput<ArrayOfThings> {
++class ArrayOfThings : public JSC::NondeterministicInput<ArrayOfThings> {
+ public:
+-    ArrayOfThings(Vector<double>& doubles, Vector<JSThing>& jsthings, Vector<WebThing>& webthings);
++    ArrayOfThings(Vector<double>& doubles, Vector<JSC::JSThing>& jsthings, Vector<WebCore::WebThing>& webthings);
+     virtual ~ArrayOfThings();
+ 
+     const Vector<double>& doubles() const { return m_doubles; }
+-    const Vector<JSThing>& jsthings() const { return m_jsthings; }
+-    const Vector<WebThing>& webthings() const { return m_webthings; }
++    const Vector<JSC::JSThing>& jsthings() const { return m_jsthings; }
++    const Vector<WebCore::WebThing>& webthings() const { return m_webthings; }
+ private:
+     Vector<double> m_doubles;
+-    Vector<JSThing> m_jsthings;
+-    Vector<WebThing> m_webthings;
++    Vector<JSC::JSThing> m_jsthings;
++    Vector<WebCore::WebThing> m_webthings;
+ };
+ 
+-class SavedHistory : public NondeterministicInput<SavedHistory> {
++class SavedHistory : public JSC::NondeterministicInput<SavedHistory> {
+ public:
+-    SavedHistory(Vector<RefPtr<HistoryItem>>& entries);
++    SavedHistory(Vector<RefPtr<WebCore::HistoryItem>>& entries);
+     virtual ~SavedHistory();
+ 
+-    const Vector<RefPtr<HistoryItem>>& entries() const { return m_entries; }
++    const Vector<RefPtr<WebCore::HistoryItem>>& entries() const { return m_entries; }
+ private:
+-    Vector<RefPtr<HistoryItem>> m_entries;
++    Vector<RefPtr<WebCore::HistoryItem>> m_entries;
+ };
+ } // namespace Test
+ 
+ #define TEST_REPLAY_INPUT_NAMES_FOR_EACH(macro) \
+     macro(ArrayOfThings) \
+     macro(SavedHistory) \
+     \
+ // end of TEST_REPLAY_INPUT_NAMES_FOR_EACH
+ 
+ #endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-inputs-with-flags.json-TestReplayInputs.cpp b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-inputs-with-flags.json-TestReplayInputs.cpp
+index a444f15..ee9858b 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-inputs-with-flags.json-TestReplayInputs.cpp
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-inputs-with-flags.json-TestReplayInputs.cpp
+@@ -29,31 +29,31 @@
+ 
+ #include "config.h"
+ #include "generate-inputs-with-flags.json-TestReplayInputs.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ #include "InternalNamespaceImplIncludeDummy.h"
+ #include <platform/ExternalNamespaceImplIncludeDummy.h>
+ 
+ namespace Test {
+ ScalarInput1::ScalarInput1(ScalarType data)
+-    : NondeterministicInput<ScalarInput1>()
++    : JSC::NondeterministicInput<ScalarInput1>()
+     , m_data(data)
+ {
+ }
+ 
+ ScalarInput1::~ScalarInput1()
+ {
+ }
+ 
+ ScalarInput2::ScalarInput2(ScalarType data)
+-    : NondeterministicInput<ScalarInput2>()
++    : JSC::NondeterministicInput<ScalarInput2>()
+     , m_data(data)
+ {
+ }
+ 
+ ScalarInput2::~ScalarInput2()
+ {
+ }
+ } // namespace Test
+ 
+ namespace JSC {
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-inputs-with-flags.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-inputs-with-flags.json-TestReplayInputs.h
+index 6566127..5bc5d1a 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-inputs-with-flags.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-inputs-with-flags.json-TestReplayInputs.h
+@@ -54,31 +54,31 @@ template<> struct InputTraits<Test::ScalarInput2> {
+     static InputQueue queue() { return InputQueue::ScriptMemoizedData; }
+     static const AtomicString& type();
+ 
+     static void encode(JSC::EncodedValue&, const Test::ScalarInput2&);
+     static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::ScalarInput2>&);
+ };
+ 
+ } // namespace JSC
+ 
+ namespace Test {
+-class ScalarInput1 : public NondeterministicInput<ScalarInput1> {
++class ScalarInput1 : public JSC::NondeterministicInput<ScalarInput1> {
+ public:
+     ScalarInput1(ScalarType data);
+     virtual ~ScalarInput1();
+ 
+     ScalarType data() const { return m_data; }
+ private:
+     ScalarType m_data;
+ };
+ 
+-class ScalarInput2 : public NondeterministicInput<ScalarInput2> {
++class ScalarInput2 : public JSC::NondeterministicInput<ScalarInput2> {
+ public:
+     ScalarInput2(ScalarType data);
+     virtual ~ScalarInput2();
+ 
+     ScalarType data() const { return m_data; }
+ private:
+     ScalarType m_data;
+ };
+ } // namespace Test
+ 
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-memoized-type-modes.json-TestReplayInputs.cpp b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-memoized-type-modes.json-TestReplayInputs.cpp
+index 025cf06..00daf48 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-memoized-type-modes.json-TestReplayInputs.cpp
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-memoized-type-modes.json-TestReplayInputs.cpp
+@@ -29,31 +29,31 @@
+ 
+ #include "config.h"
+ #include "generate-memoized-type-modes.json-TestReplayInputs.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ #include "InternalNamespaceImplIncludeDummy.h"
+ #include <platform/ExternalNamespaceImplIncludeDummy.h>
+ 
+ namespace Test {
+ ScalarInput::ScalarInput(ScalarType data)
+-    : NondeterministicInput<ScalarInput>()
++    : JSC::NondeterministicInput<ScalarInput>()
+     , m_data(data)
+ {
+ }
+ 
+ ScalarInput::~ScalarInput()
+ {
+ }
+ 
+ MapInput::MapInput(std::unique_ptr<MapType> data)
+-    : NondeterministicInput<MapInput>()
++    : JSC::NondeterministicInput<MapInput>()
+     , m_data(WTF::move(data))
+ {
+ }
+ 
+ MapInput::~MapInput()
+ {
+ }
+ } // namespace Test
+ 
+ namespace JSC {
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-memoized-type-modes.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-memoized-type-modes.json-TestReplayInputs.h
+index e48b0c4..c0fc738 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-memoized-type-modes.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-memoized-type-modes.json-TestReplayInputs.h
+@@ -54,31 +54,31 @@ template<> struct InputTraits<Test::MapInput> {
+     static InputQueue queue() { return InputQueue::ScriptMemoizedData; }
+     static const AtomicString& type();
+ 
+     static void encode(JSC::EncodedValue&, const Test::MapInput&);
+     static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::MapInput>&);
+ };
+ 
+ } // namespace JSC
+ 
+ namespace Test {
+-class ScalarInput : public NondeterministicInput<ScalarInput> {
++class ScalarInput : public JSC::NondeterministicInput<ScalarInput> {
+ public:
+     ScalarInput(ScalarType data);
+     virtual ~ScalarInput();
+ 
+     ScalarType data() const { return m_data; }
+ private:
+     ScalarType m_data;
+ };
+ 
+-class MapInput : public NondeterministicInput<MapInput> {
++class MapInput : public JSC::NondeterministicInput<MapInput> {
+ public:
+     MapInput(std::unique_ptr<MapType> data);
+     virtual ~MapInput();
+ 
+     const MapType& data() const { return *m_data; }
+ private:
+     std::unique_ptr<MapType> m_data;
+ };
+ } // namespace Test
+ 
+diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
+index 852c90c..16d3112 100644
+--- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
++++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
+@@ -3635,21 +3635,21 @@
+ 		99CC0B5618BE984A006CEBCC /* ReplayingInputCursor.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4118BE9849006CEBCC /* ReplayingInputCursor.h */; };
+ 		99CC0B5718BE984A006CEBCC /* ReplayInputCreationMethods.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4218BE9849006CEBCC /* ReplayInputCreationMethods.cpp */; };
+ 		99CC0B5818BE984A006CEBCC /* ReplayInputDispatchMethods.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4318BE9849006CEBCC /* ReplayInputDispatchMethods.cpp */; };
+ 		99CC0B5918BE984A006CEBCC /* ReplaySession.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4418BE9849006CEBCC /* ReplaySession.cpp */; };
+ 		99CC0B5A18BE984A006CEBCC /* ReplaySession.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4518BE9849006CEBCC /* ReplaySession.h */; };
+ 		99CC0B5B18BE984A006CEBCC /* ReplaySessionSegment.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4618BE9849006CEBCC /* ReplaySessionSegment.cpp */; };
+ 		99CC0B5C18BE984A006CEBCC /* ReplaySessionSegment.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4718BE9849006CEBCC /* ReplaySessionSegment.h */; };
+ 		99CC0B5D18BE984A006CEBCC /* SegmentedInputStorage.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4818BE9849006CEBCC /* SegmentedInputStorage.cpp */; };
+ 		99CC0B5E18BE984A006CEBCC /* SegmentedInputStorage.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4918BE9849006CEBCC /* SegmentedInputStorage.h */; };
+ 		99CC0B5F18BE984A006CEBCC /* SerializationMethods.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4A18BE9849006CEBCC /* SerializationMethods.cpp */; };
+-		99CC0B6018BE984A006CEBCC /* SerializationMethods.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4B18BE9849006CEBCC /* SerializationMethods.h */; };
++		99CC0B6018BE984A006CEBCC /* SerializationMethods.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4B18BE9849006CEBCC /* SerializationMethods.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		99CC0B6618BE9F15006CEBCC /* InspectorReplayAgent.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B6418BE9F15006CEBCC /* InspectorReplayAgent.cpp */; };
+ 		99CC0B6718BE9F15006CEBCC /* InspectorReplayAgent.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B6518BE9F15006CEBCC /* InspectorReplayAgent.h */; };
+ 		99CC0B6A18BEA1FF006CEBCC /* WebReplayInputs.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B6818BEA1FF006CEBCC /* WebReplayInputs.cpp */; };
+ 		99CC0B6B18BEA1FF006CEBCC /* WebReplayInputs.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B6918BEA1FF006CEBCC /* WebReplayInputs.h */; };
+ 		99E45A1718A063BE0026D88F /* EventLoopInput.h in Headers */ = {isa = PBXBuildFile; fileRef = 99E45A1618A063BE0026D88F /* EventLoopInput.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		9A1142041832D135000BB8AD /* ValueToString.h in Headers */ = {isa = PBXBuildFile; fileRef = 9A1142031832D134000BB8AD /* ValueToString.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		9A1B6F97158869C80011A8C4 /* JSDOMStringListCustom.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B6F96158869C80011A8C4 /* JSDOMStringListCustom.cpp */; };
+ 		9A528E8317D7F52F00AA9518 /* FloatingObjects.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9A528E8117D7F52F00AA9518 /* FloatingObjects.cpp */; };
+ 		9A528E8417D7F52F00AA9518 /* FloatingObjects.h in Headers */ = {isa = PBXBuildFile; fileRef = 9A528E8217D7F52F00AA9518 /* FloatingObjects.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		9AB1F38018E2489A00534743 /* CSSToLengthConversionData.h in Headers */ = {isa = PBXBuildFile; fileRef = 9AB1F37E18E2489A00534743 /* CSSToLengthConversionData.h */; };
+diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
+index e85d707..3bb41e8 100644
+--- a/Source/WebKit2/CMakeLists.txt
++++ b/Source/WebKit2/CMakeLists.txt
+@@ -47,20 +47,21 @@ set(WebKit2_INCLUDE_DIRECTORIES
+     "${WEBKIT2_DIR}/WebProcess/InjectedBundle/API"
+     "${WEBKIT2_DIR}/WebProcess/InjectedBundle/API/c"
+     "${WEBKIT2_DIR}/WebProcess/InjectedBundle/DOM"
+     "${WEBKIT2_DIR}/WebProcess/Launching"
+     "${WEBKIT2_DIR}/WebProcess/MediaCache"
+     "${WEBKIT2_DIR}/WebProcess/Network"
+     "${WEBKIT2_DIR}/WebProcess/Notifications"
+     "${WEBKIT2_DIR}/WebProcess/OriginData"
+     "${WEBKIT2_DIR}/WebProcess/Plugins"
+     "${WEBKIT2_DIR}/WebProcess/Plugins/Netscape"
++    "${WEBKIT2_DIR}/WebProcess/Replay"
+     "${WEBKIT2_DIR}/WebProcess/ResourceCache"
+     "${WEBKIT2_DIR}/WebProcess/Storage"
+     "${WEBKIT2_DIR}/WebProcess/UserContent"
+     "${WEBKIT2_DIR}/WebProcess/WebCoreSupport"
+     "${WEBKIT2_DIR}/WebProcess/WebPage"
+     "${WEBCORE_DIR}"
+     "${WEBCORE_DIR}/Modules/battery"
+     "${WEBCORE_DIR}/Modules/mediastream"
+     "${WEBCORE_DIR}/Modules/networkinfo"
+     "${WEBCORE_DIR}/Modules/notifications"
+@@ -742,20 +743,33 @@ if (ENABLE_PLUGIN_PROCESS)
+     if (WebKit2_PluginProcess_OUTPUT_NAME)
+       set_target_properties(PluginProcess PROPERTIES OUTPUT_NAME ${WebKit2_PluginProcess_OUTPUT_NAME})
+     endif ()
+ endif ()
+ 
+ if (ENABLE_WEB_REPLAY)
+     list(APPEND WebKit2_INCLUDE_DIRECTORIES
+         "${WEBKIT2_DIR}/WebProcess/Replay"
+     )
+ 
++<<<<<<< HEAD
+     list(APPEND WebKit2_SOURCES
+         WebProcess/Replay/WebReplayClient.cpp
++=======
++    set(WebKit2_WEB_REPLAY_INPUTS ${WEBKIT2_DIR}/WebProcess/Replay/WebInputs.json)
++    add_custom_command(
++        OUTPUT ${DERIVED_SOURCES_WEBKIT2_DIR}/WKReplayInputs.h ${DERIVED_SOURCES_WEBKIT2_DIR}/WKReplayInputs.cpp
++        MAIN_DEPENDENCY ${JAVASCRIPTCORE_DIR}/replay/scripts/CodeGeneratorReplayInputs.py
++        DEPENDS ${WebKit2_WEB_REPLAY_INPUTS}
++        COMMAND ${PYTHON_EXECUTABLE} ${JAVASCRIPTCORE_DIR}/replay/scripts/CodeGeneratorReplayInputs.py --outputDir ${DERIVED_SOURCES_WEBKIT2_DIR}/ --framework WebKit ${WebKit2_WEB_REPLAY_INPUTS}
++        VERBATIM)
++
++    list(APPEND WebKit2_SOURCES
++        ${DERIVED_SOURCES_WEBKIT2_DIR}/WKReplayInputs.cpp
++>>>>>>> e129cb5... [WIP] WK2 Replay: support generating inputs for WebKit framework
+     )
+ endif ()
+ 
+ POPULATE_LIBRARY_VERSION(WEBKIT2)
+ set_target_properties(WebKit2 PROPERTIES VERSION ${WEBKIT2_VERSION} SOVERSION ${WEBKIT2_VERSION_MAJOR})
+ 
+ install(TARGETS WebKit2 DESTINATION "${LIB_INSTALL_DIR}")
+ install(TARGETS WebProcess DESTINATION "${LIBEXEC_INSTALL_DIR}")
+diff --git a/Source/WebKit2/Configurations/BaseTarget.xcconfig b/Source/WebKit2/Configurations/BaseTarget.xcconfig
+index 30fd318..fe79cc6 100644
+--- a/Source/WebKit2/Configurations/BaseTarget.xcconfig
++++ b/Source/WebKit2/Configurations/BaseTarget.xcconfig
+@@ -50,15 +50,16 @@ UMBRELLA_FRAMEWORKS_DIR_iphoneos_Production = $(SDKROOT)$(SYSTEM_LIBRARY_DIR)/Pr
+ UMBRELLA_FRAMEWORKS_DIR_iphonesimulator = $(UMBRELLA_FRAMEWORKS_DIR_iphoneos);
+ UMBRELLA_FRAMEWORKS_DIR_macosx = $(UMBRELLA_FRAMEWORKS_DIR_macosx_$(CONFIGURATION));
+ UMBRELLA_FRAMEWORKS_DIR_macosx_Release = $(UMBRELLA_FRAMEWORKS_DIR_engineering);
+ UMBRELLA_FRAMEWORKS_DIR_macosx_Debug = $(UMBRELLA_FRAMEWORKS_DIR_engineering);
+ UMBRELLA_FRAMEWORKS_DIR_macosx_Production = $(SDKROOT)$(UMBRELLA_FRAMEWORKS_DIR_macosx_Production_USE_STAGING_INSTALL_PATH_$(USE_STAGING_INSTALL_PATH));
+ UMBRELLA_FRAMEWORKS_DIR_macosx_Production_USE_STAGING_INSTALL_PATH_ = $(UMBRELLA_FRAMEWORKS_DIR_macosx_Production_USE_STAGING_INSTALL_PATH_NO);
+ UMBRELLA_FRAMEWORKS_DIR_macosx_Production_USE_STAGING_INSTALL_PATH_NO = $(NEXT_ROOT)$(SYSTEM_LIBRARY_DIR)/Frameworks/WebKit.framework/Versions/A/Frameworks;
+ UMBRELLA_FRAMEWORKS_DIR_macosx_Production_USE_STAGING_INSTALL_PATH_YES = $(NEXT_ROOT)$(SYSTEM_LIBRARY_DIR)/StagedFrameworks/Safari;
+ UMBRELLA_FRAMEWORKS_DIR_engineering = $(BUILT_PRODUCTS_DIR);
+ 
++JAVASCRIPTCORE_PRIVATE_HEADERS_DIR = $(UMBRELLA_FRAMEWORKS_DIR)/JavaScriptCore.framework/PrivateHeaders;
+ WEBCORE_PRIVATE_HEADERS_DIR = $(UMBRELLA_FRAMEWORKS_DIR)/WebCore.framework/PrivateHeaders;
+ WEBKIT_LEGACY_PRIVATE_HEADERS_DIR = $(UMBRELLA_FRAMEWORKS_DIR)/WebKitLegacy.framework/PrivateHeaders;
+ 
+ OTHER_LDFLAGS_VERSIONED_FRAMEWORK_PATH = $(OTHER_LDFLAGS_VERSIONED_FRAMEWORK_PATH_$(USE_STAGING_INSTALL_PATH));
+ OTHER_LDFLAGS_VERSIONED_FRAMEWORK_PATH_YES = -Wl,-dyld_env -Wl,DYLD_VERSIONED_FRAMEWORK_PATH=/System/Library/StagedFrameworks/Safari;
+diff --git a/Source/WebKit2/DerivedSources.make b/Source/WebKit2/DerivedSources.make
+index 59386cb..c59b8d0 100644
+--- a/Source/WebKit2/DerivedSources.make
++++ b/Source/WebKit2/DerivedSources.make
+@@ -39,20 +39,21 @@ VPATH = \
+     $(WebKit2)/WebProcess/Cookies \
+     $(WebKit2)/WebProcess/Databases/IndexedDB \
+     $(WebKit2)/WebProcess/FullScreen \
+     $(WebKit2)/WebProcess/Geolocation \
+     $(WebKit2)/WebProcess/IconDatabase \
+     $(WebKit2)/WebProcess/MediaCache \
+     $(WebKit2)/WebProcess/Network \
+     $(WebKit2)/WebProcess/Notifications \
+     $(WebKit2)/WebProcess/OriginData \
+     $(WebKit2)/WebProcess/Plugins \
++    $(WebKit2)/WebProcess/Replay \
+     $(WebKit2)/WebProcess/ResourceCache \
+     $(WebKit2)/WebProcess/Scrolling \
+     $(WebKit2)/WebProcess/Storage \
+     $(WebKit2)/WebProcess/UserContent \
+     $(WebKit2)/WebProcess/WebCoreSupport \
+     $(WebKit2)/WebProcess/WebPage \
+     $(WebKit2)/WebProcess/ios \
+     $(WebKit2)/WebProcess \
+     $(WebKit2)/UIProcess \
+     $(WebKit2)/UIProcess/Databases \
+@@ -186,10 +187,26 @@ SANDBOX_PROFILES = \
+ 	com.apple.WebProcess.sb \
+ 	com.apple.WebKit.Databases.sb \
+ 	com.apple.WebKit.NetworkProcess.sb
+ 
+ all: $(SANDBOX_PROFILES)
+ 
+ %.sb : %.sb.in
+ 	@echo Pre-processing $* sandbox profile...
+ 	$(CC) $(SDK_FLAGS) $(TEXT_PREPROCESSOR_FLAGS) $(FRAMEWORK_FLAGS) $(HEADER_FLAGS) -include "wtf/Platform.h" $< > $@
+ 
++# Web Replay inputs generator
++
++INPUT_GENERATOR_SCRIPTS = \
++    $(WebReplayScripts)/CodeGeneratorReplayInputs.py \
++    $(WebReplayScripts)/CodeGeneratorReplayInputsTemplates.py \
++#
++
++INPUT_GENERATOR_SPECIFICATIONS = \
++	$(WebKit2)/WebProcess/Replay/WKInputs.json \
++#
++
++all : WKReplayInputs.h
++
++WKReplayInputs.h : $(INPUT_GENERATOR_SPECIFICATIONS) $(INPUT_GENERATOR_SCRIPTS)
++	python $(WebReplayScripts)/CodeGeneratorReplayInputs.py --outputDir . --framework WebKit $(INPUT_GENERATOR_SPECIFICATIONS)
++
+diff --git a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
+index d69faaf..1f07e4c 100644
+--- a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
++++ b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
+@@ -1544,20 +1544,22 @@
+ 		C06C6095124C144B0001682F /* WebPageCreationParameters.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C06C6093124C14430001682F /* WebPageCreationParameters.cpp */; };
+ 		C09AE5E9125257C20025825D /* WKNativeEvent.h in Headers */ = {isa = PBXBuildFile; fileRef = C09AE5E8125257C20025825D /* WKNativeEvent.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C0CE72A01247E71D00BC0EC4 /* WebPageMessageReceiver.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0CE729E1247E71D00BC0EC4 /* WebPageMessageReceiver.cpp */; };
+ 		C0CE72A11247E71D00BC0EC4 /* WebPageMessages.h in Headers */ = {isa = PBXBuildFile; fileRef = C0CE729F1247E71D00BC0EC4 /* WebPageMessages.h */; };
+ 		C0CE72AD1247E78D00BC0EC4 /* HandleMessage.h in Headers */ = {isa = PBXBuildFile; fileRef = C0CE72AC1247E78D00BC0EC4 /* HandleMessage.h */; };
+ 		C0E3AA7A1209E83000A49D01 /* ModuleCF.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0E3AA481209E45000A49D01 /* ModuleCF.cpp */; };
+ 		C0E3AA7B1209E83500A49D01 /* Module.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0E3AA451209E2BA00A49D01 /* Module.cpp */; };
+ 		C0E3AA7C1209E83C00A49D01 /* Module.h in Headers */ = {isa = PBXBuildFile; fileRef = C0E3AA441209E2BA00A49D01 /* Module.h */; };
+ 		C49474B019A3F93F009B3DE8 /* WebReplayClient.h in Headers */ = {isa = PBXBuildFile; fileRef = C49474AE19A3F924009B3DE8 /* WebReplayClient.h */; };
+ 		C49474B119A3F947009B3DE8 /* WebReplayClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C49474AD19A3F924009B3DE8 /* WebReplayClient.cpp */; };
++		C49474B719A41B73009B3DE8 /* WKReplayInputs.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C49474B519A41B73009B3DE8 /* WKReplayInputs.cpp */; };
++		C49474B819A41B73009B3DE8 /* WKReplayInputs.h in Headers */ = {isa = PBXBuildFile; fileRef = C49474B619A41B73009B3DE8 /* WKReplayInputs.h */; };
+ 		C517388112DF8F4F00EE3F47 /* DragControllerAction.h in Headers */ = {isa = PBXBuildFile; fileRef = C517388012DF8F4F00EE3F47 /* DragControllerAction.h */; };
+ 		C5237F6012441CA300780472 /* WebEditorClientMac.mm in Sources */ = {isa = PBXBuildFile; fileRef = C5237F5F12441CA300780472 /* WebEditorClientMac.mm */; };
+ 		C54256B518BEC18C00DE4179 /* WKFormInputControl.h in Headers */ = {isa = PBXBuildFile; fileRef = C54256AF18BEC18B00DE4179 /* WKFormInputControl.h */; };
+ 		C54256B618BEC18C00DE4179 /* WKFormInputControl.mm in Sources */ = {isa = PBXBuildFile; fileRef = C54256B018BEC18B00DE4179 /* WKFormInputControl.mm */; };
+ 		C54256B718BEC18C00DE4179 /* WKFormPeripheral.h in Headers */ = {isa = PBXBuildFile; fileRef = C54256B118BEC18B00DE4179 /* WKFormPeripheral.h */; };
+ 		C54256B818BEC18C00DE4179 /* WKFormPopover.h in Headers */ = {isa = PBXBuildFile; fileRef = C54256B218BEC18B00DE4179 /* WKFormPopover.h */; };
+ 		C54256B918BEC18C00DE4179 /* WKFormPopover.mm in Sources */ = {isa = PBXBuildFile; fileRef = C54256B318BEC18B00DE4179 /* WKFormPopover.mm */; };
+ 		C54256BA18BEC18C00DE4179 /* WKFormSelectControl.h in Headers */ = {isa = PBXBuildFile; fileRef = C54256B418BEC18C00DE4179 /* WKFormSelectControl.h */; };
+ 		C55CB5B718C269CF00CA81E1 /* WKFormSelectPopover.mm in Sources */ = {isa = PBXBuildFile; fileRef = C57193BA18C149D0002D0F12 /* WKFormSelectPopover.mm */; };
+ 		C55CB5B818C2A5D600CA81E1 /* WKFormSelectPicker.mm in Sources */ = {isa = PBXBuildFile; fileRef = C57193B918C149D0002D0F12 /* WKFormSelectPicker.mm */; };
+@@ -3640,20 +3642,23 @@
+ 		C0CE729F1247E71D00BC0EC4 /* WebPageMessages.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WebPageMessages.h; sourceTree = "<group>"; };
+ 		C0CE72AC1247E78D00BC0EC4 /* HandleMessage.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = HandleMessage.h; sourceTree = "<group>"; };
+ 		C0CE72DB1247E8F700BC0EC4 /* DerivedSources.make */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = DerivedSources.make; sourceTree = "<group>"; };
+ 		C0CE73361247F70E00BC0EC4 /* generate-message-receiver.py */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.python; path = "generate-message-receiver.py"; sourceTree = "<group>"; };
+ 		C0CE73371247F70E00BC0EC4 /* generate-messages-header.py */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.python; path = "generate-messages-header.py"; sourceTree = "<group>"; };
+ 		C0E3AA441209E2BA00A49D01 /* Module.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Module.h; sourceTree = "<group>"; };
+ 		C0E3AA451209E2BA00A49D01 /* Module.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Module.cpp; sourceTree = "<group>"; };
+ 		C0E3AA481209E45000A49D01 /* ModuleCF.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ModuleCF.cpp; sourceTree = "<group>"; };
+ 		C49474AD19A3F924009B3DE8 /* WebReplayClient.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WebReplayClient.cpp; sourceTree = "<group>"; };
+ 		C49474AE19A3F924009B3DE8 /* WebReplayClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WebReplayClient.h; sourceTree = "<group>"; };
++		C49474B319A41246009B3DE8 /* WKInputs.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = WKInputs.json; sourceTree = "<group>"; };
++		C49474B519A41B73009B3DE8 /* WKReplayInputs.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WKReplayInputs.cpp; sourceTree = "<group>"; };
++		C49474B619A41B73009B3DE8 /* WKReplayInputs.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WKReplayInputs.h; sourceTree = "<group>"; };
+ 		C517388012DF8F4F00EE3F47 /* DragControllerAction.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DragControllerAction.h; sourceTree = "<group>"; };
+ 		C5237F5F12441CA300780472 /* WebEditorClientMac.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = WebEditorClientMac.mm; sourceTree = "<group>"; };
+ 		C54256AF18BEC18B00DE4179 /* WKFormInputControl.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WKFormInputControl.h; path = ios/forms/WKFormInputControl.h; sourceTree = "<group>"; };
+ 		C54256B018BEC18B00DE4179 /* WKFormInputControl.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WKFormInputControl.mm; path = ios/forms/WKFormInputControl.mm; sourceTree = "<group>"; };
+ 		C54256B118BEC18B00DE4179 /* WKFormPeripheral.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WKFormPeripheral.h; path = ios/forms/WKFormPeripheral.h; sourceTree = "<group>"; };
+ 		C54256B218BEC18B00DE4179 /* WKFormPopover.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WKFormPopover.h; path = ios/forms/WKFormPopover.h; sourceTree = "<group>"; };
+ 		C54256B318BEC18B00DE4179 /* WKFormPopover.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WKFormPopover.mm; path = ios/forms/WKFormPopover.mm; sourceTree = "<group>"; };
+ 		C54256B418BEC18C00DE4179 /* WKFormSelectControl.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WKFormSelectControl.h; path = ios/forms/WKFormSelectControl.h; sourceTree = "<group>"; };
+ 		C554FFA212E4E8EA002F22C0 /* WebDragClientMac.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = WebDragClientMac.mm; sourceTree = "<group>"; };
+ 		C57193B918C149D0002D0F12 /* WKFormSelectPicker.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WKFormSelectPicker.mm; path = ios/forms/WKFormSelectPicker.mm; sourceTree = "<group>"; };
+@@ -5635,20 +5640,21 @@
+ 				CD73BA3D131A2A2100EEDED2 /* FullScreen */,
+ 				BC0E5FCB12D696DD0012A72A /* Geolocation */,
+ 				51FBB9C1132E079200F327B4 /* IconDatabase */,
+ 				BC204EDF11C83E72008F3375 /* InjectedBundle */,
+ 				2DA944B11884E9DF00ED86DB /* ios */,
+ 				33D3A3BD1339609800709BE4 /* MediaCache */,
+ 				5105B0D2162F7A5E00E27709 /* Network */,
+ 				31099974146C8AA80029DEB9 /* Notifications (User) */,
+ 				755422C518064FFC0046F6A8 /* OriginData */,
+ 				1A6FB7AA11E64B4900DB1371 /* Plugins */,
++				C49474B219A4121A009B3DE8 /* Replay */,
+ 				3336762B130C9978006C9DE2 /* ResourceCache */,
+ 				0F59478C187B3B2A00437857 /* Scrolling */,
+ 				1AAC4DDE16B1CBF6009425E3 /* Storage */,
+ 				1AAF08AA1926930B00B6390C /* UserContent */,
+ 				BC032D5D10F437220058C15A /* WebCoreSupport */,
+ 				BC032D5E10F4372B0058C15A /* WebPage */,
+ 				BCE9C0CF1485965D00E33D61 /* WebConnectionToUIProcess.cpp */,
+ 				BCE9C0D01485965D00E33D61 /* WebConnectionToUIProcess.h */,
+ 				BC111AE3112F5C2600337BAB /* WebProcess.cpp */,
+ 				BC032D9110F437AF0058C15A /* WebProcess.h */,
+@@ -6814,20 +6820,22 @@
+ 				2D1B5D5B185869C8006C6596 /* ViewGestureControllerMessageReceiver.cpp */,
+ 				2D1B5D5C185869C8006C6596 /* ViewGestureControllerMessages.h */,
+ 				2D819B9F1862800E001F03D1 /* ViewGestureGeometryCollectorMessageReceiver.cpp */,
+ 				2D819BA01862800E001F03D1 /* ViewGestureGeometryCollectorMessages.h */,
+ 				2684055018B86ED60022C38B /* ViewUpdateDispatcherMessageReceiver.cpp */,
+ 				2684055118B86ED60022C38B /* ViewUpdateDispatcherMessages.h */,
+ 				1A60224A18C16B9F00C3E8C9 /* VisitedLinkProviderMessageReceiver.cpp */,
+ 				1A60224B18C16B9F00C3E8C9 /* VisitedLinkProviderMessages.h */,
+ 				1A8E7D3A18C15149005A702A /* VisitedLinkTableControllerMessageReceiver.cpp */,
+ 				1A8E7D3B18C15149005A702A /* VisitedLinkTableControllerMessages.h */,
++				C49474B519A41B73009B3DE8 /* WKReplayInputs.cpp */,
++				C49474B619A41B73009B3DE8 /* WKReplayInputs.h */,
+ 				512E3568130B57F000ABD19A /* WebApplicationCacheManagerMessageReceiver.cpp */,
+ 				512E3569130B57F000ABD19A /* WebApplicationCacheManagerMessages.h */,
+ 				512E35F6130B642E00ABD19A /* WebApplicationCacheManagerProxyMessageReceiver.cpp */,
+ 				512E35F7130B642E00ABD19A /* WebApplicationCacheManagerProxyMessages.h */,
+ 				1A1FEC1A1627B45600700F6D /* WebConnectionMessageReceiver.cpp */,
+ 				1A1FEC1B1627B45700700F6D /* WebConnectionMessages.h */,
+ 				BCEE7D0B12846F69009827DA /* WebContextMessageReceiver.cpp */,
+ 				BCEE7D0C12846F69009827DA /* WebContextMessages.h */,
+ 				330934431315B9220097A7BC /* WebCookieManagerMessageReceiver.cpp */,
+ 				330934441315B9220097A7BC /* WebCookieManagerMessages.h */,
+@@ -6906,20 +6914,28 @@
+ 				0FC0856E187CE0A900780D86 /* __init__.py */,
+ 				0FC0856F187CE0A900780D86 /* messages.py */,
+ 				0FC08570187CE0A900780D86 /* model.py */,
+ 				0FC08571187CE0A900780D86 /* parser.py */,
+ 			);
+ 			path = Scripts;
+ 			sourceTree = "<group>";
+ 			tabWidth = 8;
+ 			usesTabs = 0;
+ 		};
++		C49474B219A4121A009B3DE8 /* Replay */ = {
++			isa = PBXGroup;
++			children = (
++				C49474B319A41246009B3DE8 /* WKInputs.json */,
++			);
++			path = Replay;
++			sourceTree = "<group>";
++		};
+ 		C54256AE18BEC16100DE4179 /* forms */ = {
+ 			isa = PBXGroup;
+ 			children = (
+ 				C5FA1ED118E1062200B3F402 /* WKAirPlayRoutePicker.h */,
+ 				C5FA1ED218E1062200B3F402 /* WKAirPlayRoutePicker.mm */,
+ 				A58B6F0618FCA733008CBA53 /* WKFileUploadPanel.h */,
+ 				A58B6F0718FCA733008CBA53 /* WKFileUploadPanel.mm */,
+ 				C54256AF18BEC18B00DE4179 /* WKFormInputControl.h */,
+ 				C54256B018BEC18B00DE4179 /* WKFormInputControl.mm */,
+ 				C54256B118BEC18B00DE4179 /* WKFormPeripheral.h */,
+@@ -7646,20 +7662,21 @@
+ 				7CD5EBBB1746A83E000C1C45 /* WKBaseMac.h in Headers */,
+ 				BCBAAC74144E61A50053F82F /* WKBrowsingContextControllerInternal.h in Headers */,
+ 				3788A05C14743C90006319E5 /* WKBrowsingContextControllerPrivate.h in Headers */,
+ 				2D47B56D1810714E003A3AEE /* RemoteLayerBackingStore.h in Headers */,
+ 				BCBAACF61452324F0053F82F /* WKBrowsingContextGroupPrivate.h in Headers */,
+ 				BC204EEF11C83EC8008F3375 /* WKBundle.h in Headers */,
+ 				BC204EF011C83EC8008F3375 /* WKBundleAPICast.h in Headers */,
+ 				935EEB9F127761AC003322B8 /* WKBundleBackForwardList.h in Headers */,
+ 				0FCB4E6C18BBF26A000FCFC9 /* WKContentViewInteraction.h in Headers */,
+ 				517DD5BF180DA7D30081660B /* DatabaseProcessProxy.h in Headers */,
++				C49474B819A41B73009B3DE8 /* WKReplayInputs.h in Headers */,
+ 				935EEB9B1277617C003322B8 /* WKBundleBackForwardListItem.h in Headers */,
+ 				51EFC1CF1524E62500C9A938 /* WKBundleDOMWindowExtension.h in Headers */,
+ 				1ACC87BA1981C341003D1AF4 /* WKNavigationPrivate.h in Headers */,
+ 				1AAF08A2192681D100B6390C /* WebUserContentControllerProxy.h in Headers */,
+ 				BCD25F1711D6BDE100169B0E /* WKBundleFrame.h in Headers */,
+ 				BCF049E611FE20F600F86A58 /* WKBundleFramePrivate.h in Headers */,
+ 				29232DF418B29D6800D0596F /* WKAccessibilityWebPageObjectMac.h in Headers */,
+ 				BC49862F124D18C100D834E1 /* WKBundleHitTestResult.h in Headers */,
+ 				BC204EF211C83EC8008F3375 /* WKBundleInitialize.h in Headers */,
+ 				65B86F1E12F11DE300B7DD8A /* WKBundleInspector.h in Headers */,
+@@ -8650,21 +8667,21 @@
+ 			buildActionMask = 2147483647;
+ 			files = (
+ 			);
+ 			inputPaths = (
+ 			);
+ 			name = "Generate Derived Sources";
+ 			outputPaths = (
+ 			);
+ 			runOnlyForDeploymentPostprocessing = 0;
+ 			shellPath = /bin/sh;
+-			shellScript = "mkdir -p \"${BUILT_PRODUCTS_DIR}/DerivedSources/WebKit2\"\ncd \"${BUILT_PRODUCTS_DIR}/DerivedSources/WebKit2\"\n\nexport WebKit2=\"${SRCROOT}\"\n\nif [ ! $CC ]; then\n    export CC=\"`xcrun -find clang`\"\nfi\n\nif [ \"${ACTION}\" = \"build\" -o \"${ACTION}\" = \"install\" -o \"${ACTION}\" = \"installhdrs\" ]; then\n    make --no-builtin-rules -f \"${WebKit2}/DerivedSources.make\" -j `/usr/sbin/sysctl -n hw.activecpu` SDKROOT=${SDKROOT}\nfi\n";
++			shellScript = "mkdir -p \"${BUILT_PRODUCTS_DIR}/DerivedSources/WebKit2\"\ncd \"${BUILT_PRODUCTS_DIR}/DerivedSources/WebKit2\"\n\nexport WebKit2=\"${SRCROOT}\"\nexport WebReplayScripts=\"${JAVASCRIPTCORE_PRIVATE_HEADERS_DIR}\"\n\nif [ ! $CC ]; then\n    export CC=\"`xcrun -find clang`\"\nfi\n\nif [ \"${ACTION}\" = \"build\" -o \"${ACTION}\" = \"install\" -o \"${ACTION}\" = \"installhdrs\" ]; then\n    make --no-builtin-rules -f \"${WebKit2}/DerivedSources.make\" -j `/usr/sbin/sysctl -n hw.activecpu` SDKROOT=${SDKROOT}\nfi\n";
+ 		};
+ 		E19C7DDA194A4C9500F1866F /* Add CFBundle Localization Info.plist Key */ = {
+ 			isa = PBXShellScriptBuildPhase;
+ 			buildActionMask = 2147483647;
+ 			files = (
+ 			);
+ 			inputPaths = (
+ 			);
+ 			name = "Add CFBundle Localization Info.plist Key";
+ 			outputPaths = (
+@@ -9220,20 +9237,21 @@
+ 				1CA8B945127C882A00576C2B /* WebInspectorProxyMessageReceiver.cpp in Sources */,
+ 				C0337DD3127A2A0E008FF4F4 /* WebKeyboardEvent.cpp in Sources */,
+ 				51A9E1051315CCFC009E7031 /* WebKeyValueStorageManager.cpp in Sources */,
+ 				BC9BA5041697C45300E44616 /* WebKit2Initialize.cpp in Sources */,
+ 				33D3A3C1133960B000709BE4 /* WebMediaCacheManager.cpp in Sources */,
+ 				33D3A3C81339617900709BE4 /* WebMediaCacheManagerMessageReceiver.cpp in Sources */,
+ 				33D3A3BA1339606200709BE4 /* WebMediaCacheManagerProxy.cpp in Sources */,
+ 				33D3A3CA1339617900709BE4 /* WebMediaCacheManagerProxyMessageReceiver.cpp in Sources */,
+ 				E164A2F1191AF14E0010737D /* BlobDataFileReferenceWithSandboxExtension.cpp in Sources */,
+ 				0FCB4E4D18BBE044000FCFC9 /* WKContentView.mm in Sources */,
++				C49474B719A41B73009B3DE8 /* WKReplayInputs.cpp in Sources */,
+ 				909854EC12BC4E17000AD080 /* WebMemorySampler.cpp in Sources */,
+ 				909854EE12BC4E18000AD080 /* WebMemorySampler.mac.mm in Sources */,
+ 				C0337DB0127A28D0008FF4F4 /* WebMouseEvent.cpp in Sources */,
+ 				BCF69FA31176D01400471A52 /* APINavigationData.cpp in Sources */,
+ 				31A2EC48148997C200810D71 /* WebNotification.cpp in Sources */,
+ 				A115DC71191D82D700DA8072 /* _WKWebViewPrintFormatter.mm in Sources */,
+ 				31099973146C75A20029DEB9 /* WebNotificationClient.cpp in Sources */,
+ 				2DDE0AFB18298CC900F97EAA /* RemoteLayerTreePropertyApplier.mm in Sources */,
+ 				31312620148FF82C00BA2A39 /* WebNotificationManager.cpp in Sources */,
+ 				31BA924D148831260062EDB5 /* WebNotificationManagerMessageReceiver.cpp in Sources */,
+diff --git a/Source/WebKit2/WebProcess/Replay/WKInputs.json b/Source/WebKit2/WebProcess/Replay/WKInputs.json
+new file mode 100644
+index 0000000..42ac5ab
+--- /dev/null
++++ b/Source/WebKit2/WebProcess/Replay/WKInputs.json
+@@ -0,0 +1,25 @@
++{
++    "types": {
++        "Global": [
++            { "name": "bool", "mode": "SCALAR" }
++        ],
++        "WebCore": [
++            {
++                "name": "PlatformMouseEvent", "mode": "OWNED",
++                "header": "platform/PlatformMouseEvent.h"
++            }
++        ]
++    },
++
++    "inputs": [
++        {
++            "name": "HandleMouseMove",
++            "description": "The embedder signalled a mouse move event.",
++            "queue": "EVENT_LOOP",
++            "members": [
++                { "name": "platformEvent", "type": "PlatformMouseEvent" },
++                { "name": "scrollbarTargeted", "type": "bool" }
++            ]
++        }
++    ]
++}
+-- 
+2.0.1
+

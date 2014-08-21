@@ -1,4 +1,4 @@
-From a75db53bbc1a3ba258fd91dc697bcc12d4c7702d Mon Sep 17 00:00:00 2001
+From f629ac8e56d849af218afe5f2bf54a9e19ed538f Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 19 Aug 2014 15:05:20 -0700
 Subject: [PATCH] WK2 Replay: create a ReplayClient and dispatch inputs through
@@ -14,23 +14,24 @@ Subject: [PATCH] WK2 Replay: create a ReplayClient and dispatch inputs through
  Source/WebCore/replay/EventLoopInputDispatcher.cpp |  4 +-
  Source/WebCore/replay/EventLoopInputDispatcher.h   |  4 +-
  Source/WebCore/replay/ReplayClient.h               | 46 ++++++++++++++++++
- Source/WebCore/replay/ReplayController.cpp         |  4 +-
+ Source/WebCore/replay/ReplayController.cpp         | 10 ++--
  Source/WebCore/replay/ReplayController.h           |  5 +-
  Source/WebCore/replay/ReplayingInputCursor.h       |  6 +--
+ Source/WebKit2/CMakeLists.txt                      | 10 ++++
  Source/WebKit2/WebKit2.xcodeproj/project.pbxproj   |  8 ++++
  .../WebProcess/WebCoreSupport/WebReplayClient.cpp  | 44 ++++++++++++++++++
  .../WebProcess/WebCoreSupport/WebReplayClient.h    | 54 ++++++++++++++++++++++
  Source/WebKit2/WebProcess/WebPage/WebPage.cpp      |  7 +++
- 16 files changed, 207 insertions(+), 14 deletions(-)
+ 17 files changed, 220 insertions(+), 17 deletions(-)
  create mode 100644 Source/WebCore/replay/ReplayClient.h
  create mode 100644 Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.cpp
  create mode 100644 Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.h
 
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index da88c10..29db0dc 100644
+index 7330d9e..852c90c 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -3618,41 +3618,41 @@
+@@ -3620,41 +3620,41 @@
  		9920398218B95BC600B39AF9 /* UserInputBridge.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9920398018B95BC600B39AF9 /* UserInputBridge.cpp */; };
  		9920398318B95BC600B39AF9 /* UserInputBridge.h in Headers */ = {isa = PBXBuildFile; fileRef = 9920398118B95BC600B39AF9 /* UserInputBridge.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		996231F318D18AC300C03FDA /* InspectorWebBackendCommands.js in Headers */ = {isa = PBXBuildFile; fileRef = 996231F118D189BD00C03FDA /* InspectorWebBackendCommands.js */; };
@@ -75,7 +76,7 @@ index da88c10..29db0dc 100644
  		9B24DE8E15194B9500C59C27 /* HTMLBDIElement.h in Headers */ = {isa = PBXBuildFile; fileRef = 9B24DE8C15194B9500C59C27 /* HTMLBDIElement.h */; };
  		9B2D8A7914997CCF00ECEF3E /* UndoStep.h in Headers */ = {isa = PBXBuildFile; fileRef = 9B2D8A7814997CCF00ECEF3E /* UndoStep.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		9B32CDA913DF7FA900F34D13 /* RenderedPosition.h in Headers */ = {isa = PBXBuildFile; fileRef = 9B32CDA713DF7FA900F34D13 /* RenderedPosition.h */; };
-@@ -5529,20 +5529,21 @@
+@@ -5531,20 +5531,21 @@
  		C375D7FE16639519006184AB /* TypeAhead.h in Headers */ = {isa = PBXBuildFile; fileRef = C375D7FC16639519006184AB /* TypeAhead.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		C37CDEBD149EF2030042090D /* ColorChooserClient.h in Headers */ = {isa = PBXBuildFile; fileRef = C37CDEBC149EF2030042090D /* ColorChooserClient.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		C3CF17A415B0063F00276D39 /* IdTargetObserver.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C3CF17A015B0063F00276D39 /* IdTargetObserver.cpp */; };
@@ -97,7 +98,7 @@ index da88c10..29db0dc 100644
  		C50B561712119D23008B46E0 /* GroupSettings.h in Headers */ = {isa = PBXBuildFile; fileRef = C50B561512119D23008B46E0 /* GroupSettings.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		C50D0E820FF4272900AC2644 /* StorageNamespace.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C50D0E800FF4272900AC2644 /* StorageNamespace.cpp */; };
  		C50D0E830FF4272900AC2644 /* StorageNamespace.h in Headers */ = {isa = PBXBuildFile; fileRef = C50D0E810FF4272900AC2644 /* StorageNamespace.h */; settings = {ATTRIBUTES = (Private, ); }; };
-@@ -12959,20 +12960,21 @@
+@@ -12961,20 +12962,21 @@
  		C375D7FC16639519006184AB /* TypeAhead.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TypeAhead.h; sourceTree = "<group>"; };
  		C37CDEBC149EF2030042090D /* ColorChooserClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ColorChooserClient.h; sourceTree = "<group>"; };
  		C3CF17A015B0063F00276D39 /* IdTargetObserver.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = IdTargetObserver.cpp; sourceTree = "<group>"; };
@@ -119,7 +120,7 @@ index da88c10..29db0dc 100644
  		C50B561512119D23008B46E0 /* GroupSettings.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GroupSettings.h; sourceTree = "<group>"; };
  		C50D0E800FF4272900AC2644 /* StorageNamespace.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = StorageNamespace.cpp; sourceTree = "<group>"; };
  		C50D0E810FF4272900AC2644 /* StorageNamespace.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = StorageNamespace.h; sourceTree = "<group>"; };
-@@ -18423,20 +18425,21 @@
+@@ -18432,20 +18434,21 @@
  				99CC0B3C18BE9849006CEBCC /* EventLoopInputDispatcher.h */,
  				99CC0B3D18BE9849006CEBCC /* FunctorInputCursor.h */,
  				99C7CCB418C6B8990032E413 /* MemoizedDOMResult.cpp */,
@@ -141,7 +142,7 @@ index da88c10..29db0dc 100644
  				C4D4F52A1975C88B003EF5BC /* ReplayableTimers.h */,
  				99CC0B4018BE9849006CEBCC /* ReplayingInputCursor.cpp */,
  				99CC0B4118BE9849006CEBCC /* ReplayingInputCursor.h */,
-@@ -24910,20 +24913,21 @@
+@@ -24918,20 +24921,21 @@
  				C572EE1F1201C9BC007D8F82 /* JSIDBIndex.h in Headers */,
  				C585A68D11D4FB08004C3E4B /* JSIDBKeyRange.h in Headers */,
  				C585A68F11D4FB08004C3E4B /* JSIDBObjectStore.h in Headers */,
@@ -535,7 +536,7 @@ index 0000000..509e6a1
 +
 +#endif // !defined(ReplayClient_h)
 diff --git a/Source/WebCore/replay/ReplayController.cpp b/Source/WebCore/replay/ReplayController.cpp
-index c897142..776ff95 100644
+index c897142..1ac85a0 100644
 --- a/Source/WebCore/replay/ReplayController.cpp
 +++ b/Source/WebCore/replay/ReplayController.cpp
 @@ -34,20 +34,21 @@
@@ -585,6 +586,36 @@ index c897142..776ff95 100644
      , m_sessionState(SessionState::Inactive)
      , m_dispatchSpeed(DispatchSpeed::FastForward)
  {
+@@ -227,26 +229,26 @@ void ReplayController::createSegment()
+ 
+     LOG(WebReplay, "%-20s Created segment: %p.\n", "ReplayController", m_loadedSegment.get());
+     InspectorInstrumentation::segmentCreated(&m_page, m_loadedSegment);
+ 
+     m_activeCursor = CapturingInputCursor::create(m_loadedSegment);
+     m_activeCursor->appendInput<BeginSegmentSentinel>();
+ 
+     // Dispatching this input saves history, clears all but the current item, appends saved
+     // history item to the back/forward list, then moves the current item cursor to the last entry.
+     std::unique_ptr<InitializeHistory> historyInput = InitializeHistory::createFromPage(m_page);
+-    historyInput->dispatch(*this);
+-    m_activeCursor->storeInput(std::move(historyInput));
++    m_client.dispatchInput(*historyInput);
++    m_activeCursor->storeInput(WTF::move(historyInput));
+ 
+     // Dispatching this input schedules navigation of the main frame, causing a refresh.
+     std::unique_ptr<InitialNavigation> navigationInput = InitialNavigation::createFromPage(m_page);
+-    navigationInput->dispatch(*this);
++    m_client.dispatchInput(*navigationInput);
+     m_activeCursor->storeInput(WTF::move(navigationInput));
+ }
+ 
+ void ReplayController::completeSegment()
+ {
+     ASSERT(m_sessionState == SessionState::Capturing);
+     ASSERT(m_segmentState == SegmentState::Appending);
+ 
+     m_activeCursor->appendInput<EndSegmentSentinel>();
+ 
 diff --git a/Source/WebCore/replay/ReplayController.h b/Source/WebCore/replay/ReplayController.h
 index 70a60d8..c9ae2f8 100644
 --- a/Source/WebCore/replay/ReplayController.h
@@ -721,6 +752,36 @@ index 9c71f41..f379066 100644
      virtual bool isReplaying() const override { return true; }
  
      EventLoopInputDispatcher& dispatcher() const { return *m_dispatcher; }
+diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
+index 31ac6a3..e85d707 100644
+--- a/Source/WebKit2/CMakeLists.txt
++++ b/Source/WebKit2/CMakeLists.txt
+@@ -737,15 +737,25 @@ if (ENABLE_PLUGIN_PROCESS)
+     add_webkit2_prefix_header(PluginProcess)
+     target_link_libraries(PluginProcess ${PluginProcess_LIBRARIES})
+     set_target_properties(PluginProcess PROPERTIES FOLDER "WebKit")
+     install(TARGETS PluginProcess DESTINATION "${LIBEXEC_INSTALL_DIR}")
+ 
+     if (WebKit2_PluginProcess_OUTPUT_NAME)
+       set_target_properties(PluginProcess PROPERTIES OUTPUT_NAME ${WebKit2_PluginProcess_OUTPUT_NAME})
+     endif ()
+ endif ()
+ 
++if (ENABLE_WEB_REPLAY)
++    list(APPEND WebKit2_INCLUDE_DIRECTORIES
++        "${WEBKIT2_DIR}/WebProcess/Replay"
++    )
++
++    list(APPEND WebKit2_SOURCES
++        WebProcess/Replay/WebReplayClient.cpp
++    )
++endif ()
++
+ POPULATE_LIBRARY_VERSION(WEBKIT2)
+ set_target_properties(WebKit2 PROPERTIES VERSION ${WEBKIT2_VERSION} SOVERSION ${WEBKIT2_VERSION_MAJOR})
+ 
+ install(TARGETS WebKit2 DESTINATION "${LIB_INSTALL_DIR}")
+ install(TARGETS WebProcess DESTINATION "${LIBEXEC_INSTALL_DIR}")
 diff --git a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
 index 90e867a..d69faaf 100644
 --- a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj

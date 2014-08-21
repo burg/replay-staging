@@ -1,4 +1,4 @@
-From aee3da0a60e18d4f157d5fcd9d1c244c74cefe4f Mon Sep 17 00:00:00 2001
+From 077daa43dd49876420ead291e940441c3308c7a7 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 19 Aug 2014 12:12:33 -0700
 Subject: [PATCH] Web Replay: Check event loop extents during replaying Need a
@@ -42,7 +42,7 @@ Source/WebCore:
  8 files changed, 70 insertions(+), 26 deletions(-)
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index e65a9b4..3b855fc 100644
+index 3a3ccce..cdec929 100644
 --- a/Source/JavaScriptCore/ChangeLog
 +++ b/Source/JavaScriptCore/ChangeLog
 @@ -1,10 +1,27 @@
@@ -63,16 +63,16 @@ index e65a9b4..3b855fc 100644
 +        (JSC::InputCursor::setWithinEventLoopInputExtent): Added.
 +        (JSC::InputCursor::withinEventLoopInputExtent): Added.
 +
- 2014-08-19  Alex Christensen  <achristensen@webkit.org>
+ 2014-08-20  Csaba Osztrogonác  <ossy@webkit.org>
  
-         [CMake] Generate LLInt assembly correctly on Windows.
-         https://bugs.webkit.org/show_bug.cgi?id=135888
+         URTBF after r172799.
  
-         Reviewed by Oliver Hunt.
+         * disassembler/ARM64/A64DOpcode.cpp:
+         * disassembler/ARM64Disassembler.cpp:
  
-         * CMakeLists.txt:
-         Generate LowLevelInterpreterWin.asm instead of LLIntAssembly.h on Windows like the existing build system.
-         * PlatformWin.cmake:
+ 2014-08-20  Oliver Hunt  <oliver@apple.com>
+ 
+         Stop implicitly skipping a function's own activation when walking the scope chain
 diff --git a/Source/JavaScriptCore/replay/InputCursor.h b/Source/JavaScriptCore/replay/InputCursor.h
 index 6102a7f..2f40040 100644
 --- a/Source/JavaScriptCore/replay/InputCursor.h
@@ -139,7 +139,7 @@ index 6102a7f..2f40040 100644
  
  #endif // InputCursor_h
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 11380d9..40403f4 100644
+index 2a28c53..d0464c5 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,33 @@
@@ -166,16 +166,16 @@ index 11380d9..40403f4 100644
 +        * replay/ReplayController.cpp:
 +        (WebCore::ReplayController::willDispatchEvent): Expand the assetion to include replaying.
 +
- 2014-08-18  Maciej Stachowiak  <mjs@apple.com>
+ 2014-08-20  Alex Christensen  <achristensen@webkit.org>
  
-         Use NSURLFileTypeMappings directly instead of depending on WebKitSystemInterface wrappers for it
-         https://bugs.webkit.org/show_bug.cgi?id=136035
+         Introducing WEBCORE_EXPORT macro.
+         https://bugs.webkit.org/show_bug.cgi?id=136108
  
-         Reviewed by Dan Bernstein.
+         Reviewed by Antti Koivisto.
  
-         * WebCore.exp.in: Remove reference to no longer existent sumbols.
-         * WebCore.order: ditto
-         * WebCore.xcodeproj/project.pbxproj: Install new NSURLFileTyeMappings.h header.
+         This should eventually replace WebCore.exp.in.
+ 
+         * platform/PlatformExportMacros.h:
 diff --git a/Source/WebCore/replay/CapturingInputCursor.cpp b/Source/WebCore/replay/CapturingInputCursor.cpp
 index 40db3b6..73b402f 100644
 --- a/Source/WebCore/replay/CapturingInputCursor.cpp

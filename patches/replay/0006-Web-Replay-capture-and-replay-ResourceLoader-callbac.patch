@@ -1,4 +1,4 @@
-From d66ec8a3114abddb28cdfcacba2c6663aaa43897 Mon Sep 17 00:00:00 2001
+From b62264f2cd7d4180499afdb44af3a9b16a00a80f Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 12 Jun 2014 16:49:07 -0700
 Subject: [PATCH] Web Replay: capture and replay ResourceLoader callbacks
@@ -96,7 +96,7 @@ from taking over and fulfilling the loads nondeterministically.
  Source/WebCore/loader/ResourceLoadScheduler.cpp    |   9 ++
  Source/WebCore/loader/ResourceLoader.cpp           |  23 +++
  Source/WebCore/loader/ResourceLoader.h             |  10 ++
- Source/WebCore/loader/SubresourceLoader.cpp        |  69 ++++++++-
+ Source/WebCore/loader/SubresourceLoader.cpp        |  70 ++++++++-
  Source/WebCore/loader/SubresourceLoader.h          |   4 +
  .../WebCore/platform/network/ResourceErrorBase.cpp |   8 +
  .../WebCore/platform/network/ResourceErrorBase.h   |   1 +
@@ -106,7 +106,7 @@ from taking over and fulfilling the loads nondeterministically.
  Source/WebCore/replay/WebInputs.json               |  64 ++++++++
  Source/WebKit2/ChangeLog                           |  15 +-
  .../Network/WebResourceLoadScheduler.cpp           |  12 ++
- 18 files changed, 607 insertions(+), 10 deletions(-)
+ 18 files changed, 608 insertions(+), 10 deletions(-)
 
 diff --git a/Source/JavaScriptCore/replay/EncodedValue.h b/Source/JavaScriptCore/replay/EncodedValue.h
 index c0010e8..3ed089f 100644
@@ -138,7 +138,7 @@ index c0010e8..3ed089f 100644
      {
          decodedValue = encodedValue.convertTo<DecodedType>();
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 85887b8..036db6d 100644
+index 06e7f48..ceaa91a 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,91 @@
@@ -234,10 +234,10 @@ index 85887b8..036db6d 100644
  
          No new tests. No behavior was changed.
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index 03b20be..44e24dd 100644
+index ebcfc46..99e72de 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -3470,10 +3470,18 @@ __ZN7WebCore32WebVideoFullscreenInterfaceAVKitC2Ev
+@@ -3471,10 +3471,18 @@ __ZN7WebCore32WebVideoFullscreenInterfaceAVKitC2Ev
  __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
  #endif
  
@@ -257,7 +257,7 @@ index 03b20be..44e24dd 100644
 +__ZNK7WebCore20ResourceResponseBase18resourceLoadTimingEv
 +#endif
 diff --git a/Source/WebCore/loader/DocumentLoader.cpp b/Source/WebCore/loader/DocumentLoader.cpp
-index bc333828..ccf2039 100644
+index 39d336c..f862a19 100644
 --- a/Source/WebCore/loader/DocumentLoader.cpp
 +++ b/Source/WebCore/loader/DocumentLoader.cpp
 @@ -69,20 +69,24 @@
@@ -285,7 +285,7 @@ index bc333828..ccf2039 100644
          loader->cancel();
  }
  
-@@ -1329,21 +1333,28 @@ void DocumentLoader::stopLoadingPlugIns()
+@@ -1324,21 +1328,28 @@ void DocumentLoader::stopLoadingPlugIns()
  }
  
  void DocumentLoader::stopLoadingSubresources()
@@ -315,7 +315,7 @@ index bc333828..ccf2039 100644
      // will still be null at this point, but m_gotFirstByte should be false here if and only
      // if we are just starting the main resource load.
      if (!m_gotFirstByte)
-@@ -1565,11 +1576,38 @@ void DocumentLoader::getIconDataForIconURL(const String& urlString)
+@@ -1560,11 +1571,38 @@ void DocumentLoader::getIconDataForIconURL(const String& urlString)
      m_iconDataCallback = IconDataCallback::create(this, iconDataCallback);
      iconDatabase().iconDataForIconURL(urlString, m_iconDataCallback);
  }
@@ -355,7 +355,7 @@ index bc333828..ccf2039 100644
 +
  } // namespace WebCore
 diff --git a/Source/WebCore/loader/DocumentLoader.h b/Source/WebCore/loader/DocumentLoader.h
-index 55080e2..ca07c64 100644
+index a8aceab..237ed4a 100644
 --- a/Source/WebCore/loader/DocumentLoader.h
 +++ b/Source/WebCore/loader/DocumentLoader.h
 @@ -225,20 +225,24 @@ namespace WebCore {
@@ -366,8 +366,8 @@ index 55080e2..ca07c64 100644
  
          void addSubresourceLoader(ResourceLoader*);
          void removeSubresourceLoader(ResourceLoader*);
-         void addPlugInStreamLoader(ResourceLoader*);
-         void removePlugInStreamLoader(ResourceLoader*);
+         WEBCORE_EXPORT void addPlugInStreamLoader(ResourceLoader*);
+         WEBCORE_EXPORT void removePlugInStreamLoader(ResourceLoader*);
  
 +#if ENABLE(WEB_REPLAY)
 +        const Vector<unsigned long>& usedIdentifiers();
@@ -524,7 +524,7 @@ index 9b65156..b4e0f03 100644
 +
  }
 diff --git a/Source/WebCore/loader/ResourceLoader.h b/Source/WebCore/loader/ResourceLoader.h
-index 86475e1..9c97082 100644
+index e3128a2..9289bf4 100644
 --- a/Source/WebCore/loader/ResourceLoader.h
 +++ b/Source/WebCore/loader/ResourceLoader.h
 @@ -33,20 +33,26 @@
@@ -580,7 +580,7 @@ index 86475e1..9c97082 100644
      void didFinishLoadingOnePart(double finishTime);
      void cleanupForError(const ResourceError&);
 diff --git a/Source/WebCore/loader/SubresourceLoader.cpp b/Source/WebCore/loader/SubresourceLoader.cpp
-index f1fceac..a6287f0 100644
+index cbb0561..115244e 100644
 --- a/Source/WebCore/loader/SubresourceLoader.cpp
 +++ b/Source/WebCore/loader/SubresourceLoader.cpp
 @@ -41,20 +41,28 @@
@@ -699,7 +699,8 @@ index f1fceac..a6287f0 100644
      }
  }
  
-@@ -293,20 +332,28 @@ void SubresourceLoader::didFinishLoading(double finishTime)
+@@ -292,20 +331,29 @@ void SubresourceLoader::didFinishLoading(double finishTime)
+ {
      if (m_state != Initialized)
          return;
      ASSERT(!reachedTerminalState());
@@ -709,7 +710,7 @@ index f1fceac..a6287f0 100644
      LOG(ResourceLoading, "Received '%s'.", m_resource->url().string().latin1().data());
  
      Ref<SubresourceLoader> protect(*this);
- 
++
 +#if ENABLE(WEB_REPLAY)
 +    InputCursor* cursor = activeInputCursor();
 +    if (cursor && cursor->isCapturing())
@@ -718,17 +719,17 @@ index f1fceac..a6287f0 100644
 +    EventLoopInputExtent extent(cursor);
 +#endif
 +
- #if PLATFORM(IOS)
-     if (resourceData())
-         resourceData()->setShouldUsePurgeableMemory(true);
- #endif
      CachedResourceHandle<CachedResource> protectResource(m_resource);
+ 
      m_state = Finishing;
      m_resource->setLoadFinishTime(finishTime);
      m_resource->finishLoading(resourceData());
  
      if (wasCancelled())
-@@ -321,20 +368,29 @@ void SubresourceLoader::didFinishLoading(double finishTime)
+         return;
+     m_resource->finish();
+     ASSERT(!reachedTerminalState());
+@@ -317,20 +365,29 @@ void SubresourceLoader::didFinishLoading(double finishTime)
  }
  
  void SubresourceLoader::didFail(const ResourceError& error)
@@ -758,7 +759,7 @@ index f1fceac..a6287f0 100644
      m_resource->error(CachedResource::LoadError);
      cleanupForError(error);
      notifyDone();
-@@ -400,11 +456,22 @@ void SubresourceLoader::releaseResources()
+@@ -396,11 +453,22 @@ void SubresourceLoader::releaseResources()
  #if PLATFORM(IOS)
      if (m_state != Uninitialized && m_state != CancelledWhileInitializing)
  #else
@@ -782,10 +783,10 @@ index f1fceac..a6287f0 100644
 +
  }
 diff --git a/Source/WebCore/loader/SubresourceLoader.h b/Source/WebCore/loader/SubresourceLoader.h
-index 5f57382..b26146d 100644
+index a43534f..162ef07 100644
 --- a/Source/WebCore/loader/SubresourceLoader.h
 +++ b/Source/WebCore/loader/SubresourceLoader.h
-@@ -83,20 +83,24 @@ private:
+@@ -90,20 +90,24 @@ private:
  #if USE(SOUP)
      virtual char* getOrCreateReadBuffer(size_t requestedSize, size_t& actualSize) override;
  #endif
@@ -1482,7 +1483,7 @@ index 4fbc592..a444b03 100644
      ]
  }
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 0c68023..003d529 100644
+index 0e3e898..a558979 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,11 +1,24 @@

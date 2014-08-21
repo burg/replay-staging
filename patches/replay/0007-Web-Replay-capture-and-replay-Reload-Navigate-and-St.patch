@@ -1,4 +1,4 @@
-From f8c5c20b6563c47ab0c1f4944ca8e5f2ffe85dc0 Mon Sep 17 00:00:00 2001
+From e3c6a555a4e46343ea636e1278e1f3d5b01866b5 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 11:45:23 -0700
 Subject: [PATCH] Web Replay: capture and replay Reload, Navigate, and Stop
@@ -102,7 +102,7 @@ an enum with uint64_t-sized storage rather than int.
  14 files changed, 513 insertions(+), 11 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 036db6d..bf22504 100644
+index ceaa91a..1df47dd 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,83 @@
@@ -1139,7 +1139,7 @@ index a444b03..d76bbee 100644
      ]
  }
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 003d529..7181e6b 100644
+index a558979..30e9e9c 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,25 @@

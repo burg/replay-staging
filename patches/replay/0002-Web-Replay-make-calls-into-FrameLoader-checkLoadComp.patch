@@ -1,4 +1,4 @@
-From bdb53f822e1476e6d8939ce744cae8ca0067ee0f Mon Sep 17 00:00:00 2001
+From c2ea8e8aa1bab3994b00047aefcca39af95a654f Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 14:34:56 -0700
 Subject: [PATCH] Web Replay: make calls into FrameLoader::checkLoadComplete()
@@ -131,7 +131,7 @@ index ce1581d..4e3c145 100644
      storage/StorageNamespace.cpp
      storage/StorageNamespaceImpl.cpp
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 40403f4..185eda8 100644
+index d0464c5..6b24220 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,80 @@
@@ -356,10 +356,10 @@ index fbf69f1..3fe4742 100644
  xcopy /y /d "%ProjectDir%..\storage\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
  xcopy /y /d "%ProjectDir%..\style\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index 161d5c8..dcda922 100644
+index 359f4ac..891d99d 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -5528,20 +5528,24 @@
+@@ -5530,20 +5530,24 @@
  		C375D7FD16639519006184AB /* TypeAhead.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C375D7FB16639519006184AB /* TypeAhead.cpp */; };
  		C375D7FE16639519006184AB /* TypeAhead.h in Headers */ = {isa = PBXBuildFile; fileRef = C375D7FC16639519006184AB /* TypeAhead.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		C37CDEBD149EF2030042090D /* ColorChooserClient.h in Headers */ = {isa = PBXBuildFile; fileRef = C37CDEBC149EF2030042090D /* ColorChooserClient.h */; settings = {ATTRIBUTES = (Private, ); }; };
@@ -384,7 +384,7 @@ index 161d5c8..dcda922 100644
  		C5102ED00FD9EF8C00FAFF04 /* StorageAreaSync.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C5102ECE0FD9EF8C00FAFF04 /* StorageAreaSync.cpp */; };
  		C5137CF211A58378004ADB99 /* JSDOMStringList.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */; };
  		C5137CF311A58378004ADB99 /* JSDOMStringList.h in Headers */ = {isa = PBXBuildFile; fileRef = C5137CF111A58378004ADB99 /* JSDOMStringList.h */; };
-@@ -12952,20 +12956,24 @@
+@@ -12954,20 +12958,24 @@
  		C375D7FC16639519006184AB /* TypeAhead.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TypeAhead.h; sourceTree = "<group>"; };
  		C37CDEBC149EF2030042090D /* ColorChooserClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ColorChooserClient.h; sourceTree = "<group>"; };
  		C3CF17A015B0063F00276D39 /* IdTargetObserver.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = IdTargetObserver.cpp; sourceTree = "<group>"; };
@@ -409,7 +409,7 @@ index 161d5c8..dcda922 100644
  		C5102ECE0FD9EF8C00FAFF04 /* StorageAreaSync.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = StorageAreaSync.cpp; sourceTree = "<group>"; };
  		C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = JSDOMStringList.cpp; sourceTree = "<group>"; };
  		C5137CF111A58378004ADB99 /* JSDOMStringList.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSDOMStringList.h; sourceTree = "<group>"; };
-@@ -18406,30 +18414,34 @@
+@@ -18415,30 +18423,34 @@
  				99CC0B3A18BE9849006CEBCC /* CapturingInputCursor.h */,
  				C400D10818F1C8F60090D863 /* EventLoopInput.cpp */,
  				99E45A1618A063BE0026D88F /* EventLoopInput.h */,
@@ -446,7 +446,7 @@ index 161d5c8..dcda922 100644
  			);
  			path = replay;
  			sourceTree = "<group>";
-@@ -24127,20 +24139,21 @@
+@@ -24135,20 +24147,21 @@
  				316FE0800E6CCC2800BF6088 /* DOMWebKitCSSKeyframesRule.h in Headers */,
  				316FE0820E6CCC2800BF6088 /* DOMWebKitCSSKeyframesRuleInternal.h in Headers */,
  				498391500F1E76B400C23782 /* DOMWebKitCSSMatrix.h in Headers */,
@@ -468,7 +468,7 @@ index 161d5c8..dcda922 100644
  				FC9A0F75164094CF003D6B8D /* DOMWindowCSS.h in Headers */,
  				51FA2D78152132B300C1BA0B /* DOMWindowExtension.h in Headers */,
  				51D719B7181106E00016DC51 /* DOMWindowIndexedDatabase.h in Headers */,
-@@ -26608,20 +26621,21 @@
+@@ -26615,20 +26628,21 @@
  				31288E730E3005D6003619AE /* WebKitCSSKeyframeRule.h in Headers */,
  				31288E750E3005D6003619AE /* WebKitCSSKeyframesRule.h in Headers */,
  				498391590F1E776900C23782 /* WebKitCSSMatrix.h in Headers */,
@@ -490,7 +490,7 @@ index 161d5c8..dcda922 100644
  				97AABD1E14FA09D5007457AE /* WebSocketChannel.h in Headers */,
  				97AABD1F14FA09D5007457AE /* WebSocketChannelClient.h in Headers */,
  				4A38BF5114FE1C0900612512 /* WebSocketDeflateFramer.h in Headers */,
-@@ -28145,20 +28159,21 @@
+@@ -28152,20 +28166,21 @@
  				073AB4B717F92ECF006E0D6F /* JSCapabilityRange.cpp in Sources */,
  				93F9B7A00BA6032600854064 /* JSCDATASection.cpp in Sources */,
  				93BA59B20F2AA5FE008E8E99 /* JSCDATASectionCustom.cpp in Sources */,
@@ -512,7 +512,7 @@ index 161d5c8..dcda922 100644
  				FDA15EBD12B03F0B003A583A /* JSConvolverNode.cpp in Sources */,
  				FE6FD48D0F676E9300092873 /* JSCoordinates.cpp in Sources */,
  				930705D809E0C9B700B17FE4 /* JSCounter.cpp in Sources */,
-@@ -28909,20 +28924,21 @@
+@@ -28918,20 +28933,21 @@
  				078E093317D16B0600420AA1 /* MediaStreamCenter.cpp in Sources */,
  				078E093117D1684200420AA1 /* MediaStreamCenterMac.cpp in Sources */,
  				078E090017D14CEE00420AA1 /* MediaStreamEvent.cpp in Sources */,
@@ -700,7 +700,7 @@ index 80d9a16..aa30785 100644
      if (!m_scriptedAnimationController) {
  #if USE(REQUEST_ANIMATION_FRAME_DISPLAY_MONITOR)
 diff --git a/Source/WebCore/dom/Document.h b/Source/WebCore/dom/Document.h
-index 01415ab..62143d3 100644
+index 158fbc37e..a666fd8 100644
 --- a/Source/WebCore/dom/Document.h
 +++ b/Source/WebCore/dom/Document.h
 @@ -34,20 +34,21 @@
@@ -1471,7 +1471,7 @@ index e8d692e..f60bc77 100644
      "${JAVASCRIPTCORE_DIR}/API"
      "${JAVASCRIPTCORE_DIR}/assembler"
 diff --git a/Source/WebKit/ChangeLog b/Source/WebKit/ChangeLog
-index e7a7bf0..9c62439 100644
+index 3cf38c8..67b128c 100644
 --- a/Source/WebKit/ChangeLog
 +++ b/Source/WebKit/ChangeLog
 @@ -1,10 +1,19 @@
@@ -1484,16 +1484,16 @@ index e7a7bf0..9c62439 100644
 +
 +        * CMakeLists.txt: Add replay/ directory to header include paths.
 +
+ 2014-08-20  Mark Rowe  <mrowe@apple.com>
+ 
+         <https://webkit.org/b/136119> WebKit1 plug-in test failures in production builds after r172595
+ 
+         Reviewed by Alexey Proskuryakov.
+ 
+         * WebKit.xcodeproj/project.pbxproj: Add the symlinks at the top level of WebKitLegacy.framework
+         even in Production builds. Add the symlinks in the right locations too.
+ 
  2014-08-15  Andy Estes  <aestes@apple.com>
- 
-         [Cocoa] Add migrate-headers.sh and postprocess-headers.sh to WebKit.xcodeproj
-         https://bugs.webkit.org/show_bug.cgi?id=135984
- 
-         Reviewed by Daniel Bates.
- 
-         It's nice to be able to look at these files in Xcode.
- 
-         * WebKit.xcodeproj/project.pbxproj:
 diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
 index d058eb1..31ac6a3 100644
 --- a/Source/WebKit2/CMakeLists.txt
@@ -1521,7 +1521,7 @@ index d058eb1..31ac6a3 100644
      "${JAVASCRIPTCORE_DIR}/assembler"
      "${JAVASCRIPTCORE_DIR}/bytecode"
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index e925720..ecd3554f 100644
+index 4620749..792749b 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,19 @@
@@ -1534,16 +1534,16 @@ index e925720..ecd3554f 100644
 +
 +        * CMakeLists.txt: Add replay/ directory to header include paths.
 +
- 2014-08-19  Peyton Randolph  <prandolph@apple.com>
+ 2014-08-20  Alex Christensen  <achristensen@webkit.org>
  
-         Extend injected bundle node snapshotting to support forced white and black text
-         https://bugs.webkit.org/show_bug.cgi?id=136061
+         Introducing WEBCORE_EXPORT macro.
+         https://bugs.webkit.org/show_bug.cgi?id=136108
  
-         Reviewed by Beth Dakin.
+         Reviewed by Antti Koivisto.
  
-         * Shared/API/c/WKImage.h:
-         Add -ForceBlackText and -ForceWhiteText snapshotting options.
-         * Shared/API/c/WKSharedAPICast.h:
+         * config.h:
+         Added stub definition of WEBCORE_EXPORT defined to nothing to be able to compile with WebCore headers.
+ 
 -- 
 2.0.1
 
