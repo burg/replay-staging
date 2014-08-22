@@ -1,4 +1,4 @@
-From 7d1d2cc905f1d629504603a59fa76b066f642bc4 Mon Sep 17 00:00:00 2001
+From 71de6320f9b06afecae5c26b010240dccd13bfb1 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 16 Jul 2014 14:58:22 -0700
 Subject: [PATCH] Web Replay: DOM Timers should be created and fired

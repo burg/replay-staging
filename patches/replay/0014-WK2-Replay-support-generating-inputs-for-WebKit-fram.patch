@@ -1,8 +1,7 @@
-From 8130922eb8d6646c2b1c9f105b0cddc5f5e8a7bd Mon Sep 17 00:00:00 2001
+From 1da2a0a80b65bd924c4adcae6d9678d3f2edfc14 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 19 Aug 2014 18:50:22 -0700
-Subject: [PATCH] [WIP] WK2 Replay: support generating inputs for WebKit
- framework
+Subject: [PATCH] WK2 Replay: support generating inputs for WebKit framework
 
 ---
  .../replay/scripts/CodeGeneratorReplayInputs.py    | 69 ++++++++++++++--------
@@ -23,12 +22,12 @@ Subject: [PATCH] [WIP] WK2 Replay: support generating inputs for WebKit
  ...e-memoized-type-modes.json-TestReplayInputs.cpp |  4 +-
  ...ate-memoized-type-modes.json-TestReplayInputs.h |  4 +-
  Source/WebCore/WebCore.xcodeproj/project.pbxproj   |  2 +-
- Source/WebKit2/CMakeLists.txt                      | 14 +++++
+ Source/WebKit2/CMakeLists.txt                      | 13 ++++
  Source/WebKit2/Configurations/BaseTarget.xcconfig  |  1 +
  Source/WebKit2/DerivedSources.make                 | 17 ++++++
  Source/WebKit2/WebKit2.xcodeproj/project.pbxproj   | 20 ++++++-
  Source/WebKit2/WebProcess/Replay/WKInputs.json     | 25 ++++++++
- 23 files changed, 177 insertions(+), 85 deletions(-)
+ 23 files changed, 176 insertions(+), 85 deletions(-)
  create mode 100644 Source/WebKit2/WebProcess/Replay/WKInputs.json
 
 diff --git a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
@@ -995,7 +994,7 @@ index 852c90c..16d3112 100644
  		9A528E8417D7F52F00AA9518 /* FloatingObjects.h in Headers */ = {isa = PBXBuildFile; fileRef = 9A528E8217D7F52F00AA9518 /* FloatingObjects.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		9AB1F38018E2489A00534743 /* CSSToLengthConversionData.h in Headers */ = {isa = PBXBuildFile; fileRef = 9AB1F37E18E2489A00534743 /* CSSToLengthConversionData.h */; };
 diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
-index e85d707..3bb41e8 100644
+index e85d707..3cf293e 100644
 --- a/Source/WebKit2/CMakeLists.txt
 +++ b/Source/WebKit2/CMakeLists.txt
 @@ -47,20 +47,21 @@ set(WebKit2_INCLUDE_DIRECTORIES
@@ -1020,7 +1019,7 @@ index e85d707..3bb41e8 100644
      "${WEBCORE_DIR}/Modules/mediastream"
      "${WEBCORE_DIR}/Modules/networkinfo"
      "${WEBCORE_DIR}/Modules/notifications"
-@@ -742,20 +743,33 @@ if (ENABLE_PLUGIN_PROCESS)
+@@ -742,20 +743,32 @@ if (ENABLE_PLUGIN_PROCESS)
      if (WebKit2_PluginProcess_OUTPUT_NAME)
        set_target_properties(PluginProcess PROPERTIES OUTPUT_NAME ${WebKit2_PluginProcess_OUTPUT_NAME})
      endif ()
@@ -1045,7 +1044,6 @@ index e85d707..3bb41e8 100644
 +
 +    list(APPEND WebKit2_SOURCES
 +        ${DERIVED_SOURCES_WEBKIT2_DIR}/WKReplayInputs.cpp
-+>>>>>>> e129cb5... [WIP] WK2 Replay: support generating inputs for WebKit framework
      )
  endif ()
  

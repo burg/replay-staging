@@ -1,4 +1,4 @@
-From e3c6a555a4e46343ea636e1278e1f3d5b01866b5 Mon Sep 17 00:00:00 2001
+From 6db1e7bb73eb194cd4e6d2d5c29deccbea543b26 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 11:45:23 -0700
 Subject: [PATCH] Web Replay: capture and replay Reload, Navigate, and Stop

@@ -1,4 +1,4 @@
-From 35b116d98bbbcc5617face0822abc585069bfd55 Mon Sep 17 00:00:00 2001
+From 231e9d34d77ebcbe9fe024f717abe392467fe3de Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Mon, 11 Aug 2014 23:52:17 -0700
 Subject: [PATCH] Web Inspector: add eject current recording button to the
@@ -322,7 +322,7 @@ index 46c0505..364a6b4 100644
          // Create a dummy segment, and don't try to load any data for it. It will
 diff --git a/Source/WebInspectorUI/UserInterface/Images/ReplayEjectButton.svg b/Source/WebInspectorUI/UserInterface/Images/ReplayEjectButton.svg
 new file mode 100644
-index 0000000..3b64a07
+index 0000000..e8a4f44
 --- /dev/null
 +++ b/Source/WebInspectorUI/UserInterface/Images/ReplayEjectButton.svg
 @@ -0,0 +1,8 @@

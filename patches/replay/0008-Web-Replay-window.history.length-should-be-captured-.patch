@@ -1,4 +1,4 @@
-From 6f34676ca37dca6eb635a0c53fc199846be3bcba Mon Sep 17 00:00:00 2001
+From 327110370ab831e43d0c8deb1ffc9d1b89c55b16 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 15:34:16 -0700
 Subject: [PATCH] Web Replay: window.history.length should be captured at main

@@ -1,4 +1,4 @@
-From c3d9b11f210bdaa1e49d012fa5a6abf06cfb8e22 Mon Sep 17 00:00:00 2001
+From b1f749d1627acb872fa2fe20f0d1f3b417e8ec30 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 20 Aug 2014 15:32:34 -0700
 Subject: [PATCH] Web Replay: Encode replay inputs through ReplayClient Need
@@ -62,30 +62,31 @@ Source/WebKit2:
 * WebProcess/WebCoreSupport/WebReplayClient.h:
 ---
  Source/WebCore/ChangeLog                           | 50 ++++++++++++
- Source/WebCore/WebCore.exp.in                      | 52 +++++++++++++
+ Source/WebCore/WebCore.exp.in                      | 76 ++++++++++++++++++-
  Source/WebCore/WebCore.xcodeproj/project.pbxproj   |  8 +-
  Source/WebCore/inspector/InspectorReplayAgent.cpp  | 36 ++++-----
- Source/WebCore/loader/EmptyClients.h               |  1 +
+ Source/WebCore/loader/EmptyClients.h               |  2 +
  Source/WebCore/replay/AllReplayInputs.h            | 48 ------------
  Source/WebCore/replay/CapturingInputCursor.cpp     | 41 +++++++++-
  Source/WebCore/replay/CapturingInputCursor.h       |  5 +-
  Source/WebCore/replay/EventLoopInputDispatcher.cpp | 10 +--
- Source/WebCore/replay/ReplayClient.h               |  6 ++
+ Source/WebCore/replay/ReplayClient.h               |  8 ++
  Source/WebCore/replay/ReplayController.cpp         |  3 +-
  Source/WebCore/replay/ReplayingInputCursor.cpp     | 28 ++++++-
  Source/WebCore/replay/ReplayingInputCursor.h       |  1 +
  Source/WebCore/replay/SegmentedInputStorage.cpp    | 43 +----------
  Source/WebCore/replay/SegmentedInputStorage.h      |  2 +-
- Source/WebCore/replay/WebReplayInputCoders.cpp     | 31 +-------
+ Source/WebCore/replay/WebReplayInputCoders.cpp     | 61 +--------------
+ Source/WebCore/replay/WebReplayInputCoders.h       |  7 --
  .../replay/WebReplayInputDispatchMethods.cpp       |  2 +-
  Source/WebKit2/CMakeLists.txt                      |  1 +
  Source/WebKit2/ChangeLog                           | 23 ++++++
  Source/WebKit2/WebKit2.xcodeproj/project.pbxproj   |  8 ++
  .../WebProcess/Replay/WKReplayInputCoders.cpp      | 88 ++++++++++++++++++++++
  .../WebProcess/Replay/WKReplayInputCoders.h        | 49 ++++++++++++
- .../WebProcess/WebCoreSupport/WebReplayClient.cpp  |  7 ++
- .../WebProcess/WebCoreSupport/WebReplayClient.h    |  3 +-
- 24 files changed, 388 insertions(+), 158 deletions(-)
+ .../WebProcess/WebCoreSupport/WebReplayClient.cpp  | 12 +++
+ .../WebProcess/WebCoreSupport/WebReplayClient.h    |  3 +
+ 25 files changed, 420 insertions(+), 195 deletions(-)
  delete mode 100644 Source/WebCore/replay/AllReplayInputs.h
  create mode 100644 Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.cpp
  create mode 100644 Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.h
@@ -158,10 +159,10 @@ index 5295dc52..1f5985f 100644
  
          Also rename SerializationMethods to ReplayInputCoders to match WebKit2 naming schemes.
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index 99e72de..fa52ba6 100644
+index 99e72de..b62b4f5 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -3473,16 +3473,68 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
+@@ -3473,16 +3473,90 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
  
  #if ENABLE(VIDEO_TRACK)
  __ZN7WebCore9PageGroup18captionPreferencesEv
@@ -172,59 +173,82 @@ index 99e72de..fa52ba6 100644
  #endif
  
  #if ENABLE(WEB_REPLAY)
+-__ZNK7WebCore14ResourceLoader17activeInputCursorEv
 +__ZN3JSC11InputTraitsIN7WebCore10ScrollPageEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore10ScrollPageEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore10ScrollPageEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore11ReloadFrameEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore11ReloadFrameEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore11ReloadFrameEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore12TryClosePageEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore12TryClosePageEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore12TryClosePageEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore13DOMTimerFiredEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore13DOMTimerFiredEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore13DOMTimerFiredEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore14HandleKeyPressEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore14HandleKeyPressEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore14HandleKeyPressEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore14LoadURLRequestEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore14LoadURLRequestEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore14LoadURLRequestEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore15AsyncTimerFiredEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore15AsyncTimerFiredEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore15AsyncTimerFiredEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore15DOMTimerCreatedEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore15DOMTimerCreatedEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore15DOMTimerCreatedEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore15HandleMouseMoveEE4typeEv
 +__ZN3JSC11InputTraitsIN7WebCore15HandleMouseMoveEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore16HandleMousePressEE4typeEv
 +__ZN3JSC11InputTraitsIN7WebCore16HandleMousePressEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore16HandleWheelEventEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore16HandleWheelEventEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore16HandleWheelEventEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore17InitialNavigationEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore17InitialNavigationEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore17InitialNavigationEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore17InitializeHistoryEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore17InitializeHistoryEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore17InitializeHistoryEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore17LogicalScrollPageEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore17LogicalScrollPageEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore17LogicalScrollPageEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore18HandleMouseReleaseEE4typeEv
 +__ZN3JSC11InputTraitsIN7WebCore18HandleMouseReleaseEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore21MemoizedDOMResultBaseEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore21MemoizedDOMResultBaseEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore21MemoizedDOMResultBaseEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore21ResourceLoaderDidFailEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore21ResourceLoaderDidFailEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore21ResourceLoaderDidFailEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore24DocumentLastModifiedDateEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore24DocumentLastModifiedDateEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore24DocumentLastModifiedDateEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore32ResourceLoaderDidReceiveResponseEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore32ResourceLoaderDidReceiveResponseEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore32ResourceLoaderDidReceiveResponseEE6encodeERNS_12EncodedValueERKS2_
- __ZNK7WebCore14ResourceLoader17activeInputCursorEv
  #endif
  
  #if ENABLE(WEB_TIMING)
@@ -486,10 +510,10 @@ index d5ddb2c..0390803 100644
  
  #endif // ENABLE(INSPECTOR) && ENABLE(WEB_REPLAY)
 diff --git a/Source/WebCore/loader/EmptyClients.h b/Source/WebCore/loader/EmptyClients.h
-index 75bef15d..1cc4796 100644
+index 75bef15d..596f379 100644
 --- a/Source/WebCore/loader/EmptyClients.h
 +++ b/Source/WebCore/loader/EmptyClients.h
-@@ -601,20 +601,21 @@ public:
+@@ -601,20 +601,22 @@ public:
      virtual void hideHighlight() override { }
  };
  
@@ -501,6 +525,7 @@ index 75bef15d..1cc4796 100644
  
      virtual void dispatchInput(EventLoopInputBase&) override { }
 +    virtual bool encodeInput(const NondeterministicInputBase&, JSC::EncodedValue&) override { return false; }
++    virtual bool decodeInput(JSC::EncodedValue&, std::unique_ptr<NondeterministicInputBase>&) override { return false; }
  };
  #endif // ENABLE(WEB_REPLAY)
  
@@ -737,10 +762,10 @@ index e5ab993..39763b7 100644
          TemporaryChange<bool> change(m_dispatching, true);
          m_page.replayController().client().dispatchInput(*m_currentWork.input);
 diff --git a/Source/WebCore/replay/ReplayClient.h b/Source/WebCore/replay/ReplayClient.h
-index 509e6a1..4494914 100644
+index 509e6a1..70a79b1 100644
 --- a/Source/WebCore/replay/ReplayClient.h
 +++ b/Source/WebCore/replay/ReplayClient.h
-@@ -21,26 +21,32 @@
+@@ -21,26 +21,34 @@
   * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
   * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
   * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
@@ -765,7 +790,9 @@ index 509e6a1..4494914 100644
      virtual ~ReplayClient() { }
  
      virtual void dispatchInput(EventLoopInputBase&) = 0;
++
 +    virtual bool encodeInput(const JSC::NondeterministicInputBase&, JSC::EncodedValue&) = 0;
++    virtual bool decodeInput(JSC::EncodedValue&, std::unique_ptr<JSC::NondeterministicInputBase>&) = 0;
  };
  
  } // namespace WebCore
@@ -1058,7 +1085,7 @@ index b87211b..7316512 100644
  };
  
 diff --git a/Source/WebCore/replay/WebReplayInputCoders.cpp b/Source/WebCore/replay/WebReplayInputCoders.cpp
-index e674baf..e7915cc 100644
+index e674baf..2a2e89a 100644
 --- a/Source/WebCore/replay/WebReplayInputCoders.cpp
 +++ b/Source/WebCore/replay/WebReplayInputCoders.cpp
 @@ -23,43 +23,45 @@
@@ -1156,6 +1183,89 @@ index e674baf..e7915cc 100644
      ENCODE_TYPE_WITH_KEY(encodedValue, String, parent, item->parent());
      ENCODE_TYPE_WITH_KEY(encodedValue, int64_t, documentSequenceNumber, item->documentSequenceNumber());
      ENCODE_TYPE_WITH_KEY(encodedValue, Vector<String>, documentState, item->documentState());
+@@ -443,50 +418,20 @@ bool EncodingTraits<IntPoint>::decodeValue(EncodedValue& encodedData, IntPoint&
+ {
+     IntPoint decodedPoint;
+ 
+     DECODE_TYPE_WITH_KEY(encodedData, int, x);
+     DECODE_TYPE_WITH_KEY(encodedData, int, y);
+ 
+     point = IntPoint(x, y);
+     return true;
+ }
+ 
+-bool EncodingTraits<NondeterministicInputBase>::decodeValue(EncodedValue& encodedValue, std::unique_ptr<NondeterministicInputBase>& input)
+-{
+-    DECODE_TYPE_WITH_KEY(encodedValue, String, type);
+-
+-#define DECODE_IF_TYPE_TAG_MATCHES(name) \
+-    if (type == InputTraits<name>::type()) { \
+-        std::unique_ptr<name> decodedInput; \
+-        if (!InputTraits<name>::decode(encodedValue, decodedInput)) \
+-            return false; \
+-        \
+-        input = WTF::move(decodedInput); \
+-        return true; \
+-    } \
+-
+-    JS_REPLAY_INPUT_NAMES_FOR_EACH(DECODE_IF_TYPE_TAG_MATCHES)
+-    WEB_REPLAY_INPUT_NAMES_FOR_EACH(DECODE_IF_TYPE_TAG_MATCHES)
+-#undef DECODE_IF_TYPE_TAG_MATCHES
+-
+-    if (type == InputTraits<MemoizedDOMResultBase>::type()) {
+-        std::unique_ptr<MemoizedDOMResultBase> decodedInput;
+-        if (!InputTraits<MemoizedDOMResultBase>::decode(encodedValue, decodedInput))
+-            return false;
+-
+-        input = WTF::move(decodedInput);
+-        return true;
+-    }
+-
+-    return false;
+-}
+-
+ #if USE(APPKIT)
+ EncodedValue EncodingTraits<KeypressCommand>::encodeValue(const KeypressCommand& command)
+ {
+     EncodedValue encodedValue = EncodedValue::createObject();
+ 
+     ENCODE_TYPE_WITH_KEY(encodedValue, String, commandName, command.commandName);
+     ENCODE_OPTIONAL_TYPE_WITH_KEY(encodedValue, String, text, command.text, !command.text.isEmpty());
+ 
+     return encodedValue;
+ }
+diff --git a/Source/WebCore/replay/WebReplayInputCoders.h b/Source/WebCore/replay/WebReplayInputCoders.h
+index 59f5cb6..a5d767f 100644
+--- a/Source/WebCore/replay/WebReplayInputCoders.h
++++ b/Source/WebCore/replay/WebReplayInputCoders.h
+@@ -100,27 +100,20 @@ template<> struct EncodingTraits<WebCore::KeypressCommand> {
+ };
+ #endif // USE(APPKIT)
+ 
+ template<> struct EncodingTraits<WebCore::HistoryItem> {
+     typedef RefPtr<WebCore::HistoryItem> DecodedType;
+ 
+     static EncodedValue encodeValue(RefPtr<WebCore::HistoryItem>);
+     static bool decodeValue(EncodedValue&, RefPtr<WebCore::HistoryItem>&);
+ };
+ 
+-template<> struct EncodingTraits<NondeterministicInputBase> {
+-    typedef NondeterministicInputBase DecodedType;
+-
+-    static EncodedValue encodeValue(const NondeterministicInputBase& value);
+-    static bool decodeValue(EncodedValue&, std::unique_ptr<NondeterministicInputBase>& value);
+-};
+-
+ template<> struct EncodingTraits<WebCore::PlatformKeyboardEvent> {
+     typedef WebCore::PlatformKeyboardEvent DecodedType;
+ 
+     static EncodedValue encodeValue(const WebCore::PlatformKeyboardEvent& value);
+     static bool decodeValue(EncodedValue&, std::unique_ptr<WebCore::PlatformKeyboardEvent>& value);
+ };
+ 
+ template<> struct EncodingTraits<WebCore::PlatformMouseEvent> {
+     typedef WebCore::PlatformMouseEvent DecodedType;
+ 
 diff --git a/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp b/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
 index ea452e6..7b5662c 100644
 --- a/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
@@ -1200,10 +1310,10 @@ index ea452e6..7b5662c 100644
      Frame* frame = frameFromFrameIndex(&page, frameIndex);
      ASSERT(frame);
 diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
-index 3bb41e8..b1e7d15 100644
+index 3cf293e..4bdfb17 100644
 --- a/Source/WebKit2/CMakeLists.txt
 +++ b/Source/WebKit2/CMakeLists.txt
-@@ -756,20 +756,21 @@ if (ENABLE_WEB_REPLAY)
+@@ -756,19 +756,20 @@ if (ENABLE_WEB_REPLAY)
  =======
      set(WebKit2_WEB_REPLAY_INPUTS ${WEBKIT2_DIR}/WebProcess/Replay/WebInputs.json)
      add_custom_command(
@@ -1216,7 +1326,6 @@ index 3bb41e8..b1e7d15 100644
      list(APPEND WebKit2_SOURCES
 +        WebProcess/Replay/WKReplayInputCoders.cpp
          ${DERIVED_SOURCES_WEBKIT2_DIR}/WKReplayInputs.cpp
- >>>>>>> e129cb5... [WIP] WK2 Replay: support generating inputs for WebKit framework
      )
  endif ()
  
@@ -1530,10 +1639,10 @@ index 0000000..e12f187
 +
 +#endif // WKReplayInputCoders_h
 diff --git a/Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.cpp b/Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.cpp
-index 87c6a2b..7192cfd 100644
+index 87c6a2b..f5b7652 100644
 --- a/Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.cpp
 +++ b/Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.cpp
-@@ -21,24 +21,31 @@
+@@ -21,24 +21,36 @@
   * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
   * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
   * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
@@ -1556,21 +1665,25 @@ index 87c6a2b..7192cfd 100644
      input.dispatch(*m_page->corePage());
  }
  
-+bool WebReplayClient::encodeInput(const NondeterministicInputBase& input, JSC::EncodedValue& encodedInput)
++bool WebReplayClient::encodeInput(const NondeterministicInputBase& input, EncodedValue& encodedInput)
 +{
 +    encodedInput = EncodingTraits<NondeterministicInputBase>::encodeValue(input);
 +    return true;
++}
++
++bool WebReplayClient::decodeInput(EncodedValue& encodedInput, std::unique_ptr<NondeterministicInputBase>& decodedInput)
++{
++    return EncodingTraits<NondeterministicInputBase>::decodeValue(encodedInput, decodedInput);
 +}
 +
  } // namespace WebKit
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.h b/Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.h
-index cee44c3..b0dddff 100644
+index cee44c3..f6928e1 100644
 --- a/Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.h
 +++ b/Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.h
-@@ -36,19 +36,20 @@ class WebPage;
- 
+@@ -37,18 +37,21 @@ class WebPage;
  class WebReplayClient : public WebCore::ReplayClient {
  public:
      WebReplayClient(WebPage* page)
@@ -1580,9 +1693,10 @@ index cee44c3..b0dddff 100644
  
  private:
      virtual void dispatchInput(WebCore::EventLoopInputBase&) override;
--
+ 
 +    virtual bool encodeInput(const JSC::NondeterministicInputBase&, JSC::EncodedValue&) override;
-+    
++    virtual bool decodeInput(JSC::EncodedValue&, std::unique_ptr<JSC::NondeterministicInputBase>&) override;
++
      WebPage* m_page;
  };
  

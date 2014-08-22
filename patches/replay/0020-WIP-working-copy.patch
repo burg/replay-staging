@@ -1,0 +1,348 @@
+From 59a9c335a5e7b049f5f639951a981752875ef678 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Fri, 22 Aug 2014 08:46:08 -0700
+Subject: [PATCH] WIP: working copy
+
+---
+ Source/WebCore/WebCore.exp.in                      |  1 +
+ .../replay/WebReplayInputDispatchMethods.cpp       |  9 ----
+ .../Replay/WKReplayInputDispatchMethods.cpp        | 10 ++++
+ Source/WebKit2/WebProcess/WebPage/WebPage.cpp      | 61 ++++++++++++++++------
+ Source/WebKit2/WebProcess/WebPage/WebPage.h        |  2 +
+ 5 files changed, 59 insertions(+), 24 deletions(-)
+
+diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
+index cdf395a..43bb212 100644
+--- a/Source/WebCore/WebCore.exp.in
++++ b/Source/WebCore/WebCore.exp.in
+@@ -3540,19 +3540,20 @@ __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6encodeERNS_12Encode
+ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore32ResourceLoaderDidReceiveResponseEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore32ResourceLoaderDidReceiveResponseEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore32ResourceLoaderDidReceiveResponseEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC14EncodingTraitsIN7WebCore8IntPointEE11encodeValueERKS2_
++__ZN3JSC14EncodingTraitsIN7WebCore8IntPointEE11decodeValueERNS_12EncodedValueERS2_
+ __ZN7WebCore20EventLoopInputExtentC1ERN3JSC11InputCursorE
+ __ZN7WebCore20EventLoopInputExtentD1Ev
+ __ZNK7WebCore14ResourceLoader17activeInputCursorEv
+ __ZNK7WebCore16ReplayController17activeInputCursorEv
+ #endif
+ 
+ #if ENABLE(WEB_TIMING)
+ __ZNK7WebCore20ResourceResponseBase18resourceLoadTimingEv
+ #endif
+diff --git a/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp b/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
+index ab420bc..2d7fa87 100644
+--- a/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
++++ b/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
+@@ -111,30 +111,21 @@ void InitializeHistory::dispatchOnPage(Page& page)
+     // FIXME: Load the empty document, so that when we prune the back-forward list it
+     // is the single remaining entry. <https://webkit.org/b/131989>
+     page.backForward().clear();
+ 
+     for (RefPtr<HistoryItem> historyEntry : m_entries)
+         page.backForward().addItem(historyEntry->copy());
+ 
+     page.mainFrame().loader().history().setCurrentItem(page.backForward().currentItem());
+ }
+ 
+-void HandleKeyPress::dispatchOnPage(Page& page)
+-{
+-    page.userInputBridge().handleKeyEvent(platformEvent(), InputSource::Synthetic);
+-}
+-
+ // User interaction inputs.
+-void HandleWheelEvent::dispatchOnPage(Page& page)
+-{
+-    page.userInputBridge().handleWheelEvent(platformEvent(), InputSource::Synthetic);
+-}
+ 
+ void LogicalScrollPage::dispatchOnPage(Page& page)
+ {
+     page.userInputBridge().logicalScrollRecursively(direction(), granularity(), InputSource::Synthetic);
+ }
+ 
+ void ScrollPage::dispatchOnPage(Page& page)
+ {
+     page.userInputBridge().scrollRecursively(direction(), granularity(), InputSource::Synthetic);
+ }
+diff --git a/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp b/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp
+index f5d6ae4..936f0e1 100644
+--- a/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp
++++ b/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp
+@@ -26,18 +26,28 @@
+ 
+ #include "config.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include "WKReplayInputs.h"
+ #include "WebPage.h"
+ 
+ namespace WebKit {
+ 
++void HandleKeyPress::dispatchOnWebPage(WebPage& page)
++{
++    page.handleKeyEvent(platformEvent(), WebPage::ActionSource::Synthetic);
++}
++
+ void HandleMouseEvent::dispatchOnWebPage(WebPage& page)
+ {
+     page.handleMouseEvent(mouseEvent(), WebPage::ActionSource::Synthetic);
+ }
+ 
++void HandleWheelEvent::dispatchOnWebPage(WebPage& page)
++{
++    page.handleWheelEvent(platformEvent(), WebPage::ActionSource::Synthetic);
++}
++
+ } // namespace WebKit
+ 
+ #endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
+index af10794..3612368 100644
+--- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
++++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
+@@ -1846,21 +1846,21 @@ static bool handleContextMenuEvent(const PlatformMouseEvent& platformMouseEvent,
+         frame = result.innerNonSharedNode()->document().frame();
+ 
+     bool handled = page->corePage()->userInputBridge().handleContextMenuEvent(platformMouseEvent, frame);
+     if (handled)
+         page->contextMenu()->show();
+ 
+     return handled;
+ }
+ #endif
+ 
+-static bool disambiguateMouseEvent(const WebMouseEvent& mouseEvent, WebPage* page, bool onlyUpdateScrollbars)
++static bool forwardMouseEvent(const WebMouseEvent& mouseEvent, WebPage* page, bool onlyUpdateScrollbars)
+ {
+     Frame& frame = page->corePage()->mainFrame();
+     if (!frame.view())
+         return false;
+ 
+     PlatformMouseEvent platformMouseEvent = platform(mouseEvent);
+ 
+     switch (platformMouseEvent.type()) {
+         case PlatformEvent::MousePressed: {
+ #if ENABLE(CONTEXT_MENUS)
+@@ -1887,21 +1887,21 @@ static bool disambiguateMouseEvent(const WebMouseEvent& mouseEvent, WebPage* pag
+             return false;
+     }
+ }
+ 
+ bool WebPage::handleMouseEvent(const WebMouseEvent& mouseEvent, ActionSource source)
+ {
+     ASSERT(m_page->pageThrottler());
+     m_page->pageThrottler()->didReceiveUserInput();
+ 
+ #if ENABLE(WEB_REPLAY)
+-    // Don't try to handle any real mouse events if the web content is being replayed.
++    // Don't try to handle any user events if the web content is being replayed.
+     InputCursor& cursor = corePage()->replayController().activeInputCursor();
+     if (cursor.isReplaying() && source != ActionSource::Synthetic)
+         return false;
+ #else
+     UNUSED_PARAM(source);
+ #endif
+ 
+ #if ENABLE(CONTEXT_MENUS)
+     // Don't try to handle any pending mouse events if a context menu is showing.
+     if (m_isShowingContextMenu)
+@@ -1923,21 +1923,21 @@ bool WebPage::handleMouseEvent(const WebMouseEvent& mouseEvent, ActionSource sou
+         if (cursor.isCapturing())
+             cursor.appendInput<HandleMouseEvent>(std::make_unique<WebMouseEvent>(mouseEvent));
+         EventLoopInputExtent extent(cursor);
+ #endif
+         // We need to do a full, normal hit test during this mouse event if the page is active or if a mouse
+         // button is currently pressed. It is possible that neither of those things will be true since on
+         // Lion when legacy scrollbars are enabled, WebKit receives mouse events all the time. If it is one
+         // of those cases where the page is not active and the mouse is not pressed, then we can fire a more
+         // efficient scrollbars-only version of the event.
+         bool onlyUpdateScrollbars = !(m_page->focusController().isActive() || (mouseEvent.button() != WebMouseEvent::NoButton));
+-        handled = disambiguateMouseEvent(mouseEvent, this, onlyUpdateScrollbars);
++        handled = forwardMouseEvent(mouseEvent, this, onlyUpdateScrollbars);
+     }
+ 
+     return handled;
+ }
+ 
+ void WebPage::mouseEvent(const WebMouseEvent& mouseEvent)
+ {
+     bool handled = handleMouseEvent(mouseEvent, ActionSource::User);
+     send(Messages::WebPageProxy::DidReceiveEvent(static_cast<uint32_t>(mouseEvent.type()), handled));
+ }
+@@ -1954,95 +1954,126 @@ void WebPage::mouseEventSyncForTesting(const WebMouseEvent& mouseEvent, bool& ha
+ 
+     if (!handled) {
+         CurrentEvent currentEvent(mouseEvent);
+ 
+         // We need to do a full, normal hit test during this mouse event if the page is active or if a mouse
+         // button is currently pressed. It is possible that neither of those things will be true since on 
+         // Lion when legacy scrollbars are enabled, WebKit receives mouse events all the time. If it is one 
+         // of those cases where the page is not active and the mouse is not pressed, then we can fire a more
+         // efficient scrollbars-only version of the event.
+         bool onlyUpdateScrollbars = !(m_page->focusController().isActive() || (mouseEvent.button() != WebMouseEvent::NoButton));
+-        handled = disambiguateMouseEvent(mouseEvent, this, onlyUpdateScrollbars);
++        handled = forwardMouseEvent(mouseEvent, this, onlyUpdateScrollbars);
+     }
+ }
+ 
+-static bool handleWheelEvent(const WebWheelEvent& wheelEvent, Page* page)
++static bool forwardWheelEvent(const WebWheelEvent& wheelEvent, Page* page)
+ {
+     Frame& frame = page->mainFrame();
+     if (!frame.view())
+         return false;
+ 
+     PlatformWheelEvent platformWheelEvent = platform(wheelEvent);
+-    return page->userInputBridge().handleWheelEvent(platformWheelEvent);
++    return page->corePage().mainFrame().eventHandler().handleWheelEvent(platformWheelEvent);
+ }
+ 
+ void WebPage::wheelEvent(const WebWheelEvent& wheelEvent)
+ {
++    bool handled = handleWheelEvent(wheelEvent, ActionSource::User);
++    send(Messages::WebPageProxy::DidReceiveEvent(static_cast<uint32_t>(wheelEvent.type()), handled));
++}
++
++bool WebPage::handleWheelEvent(const WebWheelEvent& wheelEvent, ActionSource source)
++
+     ASSERT(m_page->pageThrottler());
+     m_page->pageThrottler()->didReceiveUserInput();
+ 
++#if ENABLE(WEB_REPLAY)
++    // Don't try to handle any user events if the web content is being replayed.
++    InputCursor& cursor = corePage()->replayController().activeInputCursor();
++    if (cursor.isReplaying() && source != ActionSource::Synthetic)
++        return;
++#else
++    UNUSED_PARAM(source);
++#endif
++
+     bool handled = false;
+ 
+     if (canHandleUserEvents()) {
+         CurrentEvent currentEvent(wheelEvent);
+ 
+-        handled = handleWheelEvent(wheelEvent, m_page.get());
++        handled = forwardWheelEvent(wheelEvent, m_page.get());
+     }
+-    send(Messages::WebPageProxy::DidReceiveEvent(static_cast<uint32_t>(wheelEvent.type()), handled));
++    return handled;
+ }
+ 
+ void WebPage::wheelEventSyncForTesting(const WebWheelEvent& wheelEvent, bool& handled)
+ {
+     CurrentEvent currentEvent(wheelEvent);
+ 
+     if (ScrollingCoordinator* scrollingCoordinator = m_page->scrollingCoordinator())
+         scrollingCoordinator->commitTreeStateIfNeeded();
+ 
+-    handled = handleWheelEvent(wheelEvent, m_page.get());
++    handled = forwardWheelEvent(wheelEvent, m_page.get());
+ }
+ 
+-static bool handleKeyEvent(const WebKeyboardEvent& keyboardEvent, Page* page)
++static bool forwardKeyEvent(const WebKeyboardEvent& keyboardEvent, Page* page)
+ {
+     if (!page->mainFrame().view())
+         return false;
+ 
+     if (keyboardEvent.type() == WebEvent::Char && keyboardEvent.isSystemKey())
+-        return page->userInputBridge().handleAccessKeyEvent(platform(keyboardEvent));
+-    return page->userInputBridge().handleKeyEvent(platform(keyboardEvent));
++        return page->corePage().mainFrame().eventHandler().handleAccessKeyEvent(platform(keyboardEvent));
++    return page->corePage().mainFrame().eventHandler().handleKeyEvent(platform(keyboardEvent));
+ }
+ 
+ void WebPage::keyEvent(const WebKeyboardEvent& keyboardEvent)
+ {
++    bool handled = handleKeyEvent(keyboardEvent, ActionSource::User);
++    send(Messages::WebPageProxy::DidReceiveEvent(static_cast<uint32_t>(keyboardEvent.type()), handled));
++}
++
++bool WebPage::handleKeyEvent(const WebKeyboardEvent& keyboardEvent, ActionSource source)
++{
+     ASSERT(m_page->pageThrottler());
+     m_page->pageThrottler()->didReceiveUserInput();
+ 
++#if ENABLE(WEB_REPLAY)
++    // Don't try to handle any user events if the web content is being replayed.
++    InputCursor& cursor = corePage()->replayController().activeInputCursor();
++    if (cursor.isReplaying() && source != ActionSource::Synthetic)
++        return false;
++#else
++    UNUSED_PARAM(source);
++#endif
++
+     bool handled = false;
+ 
+     if (canHandleUserEvents()) {
+         CurrentEvent currentEvent(keyboardEvent);
+ 
+-        handled = handleKeyEvent(keyboardEvent, m_page.get());
++        handled = forwardKeyEvent(keyboardEvent, m_page.get());
+         // FIXME: Platform default behaviors should be performed during normal DOM event dispatch (in most cases, in default keydown event handler).
+         if (!handled)
+             handled = performDefaultBehaviorForKeyEvent(keyboardEvent);
+     }
+-    send(Messages::WebPageProxy::DidReceiveEvent(static_cast<uint32_t>(keyboardEvent.type()), handled));
++
++    return handled;
+ }
+ 
+ void WebPage::keyEventSyncForTesting(const WebKeyboardEvent& keyboardEvent, bool& handled)
+ {
+     CurrentEvent currentEvent(keyboardEvent);
+ 
+     Frame& frame = m_page->focusController().focusedOrMainFrame();
+     frame.document()->updateStyleIfNeeded();
+ 
+-    handled = handleKeyEvent(keyboardEvent, m_page.get());
++    handled = forwardKeyEvent(keyboardEvent, m_page.get());
+     if (!handled)
+         handled = performDefaultBehaviorForKeyEvent(keyboardEvent);
+ }
+ 
+ void WebPage::validateCommand(const String& commandName, uint64_t callbackID)
+ {
+     bool isEnabled = false;
+     int32_t state = 0;
+     Frame& frame = m_page->focusController().focusedOrMainFrame();
+     if (PluginView* pluginView = focusedPluginViewForFrame(frame))
+diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.h b/Source/WebKit2/WebProcess/WebPage/WebPage.h
+index cf1c963..42eff01 100644
+--- a/Source/WebKit2/WebProcess/WebPage/WebPage.h
++++ b/Source/WebKit2/WebProcess/WebPage/WebPage.h
+@@ -843,20 +843,22 @@ public:
+ 
+     void willChangeCurrentHistoryItemForMainFrame();
+ 
+     // Synthetic actions are simulated during web replay.
+     enum class ActionSource {
+         User,
+         Synthetic
+     };
+ 
+     bool handleMouseEvent(const WebMouseEvent&, ActionSource);
++    bool handleKeyEvent(const WebKeyboardEvent&, ActionSource);
++    bool handleWheelEvent(const WebWheelEvent&, ActionSource);
+ 
+ private:
+     WebPage(uint64_t pageID, const WebPageCreationParameters&);
+ 
+     // IPC::MessageSender
+     virtual IPC::Connection* messageSenderConnection() override;
+     virtual uint64_t messageSenderDestinationID() override;
+ 
+     void platformInitialize();
+     void platformDetach();
+-- 
+2.0.1
+

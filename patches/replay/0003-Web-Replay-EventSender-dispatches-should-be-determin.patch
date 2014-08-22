@@ -1,4 +1,4 @@
-From fcce0d38e4c4792aedfd1c069cb496babc2936d7 Mon Sep 17 00:00:00 2001
+From 839d513e7db56faa267edce0b01d8b07c0ebd38d Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Mon, 18 Aug 2014 18:50:22 -0700
 Subject: [PATCH] Web Replay: EventSender dispatches should be deterministic
