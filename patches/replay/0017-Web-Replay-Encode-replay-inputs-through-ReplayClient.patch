@@ -1,4 +1,4 @@
-From b1f749d1627acb872fa2fe20f0d1f3b417e8ec30 Mon Sep 17 00:00:00 2001
+From b04fcdd56eeab2c8f7ddc1ac52318c29f20e8502 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 20 Aug 2014 15:32:34 -0700
 Subject: [PATCH] Web Replay: Encode replay inputs through ReplayClient Need
@@ -64,7 +64,7 @@ Source/WebKit2:
  Source/WebCore/ChangeLog                           | 50 ++++++++++++
  Source/WebCore/WebCore.exp.in                      | 76 ++++++++++++++++++-
  Source/WebCore/WebCore.xcodeproj/project.pbxproj   |  8 +-
- Source/WebCore/inspector/InspectorReplayAgent.cpp  | 36 ++++-----
+ Source/WebCore/inspector/InspectorReplayAgent.cpp  | 25 ++++--
  Source/WebCore/loader/EmptyClients.h               |  2 +
  Source/WebCore/replay/AllReplayInputs.h            | 48 ------------
  Source/WebCore/replay/CapturingInputCursor.cpp     | 41 +++++++++-
@@ -86,13 +86,13 @@ Source/WebKit2:
  .../WebProcess/Replay/WKReplayInputCoders.h        | 49 ++++++++++++
  .../WebProcess/WebCoreSupport/WebReplayClient.cpp  | 12 +++
  .../WebProcess/WebCoreSupport/WebReplayClient.h    |  3 +
- 25 files changed, 420 insertions(+), 195 deletions(-)
+ 25 files changed, 420 insertions(+), 184 deletions(-)
  delete mode 100644 Source/WebCore/replay/AllReplayInputs.h
  create mode 100644 Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.cpp
  create mode 100644 Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.h
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 5295dc52..1f5985f 100644
+index 6b5001a..d661d14 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,62 @@
@@ -159,10 +159,10 @@ index 5295dc52..1f5985f 100644
  
          Also rename SerializationMethods to ReplayInputCoders to match WebKit2 naming schemes.
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index 99e72de..b62b4f5 100644
+index e46b5d3..8eae4d4 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -3473,16 +3473,90 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
+@@ -3476,16 +3476,90 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
  
  #if ENABLE(VIDEO_TRACK)
  __ZN7WebCore9PageGroup18captionPreferencesEv
@@ -255,10 +255,10 @@ index 99e72de..b62b4f5 100644
  __ZNK7WebCore20ResourceResponseBase18resourceLoadTimingEv
  #endif
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index fa39346..9cfcdec 100644
+index b650b09..c96226f 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -3612,23 +3612,22 @@
+@@ -3592,23 +3592,22 @@
  		984264F112D5280A000D88A4 /* LinkLoaderClient.h in Headers */ = {isa = PBXBuildFile; fileRef = 984264EF12D5280A000D88A4 /* LinkLoaderClient.h */; };
  		985BB96D13A94058007A0B69 /* LinkRelAttribute.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 985BB96B13A94058007A0B69 /* LinkRelAttribute.cpp */; };
  		985BB96E13A94058007A0B69 /* LinkRelAttribute.h in Headers */ = {isa = PBXBuildFile; fileRef = 985BB96C13A94058007A0B69 /* LinkRelAttribute.h */; };
@@ -283,7 +283,7 @@ index fa39346..9cfcdec 100644
  		99CC0B5518BE9849006CEBCC /* ReplayingInputCursor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4018BE9849006CEBCC /* ReplayingInputCursor.cpp */; };
  		99CC0B5618BE984A006CEBCC /* ReplayingInputCursor.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4118BE9849006CEBCC /* ReplayingInputCursor.h */; };
  		99CC0B5718BE984A006CEBCC /* WebReplayInputCreationMethods.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4218BE9849006CEBCC /* WebReplayInputCreationMethods.cpp */; };
-@@ -3637,21 +3636,21 @@
+@@ -3617,21 +3616,21 @@
  		99CC0B5A18BE984A006CEBCC /* ReplaySession.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4518BE9849006CEBCC /* ReplaySession.h */; };
  		99CC0B5B18BE984A006CEBCC /* ReplaySessionSegment.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4618BE9849006CEBCC /* ReplaySessionSegment.cpp */; };
  		99CC0B5C18BE984A006CEBCC /* ReplaySessionSegment.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4718BE9849006CEBCC /* ReplaySessionSegment.h */; };
@@ -306,7 +306,7 @@ index fa39346..9cfcdec 100644
  		9B1AB07C1648C7C40051F3F2 /* JSHTMLFormControlsCollectionCustom.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9B1AB07B1648C7C40051F3F2 /* JSHTMLFormControlsCollectionCustom.cpp */; };
  		9B24DE8E15194B9500C59C27 /* HTMLBDIElement.h in Headers */ = {isa = PBXBuildFile; fileRef = 9B24DE8C15194B9500C59C27 /* HTMLBDIElement.h */; };
  		9B2D8A7914997CCF00ECEF3E /* UndoStep.h in Headers */ = {isa = PBXBuildFile; fileRef = 9B2D8A7814997CCF00ECEF3E /* UndoStep.h */; settings = {ATTRIBUTES = (Private, ); }; };
-@@ -10787,21 +10786,20 @@
+@@ -10747,21 +10746,20 @@
  		985BB96B13A94058007A0B69 /* LinkRelAttribute.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = LinkRelAttribute.cpp; sourceTree = "<group>"; };
  		985BB96C13A94058007A0B69 /* LinkRelAttribute.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = LinkRelAttribute.h; sourceTree = "<group>"; };
  		98CE4325129E00BD005821DC /* LinkLoader.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = LinkLoader.cpp; sourceTree = "<group>"; };
@@ -328,7 +328,7 @@ index fa39346..9cfcdec 100644
  		99CC0B4018BE9849006CEBCC /* ReplayingInputCursor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReplayingInputCursor.cpp; sourceTree = "<group>"; };
  		99CC0B4118BE9849006CEBCC /* ReplayingInputCursor.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ReplayingInputCursor.h; sourceTree = "<group>"; };
  		99CC0B4218BE9849006CEBCC /* WebReplayInputCreationMethods.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WebReplayInputCreationMethods.cpp; sourceTree = "<group>"; };
-@@ -18414,21 +18412,20 @@
+@@ -18339,21 +18337,20 @@
  				977E2E0C12F0FC9C00C13379 /* XSSAuditor.h */,
  				977E2E0B12F0FC9C00C13380 /* XSSAuditorDelegate.cpp */,
  				977E2E0C12F0FC9C00C13380 /* XSSAuditorDelegate.h */,
@@ -350,7 +350,7 @@ index fa39346..9cfcdec 100644
  				99C7CCB418C6B8990032E413 /* MemoizedDOMResult.cpp */,
  				99C7CCB218C663E40032E413 /* MemoizedDOMResult.h */,
  				99CC0B3E18BE9849006CEBCC /* ReplayController.cpp */,
-@@ -23349,21 +23346,20 @@
+@@ -23273,21 +23270,20 @@
  				29A8122B0FBB9C1D00510293 /* AccessibilityTable.h in Headers */,
  				29A812320FBB9C1D00510293 /* AccessibilityTableCell.h in Headers */,
  				29A812410FBB9C1D00510293 /* AccessibilityTableColumn.h in Headers */,
@@ -373,7 +373,7 @@ index fa39346..9cfcdec 100644
  				49E912AB0EFAC906009D0CAF /* Animation.h in Headers */,
  				316FE1120E6E1DA700BF6088 /* AnimationBase.h in Headers */,
 diff --git a/Source/WebCore/inspector/InspectorReplayAgent.cpp b/Source/WebCore/inspector/InspectorReplayAgent.cpp
-index d5ddb2c..0390803 100644
+index 7d28000..1349c57 100644
 --- a/Source/WebCore/inspector/InspectorReplayAgent.cpp
 +++ b/Source/WebCore/inspector/InspectorReplayAgent.cpp
 @@ -35,20 +35,21 @@
@@ -382,7 +382,7 @@ index d5ddb2c..0390803 100644
  #include "FunctorInputCursor.h"
  #include "InspectorController.h"
  #include "InspectorPageAgent.h"
- #include "InspectorWebTypeBuilders.h"
+ #include "InspectorWebProtocolTypes.h"
  #include "InstrumentingAgents.h"
  #include "Logging.h"
  #include "Page.h"
@@ -398,67 +398,35 @@ index d5ddb2c..0390803 100644
  
  using namespace Inspector;
  
-@@ -56,31 +57,20 @@ namespace WebCore {
- 
- static PassRefPtr<TypeBuilder::Replay::ReplayPosition> buildInspectorObjectForPosition(const ReplayPosition& position)
- {
-     RefPtr<TypeBuilder::Replay::ReplayPosition> positionObject = TypeBuilder::Replay::ReplayPosition::create()
-         .setSegmentOffset(position.segmentOffset)
-         .setInputOffset(position.inputOffset);
- 
-     return positionObject.release();
- }
- 
--static PassRefPtr<TypeBuilder::Replay::ReplayInput> buildInspectorObjectForInput(const NondeterministicInputBase& input, size_t offset)
--{
--    EncodedValue encodedInput = EncodingTraits<NondeterministicInputBase>::encodeValue(input);
--    RefPtr<TypeBuilder::Replay::ReplayInput> inputObject = TypeBuilder::Replay::ReplayInput::create()
--        .setType(input.type())
--        .setOffset(offset)
--        .setData(encodedInput.asObject());
--
--    return inputObject.release();
--}
--
- static PassRefPtr<TypeBuilder::Replay::ReplaySession> buildInspectorObjectForSession(PassRefPtr<ReplaySession> prpSession)
- {
-     RefPtr<ReplaySession> session = prpSession;
-     RefPtr<TypeBuilder::Array<SegmentIdentifier>> segments = TypeBuilder::Array<SegmentIdentifier>::create();
- 
-     for (auto it = session->begin(); it != session->end(); ++it)
-         segments->addItem((*it)->identifier());
- 
-     RefPtr<TypeBuilder::Replay::ReplaySession> sessionObject = TypeBuilder::Replay::ReplaySession::create()
-         .setId(session->identifier())
-@@ -106,44 +96,54 @@ static TypeBuilder::Replay::SegmentState buildInspectorObjectForSegmentState(Web
-     case WebCore::SegmentState::Unloaded: return TypeBuilder::Replay::SegmentState::Unloaded;
-     case WebCore::SegmentState::Loaded: return TypeBuilder::Replay::SegmentState::Loaded;
-     case WebCore::SegmentState::Dispatching: return TypeBuilder::Replay::SegmentState::Dispatching;
+@@ -106,44 +107,54 @@ static Inspector::Protocol::Replay::SegmentState buildInspectorObjectForSegmentS
+     case WebCore::SegmentState::Unloaded: return Inspector::Protocol::Replay::SegmentState::Unloaded;
+     case WebCore::SegmentState::Loaded: return Inspector::Protocol::Replay::SegmentState::Loaded;
+     case WebCore::SegmentState::Dispatching: return Inspector::Protocol::Replay::SegmentState::Dispatching;
      }
  }
  
  class SerializeInputToJSONFunctor {
  public:
-     typedef PassRefPtr<TypeBuilder::Array<TypeBuilder::Replay::ReplayInput>> ReturnType;
+     typedef PassRefPtr<Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInput>> ReturnType;
  
 -    SerializeInputToJSONFunctor()
--        : m_inputs(TypeBuilder::Array<TypeBuilder::Replay::ReplayInput>::create()) { }
+-        : m_inputs(Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInput>::create()) { }
 +    SerializeInputToJSONFunctor(ReplayClient& client)
 +        : m_client(client)
-+        , m_inputs(TypeBuilder::Array<TypeBuilder::Replay::ReplayInput>::create()) { }
++        , m_inputs(Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInput>::create()) { }
      ~SerializeInputToJSONFunctor() { }
  
      void operator()(size_t index, const NondeterministicInputBase* input)
      {
          LOG(WebReplay, "%-25s Writing %5zu: %s\n", "[SerializeInput]", index, input->type().string().ascii().data());
  
--        if (RefPtr<TypeBuilder::Replay::ReplayInput> serializedInput = buildInspectorObjectForInput(*input, index))
+-        if (RefPtr<Inspector::Protocol::Replay::ReplayInput> serializedInput = buildInspectorObjectForInput(*input, index))
 -            m_inputs->addItem(serializedInput.release());
 +        EncodedValue encodedInput;
 +        if (!m_client.encodeInput(*input, encodedInput))
 +            return;
 +
-+        RefPtr<TypeBuilder::Replay::ReplayInput> inputObject = TypeBuilder::Replay::ReplayInput::create()
++        RefPtr<Inspector::Protocol::Replay::ReplayInput> inputObject = Inspector::Protocol::Replay::ReplayInput::create()
 +            .setType(input->type())
 +            .setOffset(index)
 +            .setData(encodedInput.asObject());
@@ -469,32 +437,32 @@ index d5ddb2c..0390803 100644
      ReturnType returnValue() { return m_inputs.release(); }
  private:
 +    ReplayClient& m_client;
-     RefPtr<TypeBuilder::Array<TypeBuilder::Replay::ReplayInput>> m_inputs;
+     RefPtr<Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInput>> m_inputs;
  };
  
--static PassRefPtr<TypeBuilder::Replay::SessionSegment> buildInspectorObjectForSegment(PassRefPtr<ReplaySessionSegment> prpSegment)
-+static PassRefPtr<TypeBuilder::Replay::SessionSegment> buildInspectorObjectForSegment(PassRefPtr<ReplaySessionSegment> prpSegment, ReplayClient& client)
+-static PassRefPtr<Inspector::Protocol::Replay::SessionSegment> buildInspectorObjectForSegment(PassRefPtr<ReplaySessionSegment> prpSegment)
++static PassRefPtr<Inspector::Protocol::Replay::SessionSegment> buildInspectorObjectForSegment(PassRefPtr<ReplaySessionSegment> prpSegment, ReplayClient& client)
  {
      RefPtr<ReplaySessionSegment> segment = prpSegment;
-     RefPtr<TypeBuilder::Array<TypeBuilder::Replay::ReplayInputQueue>> queuesObject = TypeBuilder::Array<TypeBuilder::Replay::ReplayInputQueue>::create();
+     RefPtr<Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInputQueue>> queuesObject = Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInputQueue>::create();
  
      for (size_t i = 0; i < static_cast<size_t>(InputQueue::Count); i++) {
 -        SerializeInputToJSONFunctor collector;
 +        SerializeInputToJSONFunctor collector(client);
          InputQueue queue = static_cast<InputQueue>(i);
          RefPtr<FunctorInputCursor> functorCursor = FunctorInputCursor::create(segment);
-         RefPtr<TypeBuilder::Array<TypeBuilder::Replay::ReplayInput>> queueInputs = functorCursor->forEachInputInQueue(queue, collector);
+         RefPtr<Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInput>> queueInputs = functorCursor->forEachInputInQueue(queue, collector);
  
-         RefPtr<TypeBuilder::Replay::ReplayInputQueue> queueObject = TypeBuilder::Replay::ReplayInputQueue::create()
+         RefPtr<Inspector::Protocol::Replay::ReplayInputQueue> queueObject = Inspector::Protocol::Replay::ReplayInputQueue::create()
              .setType(EncodingTraits<InputQueue>::encodeValue(queue).convertTo<String>())
              .setInputs(queueInputs);
  
          queuesObject->addItem(queueObject.release());
      }
-@@ -518,16 +518,16 @@ void InspectorReplayAgent::getSessionData(ErrorString* errorString, TypeBuilder:
+@@ -518,16 +529,16 @@ void InspectorReplayAgent::getSessionData(ErrorString* errorString, Inspector::P
  }
  
- void InspectorReplayAgent::getSegmentData(ErrorString* errorString, TypeBuilder::Replay::SegmentIdentifier identifier, RefPtr<TypeBuilder::Replay::SessionSegment>& serializedObject)
+ void InspectorReplayAgent::getSegmentData(ErrorString* errorString, Inspector::Protocol::Replay::SegmentIdentifier identifier, RefPtr<Inspector::Protocol::Replay::SessionSegment>& serializedObject)
  {
      RefPtr<ReplaySessionSegment> segment = findSegment(errorString, identifier);
      if (!segment) {
@@ -510,7 +478,7 @@ index d5ddb2c..0390803 100644
  
  #endif // ENABLE(INSPECTOR) && ENABLE(WEB_REPLAY)
 diff --git a/Source/WebCore/loader/EmptyClients.h b/Source/WebCore/loader/EmptyClients.h
-index 75bef15d..596f379 100644
+index 2e990d2..913022a 100644
 --- a/Source/WebCore/loader/EmptyClients.h
 +++ b/Source/WebCore/loader/EmptyClients.h
 @@ -601,20 +601,22 @@ public:
@@ -1310,10 +1278,10 @@ index ea452e6..7b5662c 100644
      Frame* frame = frameFromFrameIndex(&page, frameIndex);
      ASSERT(frame);
 diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
-index 3cf293e..4bdfb17 100644
+index 58703586..cb4406b 100644
 --- a/Source/WebKit2/CMakeLists.txt
 +++ b/Source/WebKit2/CMakeLists.txt
-@@ -756,19 +756,20 @@ if (ENABLE_WEB_REPLAY)
+@@ -755,19 +755,20 @@ if (ENABLE_WEB_REPLAY)
  =======
      set(WebKit2_WEB_REPLAY_INPUTS ${WEBKIT2_DIR}/WebProcess/Replay/WebInputs.json)
      add_custom_command(
@@ -1335,7 +1303,7 @@ index 3cf293e..4bdfb17 100644
  install(TARGETS WebKit2 DESTINATION "${LIB_INSTALL_DIR}")
  install(TARGETS WebProcess DESTINATION "${LIBEXEC_INSTALL_DIR}")
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 17d65f6..75ba7cc 100644
+index 63c628c..8adc5b1 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,33 @@
@@ -1373,10 +1341,10 @@ index 17d65f6..75ba7cc 100644
  
          * WebProcess/WebPage/WebBackForwardListProxy.h:
 diff --git a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
-index 1f07e4c..cc1ce34 100644
+index 118588b..f602d0e 100644
 --- a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
 +++ b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
-@@ -1546,20 +1546,22 @@
+@@ -1544,20 +1544,22 @@
  		C0CE72A01247E71D00BC0EC4 /* WebPageMessageReceiver.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0CE729E1247E71D00BC0EC4 /* WebPageMessageReceiver.cpp */; };
  		C0CE72A11247E71D00BC0EC4 /* WebPageMessages.h in Headers */ = {isa = PBXBuildFile; fileRef = C0CE729F1247E71D00BC0EC4 /* WebPageMessages.h */; };
  		C0CE72AD1247E78D00BC0EC4 /* HandleMessage.h in Headers */ = {isa = PBXBuildFile; fileRef = C0CE72AC1247E78D00BC0EC4 /* HandleMessage.h */; };
@@ -1399,7 +1367,7 @@ index 1f07e4c..cc1ce34 100644
  		C54256BA18BEC18C00DE4179 /* WKFormSelectControl.h in Headers */ = {isa = PBXBuildFile; fileRef = C54256B418BEC18C00DE4179 /* WKFormSelectControl.h */; };
  		C55CB5B718C269CF00CA81E1 /* WKFormSelectPopover.mm in Sources */ = {isa = PBXBuildFile; fileRef = C57193BA18C149D0002D0F12 /* WKFormSelectPopover.mm */; };
  		C55CB5B818C2A5D600CA81E1 /* WKFormSelectPicker.mm in Sources */ = {isa = PBXBuildFile; fileRef = C57193B918C149D0002D0F12 /* WKFormSelectPicker.mm */; };
-@@ -3645,20 +3647,22 @@
+@@ -3641,20 +3643,22 @@
  		C0CE73361247F70E00BC0EC4 /* generate-message-receiver.py */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.python; path = "generate-message-receiver.py"; sourceTree = "<group>"; };
  		C0CE73371247F70E00BC0EC4 /* generate-messages-header.py */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.python; path = "generate-messages-header.py"; sourceTree = "<group>"; };
  		C0E3AA441209E2BA00A49D01 /* Module.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Module.h; sourceTree = "<group>"; };
@@ -1422,7 +1390,7 @@ index 1f07e4c..cc1ce34 100644
  		C54256B418BEC18C00DE4179 /* WKFormSelectControl.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WKFormSelectControl.h; path = ios/forms/WKFormSelectControl.h; sourceTree = "<group>"; };
  		C554FFA212E4E8EA002F22C0 /* WebDragClientMac.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = WebDragClientMac.mm; sourceTree = "<group>"; };
  		C57193B918C149D0002D0F12 /* WKFormSelectPicker.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WKFormSelectPicker.mm; path = ios/forms/WKFormSelectPicker.mm; sourceTree = "<group>"; };
-@@ -6918,20 +6922,22 @@
+@@ -6912,20 +6916,22 @@
  			);
  			path = Scripts;
  			sourceTree = "<group>";
@@ -1445,7 +1413,7 @@ index 1f07e4c..cc1ce34 100644
  				C5FA1ED118E1062200B3F402 /* WKAirPlayRoutePicker.h */,
  				C5FA1ED218E1062200B3F402 /* WKAirPlayRoutePicker.mm */,
  				A58B6F0618FCA733008CBA53 /* WKFileUploadPanel.h */,
-@@ -7801,20 +7807,21 @@
+@@ -7794,20 +7800,21 @@
  				BCD597D0112B56AC00EC8C23 /* WKPreferencesRef.h in Headers */,
  				762B748D120BC75C00819339 /* WKPreferencesRefPrivate.h in Headers */,
  				37C4C08918149F23003688B9 /* WKBackForwardListItemInternal.h in Headers */,
@@ -1467,7 +1435,7 @@ index 1f07e4c..cc1ce34 100644
  				1F604BAA1889FBB800EE0395 /* WKRenderingProgressEventsInternal.h in Headers */,
  				1F7506B81859165D00EC0FF7 /* WKWebProcessPlugInFrameInternal.h in Headers */,
  				F67DD7BA125E40D9007BDCB8 /* WKSerializedScriptValuePrivate.h in Headers */,
-@@ -8817,20 +8824,21 @@
+@@ -8810,20 +8817,21 @@
  				515E773318402D510007203F /* UniqueIDBDatabaseIdentifier.cpp in Sources */,
  				2DA049B7180CCD0A00AAFA9E /* GraphicsLayerCARemote.cpp in Sources */,
  				378E1A4D18208D700031007A /* WKNSURL.mm in Sources */,

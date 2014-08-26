@@ -1,0 +1,1708 @@
+From ae81f9a2a7740ba993731c318b083ea1902f08c7 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Fri, 22 Aug 2014 08:46:08 -0700
+Subject: [PATCH] [WIP] Web Replay: capture and replay Mouse, Wheel, and
+ Keyboard events in WebKit2.
+
+---
+ Source/WebCore/WebCore.exp.in                      |  15 +-
+ Source/WebCore/replay/UserInputBridge.cpp          |  51 -----
+ Source/WebCore/replay/UserInputBridge.h            |  15 --
+ Source/WebCore/replay/WebInputs.json               |  60 ------
+ Source/WebCore/replay/WebReplayInputCoders.cpp     | 233 ++++-----------------
+ Source/WebCore/replay/WebReplayInputCoders.h       |  25 +--
+ .../replay/WebReplayInputDispatchMethods.cpp       |   9 -
+ Source/WebKit2/Shared/WebEvent.h                   |   4 +-
+ Source/WebKit2/WebProcess/Replay/WKInputs.json     |  64 +++++-
+ .../WebProcess/Replay/WKReplayInputCoders.cpp      | 125 +++++++++++
+ .../WebProcess/Replay/WKReplayInputCoders.h        |  24 ++-
+ .../Replay/WKReplayInputDispatchMethods.cpp        |  10 +
+ Source/WebKit2/WebProcess/WebPage/WebPage.cpp      |  81 +++++--
+ Source/WebKit2/WebProcess/WebPage/WebPage.h        |   3 +
+ 14 files changed, 343 insertions(+), 376 deletions(-)
+
+diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
+index ca56388..bfb8d56 100644
+--- a/Source/WebCore/WebCore.exp.in
++++ b/Source/WebCore/WebCore.exp.in
+@@ -647,25 +647,22 @@ __ZN7WebCore15ScrollAlignment17alignCenterAlwaysE
+ __ZN7WebCore15ScrollAlignment19alignToEdgeIfNeededE
+ __ZN7WebCore15StorageStrategy21localStorageNamespaceEPNS_9PageGroupE
+ __ZN7WebCore15StorageStrategy23sessionStorageNamespaceEPNS_4PageE
+ __ZN7WebCore15StorageStrategy30transientLocalStorageNamespaceEPNS_9PageGroupEPNS_14SecurityOriginE
+ __ZN7WebCore15StringTruncator13rightTruncateERKN3WTF6StringEfRKNS_4FontENS0_24EnableRoundingHacksOrNotE
+ __ZN7WebCore15StringTruncator14centerTruncateERKN3WTF6StringEfRKNS_4FontENS0_24EnableRoundingHacksOrNotE
+ __ZN7WebCore15StringTruncator5widthERKN3WTF6StringERKNS_4FontENS0_24EnableRoundingHacksOrNotE
+ __ZN7WebCore15UserInputBridge11loadRequestERKNS_16FrameLoadRequestENS_11InputSourceE
+ __ZN7WebCore15UserInputBridge11reloadFrameEPNS_5FrameEbNS_11InputSourceE
+ __ZN7WebCore15UserInputBridge12tryClosePageENS_11InputSourceE
+-__ZN7WebCore15UserInputBridge14handleKeyEventERKNS_21PlatformKeyboardEventENS_11InputSourceE
+-__ZN7WebCore15UserInputBridge16handleWheelEventERKNS_18PlatformWheelEventENS_11InputSourceE
+ __ZN7WebCore15UserInputBridge16stopLoadingFrameEPNS_5FrameENS_11InputSourceE
+ __ZN7WebCore15UserInputBridge17scrollRecursivelyENS_15ScrollDirectionENS_17ScrollGranularityENS_11InputSourceE
+-__ZN7WebCore15UserInputBridge20handleAccessKeyEventERKNS_21PlatformKeyboardEventENS_11InputSourceE
+ __ZN7WebCore15VisiblePositionC1ERKNS_8PositionENS_9EAffinityE
+ __ZN7WebCore15defaultLanguageEv
+ __ZN7WebCore15localizedStringEPKc
+ __ZN7WebCore15mimeTypeFromURLERKNS_3URLE
+ __ZN7WebCore15originalURLDataEP5NSURL
+ __ZN7WebCore15pathGetFileNameERKN3WTF6StringE
+ __ZN7WebCore15reportExceptionEPN3JSC9ExecStateENS0_7JSValueEPNS_12CachedScriptE
+ __ZN7WebCore15setDOMExceptionEPN3JSC9ExecStateEi
+ __ZN7WebCore15toDOMStringListEPN3JSC9ExecStateENS0_7JSValueE
+ __ZN7WebCore15visitedLinkHashEPKtj
+@@ -2980,21 +2977,20 @@ __ZN7WebCore13ContentFilter43handleUnblockRequestAndDispatchIfSuccessfulERKNS_15
+ #endif
+ 
+ #if ENABLE(CONTEXT_MENUS)
+ __ZN7WebCore11ContextMenu22setPlatformDescriptionEP14NSMutableArray
+ __ZN7WebCore12EventHandler20sendContextMenuEventERKNS_18PlatformMouseEventE
+ __ZN7WebCore15ContextMenuItem26releasePlatformDescriptionEv
+ __ZN7WebCore15ContextMenuItemC1ENS_19ContextMenuItemTypeENS_17ContextMenuActionERKN3WTF6StringEPNS_11ContextMenuE
+ __ZN7WebCore15ContextMenuItemC1ENS_19ContextMenuItemTypeENS_17ContextMenuActionERKN3WTF6StringEbb
+ __ZN7WebCore15ContextMenuItemC1EP10NSMenuItem
+ __ZN7WebCore15ContextMenuItemD1Ev
+-__ZN7WebCore15UserInputBridge22handleContextMenuEventERKNS_18PlatformMouseEventEPKNS_5FrameENS_11InputSourceE
+ __ZN7WebCore21ContextMenuController16clearContextMenuEv
+ __ZN7WebCore21ContextMenuController23contextMenuItemSelectedEPNS_15ContextMenuItemE
+ __ZN7WebCore21contextMenuItemVectorEP14NSMutableArray
+ __ZNK7WebCore11ContextMenu19platformDescriptionEv
+ __ZNK7WebCore15ContextMenuItem15platformSubMenuEv
+ __ZNK7WebCore15ContextMenuItem4typeEv
+ __ZNK7WebCore15ContextMenuItem5titleEv
+ __ZNK7WebCore15ContextMenuItem6actionEv
+ __ZNK7WebCore15ContextMenuItem7checkedEv
+ __ZNK7WebCore15ContextMenuItem7enabledEv
+@@ -3485,38 +3481,32 @@ __ZN3JSC11InputTraitsIN7WebCore10ScrollPageEE6decodeERNS_12EncodedValueERNSt3__1
+ __ZN3JSC11InputTraitsIN7WebCore10ScrollPageEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore11ReloadFrameEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore11ReloadFrameEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore11ReloadFrameEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore12TryClosePageEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore12TryClosePageEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore12TryClosePageEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore13DOMTimerFiredEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore13DOMTimerFiredEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore13DOMTimerFiredEE6encodeERNS_12EncodedValueERKS2_
+-__ZN3JSC11InputTraitsIN7WebCore14HandleKeyPressEE4typeEv
+-__ZN3JSC11InputTraitsIN7WebCore14HandleKeyPressEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+-__ZN3JSC11InputTraitsIN7WebCore14HandleKeyPressEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore14LoadURLRequestEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore14LoadURLRequestEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore14LoadURLRequestEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore15AsyncTimerFiredEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore15AsyncTimerFiredEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore15AsyncTimerFiredEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore15DOMTimerCreatedEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore15DOMTimerCreatedEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore15DOMTimerCreatedEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6encodeERNS_12EncodedValueERKS2_
+-__ZN3JSC11InputTraitsIN7WebCore16HandleWheelEventEE4typeEv
+-__ZN3JSC11InputTraitsIN7WebCore16HandleWheelEventEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+-__ZN3JSC11InputTraitsIN7WebCore16HandleWheelEventEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore17InitialNavigationEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore17InitialNavigationEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore17InitialNavigationEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore17InitializeHistoryEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore17InitializeHistoryEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore17InitializeHistoryEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore17LogicalScrollPageEE4typeEv
+@@ -3542,20 +3532,25 @@ __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6decodeERNS_12Encode
+ __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore32ResourceLoaderDidReceiveResponseEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore32ResourceLoaderDidReceiveResponseEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore32ResourceLoaderDidReceiveResponseEE6encodeERNS_12EncodedValueERKS2_
++__ZN3JSC14EncodingTraitsIN7WebCore15KeypressCommandEE11decodeValueERNS_12EncodedValueERS2_
++__ZN3JSC14EncodingTraitsIN7WebCore15KeypressCommandEE11encodeValueERKS2_
++__ZN3JSC14EncodingTraitsIN7WebCore8IntPointEE11decodeValueERNS_12EncodedValueERS2_
+ __ZN3JSC14EncodingTraitsIN7WebCore8IntPointEE11encodeValueERKS2_
++__ZN3JSC14EncodingTraitsIN7WebCore9FloatSizeEE11decodeValueERNS_12EncodedValueERS2_
++__ZN3JSC14EncodingTraitsIN7WebCore9FloatSizeEE11encodeValueERKS2_
+ __ZN7WebCore20EventLoopInputExtentC1ERN3JSC11InputCursorE
+ __ZN7WebCore20EventLoopInputExtentD1Ev
+ __ZNK7WebCore14ResourceLoader17activeInputCursorEv
+ __ZNK7WebCore16ReplayController17activeInputCursorEv
+ #endif
+ 
+ #if ENABLE(WEB_TIMING)
+ __ZNK7WebCore20ResourceResponseBase18resourceLoadTimingEv
+ #endif
+diff --git a/Source/WebCore/replay/UserInputBridge.cpp b/Source/WebCore/replay/UserInputBridge.cpp
+index 0b1fd29..668a070 100644
+--- a/Source/WebCore/replay/UserInputBridge.cpp
++++ b/Source/WebCore/replay/UserInputBridge.cpp
+@@ -27,23 +27,20 @@
+ 
+ #include "config.h"
+ #include "UserInputBridge.h"
+ 
+ #include "EventHandler.h"
+ #include "FocusController.h"
+ #include "Frame.h"
+ #include "FrameLoadRequest.h"
+ #include "MainFrame.h"
+ #include "Page.h"
+-#include "PlatformKeyboardEvent.h"
+-#include "PlatformMouseEvent.h"
+-#include "PlatformWheelEvent.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ #include "ReplayController.h"
+ #include "WebReplayInputCoders.h"
+ #include "WebReplayInputs.h"
+ #include <replay/InputCursor.h>
+ #endif
+ 
+ #define EARLY_RETURN_IF_SHOULD_IGNORE_INPUT \
+     do { \
+@@ -68,68 +65,20 @@ UserInputBridge::UserInputBridge(Page& page)
+ {
+ }
+ 
+ #if ENABLE(WEB_REPLAY)
+ InputCursor& UserInputBridge::activeCursor() const
+ {
+     return m_page.replayController().activeInputCursor();
+ }
+ #endif
+ 
+-#if ENABLE(CONTEXT_MENUS)
+-bool UserInputBridge::handleContextMenuEvent(const PlatformMouseEvent& mouseEvent, const Frame* frame, InputSource)
+-{
+-    return frame->eventHandler().sendContextMenuEvent(mouseEvent);
+-}
+-#endif
+-
+-bool UserInputBridge::handleKeyEvent(const PlatformKeyboardEvent& keyEvent, InputSource inputSource)
+-{
+-#if ENABLE(WEB_REPLAY)
+-    EARLY_RETURN_IF_SHOULD_IGNORE_INPUT;
+-
+-    InputCursor& cursor = activeCursor();
+-    if (cursor.isCapturing()) {
+-        std::unique_ptr<PlatformKeyboardEvent> ownedEvent = std::make_unique<PlatformKeyboardEvent>(keyEvent);
+-        cursor.appendInput<HandleKeyPress>(WTF::move(ownedEvent));
+-    }
+-    EventLoopInputExtent extent(cursor);
+-#else
+-    UNUSED_PARAM(inputSource);
+-#endif
+-
+-    return m_page.focusController().focusedOrMainFrame().eventHandler().keyEvent(keyEvent);
+-}
+-
+-bool UserInputBridge::handleAccessKeyEvent(const PlatformKeyboardEvent& keyEvent, InputSource)
+-{
+-    return m_page.focusController().focusedOrMainFrame().eventHandler().handleAccessKey(keyEvent);
+-}
+-
+-bool UserInputBridge::handleWheelEvent(const PlatformWheelEvent& wheelEvent, InputSource inputSource)
+-{
+-#if ENABLE(WEB_REPLAY)
+-    EARLY_RETURN_IF_SHOULD_IGNORE_INPUT;
+-
+-    InputCursor& cursor = activeCursor();
+-    if (cursor.isCapturing()) {
+-        std::unique_ptr<PlatformWheelEvent> ownedEvent = std::make_unique<PlatformWheelEvent>(wheelEvent);
+-        cursor.appendInput<HandleWheelEvent>(WTF::move(ownedEvent));
+-    }
+-    EventLoopInputExtent extent(cursor);
+-#else
+-    UNUSED_PARAM(inputSource);
+-#endif
+-
+-    return m_page.mainFrame().eventHandler().handleWheelEvent(wheelEvent);
+-}
+-
+ void UserInputBridge::focusSetActive(bool active, InputSource)
+ {
+     m_page.focusController().setActive(active);
+ }
+ 
+ void UserInputBridge::focusSetFocused(bool focused, InputSource)
+ {
+     m_page.focusController().setFocused(focused);
+ }
+ 
+diff --git a/Source/WebCore/replay/UserInputBridge.h b/Source/WebCore/replay/UserInputBridge.h
+index 47b954f..3467194 100644
+--- a/Source/WebCore/replay/UserInputBridge.h
++++ b/Source/WebCore/replay/UserInputBridge.h
+@@ -34,23 +34,20 @@
+ namespace JSC {
+ class InputCursor;
+ }
+ 
+ namespace WebCore {
+ 
+ struct FrameLoadRequest;
+ 
+ class Frame;
+ class Page;
+-class PlatformKeyboardEvent;
+-class PlatformMouseEvent;
+-class PlatformWheelEvent;
+ 
+ // Real user inputs come from WebKit or WebKit2.
+ // Synthetic inputs come from within WebCore (i.e., from web replay or fake mouse moves).
+ enum class InputSource {
+     User,
+     Synthetic
+ };
+ 
+ class UserInputBridge {
+     WTF_MAKE_NONCOPYABLE(UserInputBridge);
+@@ -64,32 +61,20 @@ public:
+         Replaying,
+     };
+ 
+     void setState(State bridgeState) { m_state = bridgeState; }
+     State state() const { return m_state; }
+ 
+     JSC::InputCursor& activeCursor() const;
+ #endif
+ 
+     // User input APIs.
+-#if ENABLE(CONTEXT_MENUS)
+-    WEBCORE_EXPORT bool handleContextMenuEvent(const PlatformMouseEvent&, const Frame*, InputSource source = InputSource::User);
+-#endif
+-/*
+-    WEBCORE_EXPORT bool handleMousePressEvent(const PlatformMouseEvent&, InputSource source = InputSource::User);
+-    WEBCORE_EXPORT bool handleMouseReleaseEvent(const PlatformMouseEvent&, InputSource source = InputSource::User);
+-    WEBCORE_EXPORT bool handleMouseMoveEvent(const PlatformMouseEvent&, InputSource source = InputSource::User);
+-    WEBCORE_EXPORT bool handleMouseMoveOnScrollbarEvent(const PlatformMouseEvent&, InputSource source = InputSource::User);
+-*/
+-    WEBCORE_EXPORT bool handleWheelEvent(const PlatformWheelEvent&, InputSource source = InputSource::User);
+-    WEBCORE_EXPORT bool handleKeyEvent(const PlatformKeyboardEvent&, InputSource source = InputSource::User);
+-    WEBCORE_EXPORT bool handleAccessKeyEvent(const PlatformKeyboardEvent&, InputSource source = InputSource::User);
+     WEBCORE_EXPORT void focusSetActive(bool active, InputSource source = InputSource::User);
+     WEBCORE_EXPORT void focusSetFocused(bool focused, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool scrollRecursively(ScrollDirection, ScrollGranularity, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool logicalScrollRecursively(ScrollLogicalDirection, ScrollGranularity, InputSource source = InputSource::User);
+ 
+     // Navigation APIs.
+     WEBCORE_EXPORT void loadRequest(const FrameLoadRequest&, InputSource source = InputSource::User);
+     WEBCORE_EXPORT void reloadFrame(Frame*, bool endToEndReload, InputSource source = InputSource::User);
+     WEBCORE_EXPORT void stopLoadingFrame(Frame*, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool tryClosePage(InputSource source = InputSource::User);
+diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
+index 734f14a..226ae56 100644
+--- a/Source/WebCore/replay/WebInputs.json
++++ b/Source/WebCore/replay/WebInputs.json
+@@ -174,46 +174,20 @@
+                 "enclosing_class": "FormDataElement",
+                 "flags": ["ENUM_CLASS"],
+                 "values": [
+                     "Data",
+                     "EncodedFile",
+                     "EncodedBlob"
+                 ],
+                 "header": "platform/network/FormData.h"
+             },
+             {
+-                "name": "Type", "mode": "SCALAR", "storage": "uint8_t",
+-                "enclosing_class": "PlatformEvent",
+-                "flags": ["ENUM"],
+-                "values": [
+-                    "NoType",
+-                    "KeyDown",
+-                    "KeyUp",
+-                    "RawKeyDown",
+-                    "Char",
+-                    "MouseMoved",
+-                    "MousePressed",
+-                    "MouseReleased",
+-                    "MouseScroll",
+-                    "Wheel"
+-                ],
+-                "guarded_values": {
+-                    "ENABLE(TOUCH_EVENTS)": [
+-                        "TouchStart",
+-                        "TouchMove",
+-                        "TouchEnd",
+-                        "TouchCancel"
+-                    ]
+-                },
+-                "header": "platform/PlatformEvent.h"
+-            },
+-            {
+                 "name": "URL", "mode": "HEAVY_SCALAR",
+                 "header": "platform/URL.h"
+             }
+         ]
+     },
+ 
+     "inputs": [
+         {
+             "name": "AsyncTimerFired",
+             "description": "A ReplayableTimer instance fired that was associated with the specified frame.",
+@@ -255,36 +229,20 @@
+                 { "name": "timerIdentifier", "type": "uint32_t"}
+             ]
+         },
+         {
+             "name": "EndSegmentSentinel",
+             "description": "A sentinel input to signal the end of a segment.",
+             "queue": "EVENT_LOOP",
+             "members": [ ]
+         },
+         {
+-            "name": "HandleKeyPress",
+-            "description": "The embedder signalled a key press event.",
+-            "queue": "EVENT_LOOP",
+-            "members": [
+-                { "name": "platformEvent", "type": "PlatformKeyboardEvent" }
+-            ]
+-        },
+-        {
+-            "name": "HandleWheelEvent",
+-            "description": "The embedder signalled a mouse wheel event.",
+-            "queue": "EVENT_LOOP",
+-            "members": [
+-                { "name": "platformEvent", "type": "PlatformWheelEvent" }
+-            ]
+-        },
+-        {
+             "name": "InitializeHistory",
+             "description": "Restore the saved history items that comprise the page's back-forward list.",
+             "queue": "EVENT_LOOP",
+             "flags": ["CREATE_FROM_PAGE"],
+             "members": [
+                 { "name": "entries", "type": "HistoryItem", "flags": ["VECTOR"] }
+             ]
+         },
+         {
+             "name": "InitialNavigation",
+@@ -307,47 +265,29 @@
+         },
+         {
+             "name": "LoadURLRequest",
+             "description": "The embedder requested that the specified frame start a new load.",
+             "queue": "EVENT_LOOP",
+             "members": [
+                 { "name": "loadRequest", "type": "FrameLoadRequest" }
+             ]
+         },
+         {
+-            "name": "LogicalScrollPage",
+-            "description": "The embedder signalled a logical scroll event.",
+-            "queue": "EVENT_LOOP",
+-            "members": [
+-                { "name": "direction", "type": "ScrollLogicalDirection" },
+-                { "name": "granularity", "type": "ScrollGranularity" }
+-            ]
+-        },
+-        {
+             "name": "ReloadFrame",
+             "description": "The embedder requested that the specified frame should reload.",
+             "queue": "EVENT_LOOP",
+             "members": [
+                 { "name": "frameIndex", "type": "uint32_t" },
+                 { "name": "endToEndReload", "type": "bool" }
+             ]
+         },
+         {
+-            "name": "ScrollPage",
+-            "description": "The embedder signalled a scroll event.",
+-            "queue": "EVENT_LOOP",
+-            "members": [
+-                { "name": "direction", "type": "ScrollDirection" },
+-                { "name": "granularity", "type": "ScrollGranularity" }
+-            ]
+-        },
+-        {
+             "name": "ResourceLoaderDidFail",
+             "description": "A resource loader failed to load its resource.",
+             "queue": "EVENT_LOOP",
+             "members": [
+                 { "name": "ordinal", "type": "uint64_t" },
+                 { "name": "frameIndex", "type": "uint32_t" },
+                 { "name": "error", "type": "ResourceError" }
+             ]
+         },
+         {
+diff --git a/Source/WebCore/replay/WebReplayInputCoders.cpp b/Source/WebCore/replay/WebReplayInputCoders.cpp
+index f5680be..6046197 100644
+--- a/Source/WebCore/replay/WebReplayInputCoders.cpp
++++ b/Source/WebCore/replay/WebReplayInputCoders.cpp
+@@ -24,74 +24,69 @@
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #include "config.h"
+ #include "WebReplayInputCoders.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include "Document.h"
++#include "FloatSize.h"
+ #include "FormData.h"
+ #include "Frame.h"
+ #include "FrameLoadRequest.h"
+ #include "FrameTree.h"
+ #include "HTTPHeaderMap.h"
+ #include "HistoryItem.h"
++#include "KeypressCommand.h"
+ #include "MainFrame.h"
+ #include "MemoizedDOMResult.h"
+ #include "Page.h"
+-#include "PlatformKeyboardEvent.h"
+-#include "PlatformWheelEvent.h"
+ #include "PluginData.h"
+ #include "ResourceError.h"
+ #include "ResourceLoadTiming.h"
+ #include "ResourceRequest.h"
+ #include "ResourceResponse.h"
+ #include "SecurityOrigin.h"
+ #include "SerializedScriptValue.h"
+ #include "SharedBuffer.h"
+ #include "SubstituteData.h"
+ #include "URL.h"
+ #include "WebReplayInputs.h"
+ #include <JavaScriptCore/JSReplayInputs.h>
+ #include <wtf/text/Base64.h>
+ 
++using WebCore::FloatSize;
+ using WebCore::FormData;
+ using WebCore::FormDataElement;
+ using WebCore::FrameLoadRequest;
+ using WebCore::HTTPHeaderMap;
+ using WebCore::HistoryItem;
+ using WebCore::IntPoint;
+ using WebCore::MimeClassInfo;
+-using WebCore::MouseButton;
+-using WebCore::PlatformEvent;
+-using WebCore::PlatformKeyboardEvent;
+-using WebCore::PlatformWheelEvent;
+-using WebCore::PlatformWheelEventGranularity;
+ using WebCore::PluginData;
+ using WebCore::PluginInfo;
+ using WebCore::ResourceError;
+ using WebCore::ResourceLoadTiming;
+ using WebCore::ResourceLoadPriority;
+ using WebCore::ResourceRequest;
+ using WebCore::ResourceRequestCachePolicy;
+ using WebCore::ResourceResponse;
+ using WebCore::SecurityOrigin;
+ using WebCore::SerializedScriptValue;
+ using WebCore::SharedBuffer;
+ using WebCore::SubstituteData;
+ using WebCore::URL;
+ 
+-#if PLATFORM(COCOA)
++#if USE(APPKIT)
+ using WebCore::KeypressCommand;
+-using WebCore::PlatformWheelEventPhase;
+ #endif
+ 
+ #define IMPORT_FROM_WEBCORE_NAMESPACE(name) \
+ using WebCore::name; \
+ 
+ WEB_REPLAY_INPUT_NAMES_FOR_EACH(IMPORT_FROM_WEBCORE_NAMESPACE)
+ #undef IMPORT_FROM_WEBCORE_NAMESPACE
+ 
+ namespace WebCore {
+ 
+@@ -155,20 +150,41 @@ Frame* frameFromFrameIndex(Page* page, uint32_t frameIndex)
+ 
+ #define DECODE_OPTIONAL_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _lvalue) \
+     bool _key ## WasDecoded = _encodedValue.get<_type>(ASCIILiteral(#_key), _lvalue)
+ 
+ #define DECODE_OPTIONAL_TYPE_WITH_KEY(_encodedValue, _type, _key) \
+     EncodingTraits<_type>::DecodedType _key; \
+     DECODE_OPTIONAL_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _key)
+ 
+ namespace JSC {
+ 
++EncodedValue EncodingTraits<FloatSize>::encodeValue(const FloatSize& Size)
++{
++    EncodedValue encodedData = EncodedValue::createObject();
++
++    ENCODE_TYPE_WITH_KEY(encodedData, float, width, Size.width());
++    ENCODE_TYPE_WITH_KEY(encodedData, float, height, Size.height());
++
++    return encodedData;
++}
++
++bool EncodingTraits<FloatSize>::decodeValue(EncodedValue& encodedData, FloatSize& Size)
++{
++    FloatSize decodedSize;
++
++    DECODE_TYPE_WITH_KEY(encodedData, float, width);
++    DECODE_TYPE_WITH_KEY(encodedData, float, height);
++
++    Size = FloatSize(width, height);
++    return true;
++}
++
+ EncodedValue EncodingTraits<FormData>::encodeValue(RefPtr<FormData> data)
+ {
+     EncodedValue encodedData = EncodedValue::createObject();
+ 
+     ENCODE_TYPE_WITH_KEY(encodedData, bool, alwaysStream, data->alwaysStream());
+     ENCODE_TYPE_WITH_KEY(encodedData, Vector<char>, boundary, data->boundary());
+     ENCODE_TYPE_WITH_KEY(encodedData, Vector<FormDataElement>, elements, data->elements());
+     ENCODE_TYPE_WITH_KEY(encodedData, int64_t, identifier, data->identifier());
+ 
+     return encodedData;
+@@ -303,20 +319,41 @@ bool EncodingTraits<HTTPHeaderMap>::decodeValue(EncodedValue& encodedData, std::
+     if (keys.size() != values.size())
+         return false;
+ 
+     for (size_t i = 0; i < keys.size(); ++i)
+         decodedHeaderMap->add(keys[i], values[i]);
+ 
+     decodedValue = std::move(decodedHeaderMap);
+     return true;
+ }
+ 
++#if USE(APPKIT)
++EncodedValue EncodingTraits<KeypressCommand>::encodeValue(const KeypressCommand& command)
++{
++    EncodedValue encodedValue = EncodedValue::createObject();
++
++    ENCODE_TYPE_WITH_KEY(encodedValue, String, commandName, command.commandName);
++    ENCODE_OPTIONAL_TYPE_WITH_KEY(encodedValue, String, text, command.text, !command.text.isEmpty());
++
++    return encodedValue;
++}
++
++bool EncodingTraits<KeypressCommand>::decodeValue(EncodedValue& encodedValue, KeypressCommand& decodedValue)
++{
++    DECODE_TYPE_WITH_KEY(encodedValue, String, commandName);
++    DECODE_OPTIONAL_TYPE_WITH_KEY(encodedValue, String, text);
++
++    decodedValue = textWasDecoded ? KeypressCommand(commandName, text) : KeypressCommand(commandName);
++    return true;
++}
++#endif // USE(APPKIT)
++
+ template<>
+ EncodedValue EncodingTraits<MimeClassInfo>::encodeValue(const MimeClassInfo& input)
+ {
+     EncodedValue encodedData = EncodedValue::createObject();
+ 
+     ENCODE_TYPE_WITH_KEY(encodedData, String, type, input.type);
+     ENCODE_TYPE_WITH_KEY(encodedData, String, desc, input.desc);
+     ENCODE_TYPE_WITH_KEY(encodedData, Vector<String>, extensions, input.extensions);
+ 
+     return encodedData;
+@@ -414,198 +451,20 @@ bool EncodingTraits<IntPoint>::decodeValue(EncodedValue& encodedData, IntPoint&
+ {
+     IntPoint decodedPoint;
+ 
+     DECODE_TYPE_WITH_KEY(encodedData, int, x);
+     DECODE_TYPE_WITH_KEY(encodedData, int, y);
+ 
+     point = IntPoint(x, y);
+     return true;
+ }
+ 
+-#if USE(APPKIT)
+-EncodedValue EncodingTraits<KeypressCommand>::encodeValue(const KeypressCommand& command)
+-{
+-    EncodedValue encodedValue = EncodedValue::createObject();
+-
+-    ENCODE_TYPE_WITH_KEY(encodedValue, String, commandName, command.commandName);
+-    ENCODE_OPTIONAL_TYPE_WITH_KEY(encodedValue, String, text, command.text, !command.text.isEmpty());
+-
+-    return encodedValue;
+-}
+-
+-bool EncodingTraits<KeypressCommand>::decodeValue(EncodedValue& encodedValue, KeypressCommand& decodedValue)
+-{
+-    DECODE_TYPE_WITH_KEY(encodedValue, String, commandName);
+-    DECODE_OPTIONAL_TYPE_WITH_KEY(encodedValue, String, text);
+-
+-    decodedValue = textWasDecoded ? KeypressCommand(commandName, text) : KeypressCommand(commandName);
+-    return true;
+-}
+-
+-class PlatformKeyboardEventAppKit : public WebCore::PlatformKeyboardEvent {
+-public:
+-    PlatformKeyboardEventAppKit(const PlatformKeyboardEvent& event, bool handledByInputMethod, Vector<KeypressCommand>& commands)
+-        : PlatformKeyboardEvent(event)
+-    {
+-        m_handledByInputMethod = handledByInputMethod;
+-        m_commands = commands;
+-    }
+-};
+-#endif // USE(APPKIT)
+-
+-EncodedValue EncodingTraits<PlatformKeyboardEvent>::encodeValue(const PlatformKeyboardEvent& input)
+-{
+-    EncodedValue encodedValue = EncodedValue::createObject();
+-
+-    ENCODE_TYPE_WITH_KEY(encodedValue, double, timestamp, input.timestamp());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, PlatformEvent::Type, type, input.type());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, PlatformEvent::Modifiers, modifiers, static_cast<PlatformEvent::Modifiers>(input.modifiers()));
+-    ENCODE_TYPE_WITH_KEY(encodedValue, String, text, input.text());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, String, unmodifiedText, input.unmodifiedText());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, String, keyIdentifier, input.keyIdentifier());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, int, windowsVirtualKeyCode, input.windowsVirtualKeyCode());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, int, nativeVirtualKeyCode, input.nativeVirtualKeyCode());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, int, macCharCode, input.macCharCode());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, bool, autoRepeat, input.isAutoRepeat());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, bool, keypad, input.isKeypad());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, bool, systemKey, input.isSystemKey());
+-#if USE(APPKIT)
+-    ENCODE_TYPE_WITH_KEY(encodedValue, bool, handledByInputMethod, input.handledByInputMethod());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, Vector<KeypressCommand>, commands, input.commands());
+-#endif
+-    return encodedValue;
+-}
+-
+-bool EncodingTraits<PlatformKeyboardEvent>::decodeValue(EncodedValue& encodedValue, std::unique_ptr<PlatformKeyboardEvent>& input)
+-{
+-    DECODE_TYPE_WITH_KEY(encodedValue, double, timestamp);
+-    DECODE_TYPE_WITH_KEY(encodedValue, PlatformEvent::Type, type);
+-    DECODE_TYPE_WITH_KEY(encodedValue, PlatformEvent::Modifiers, modifiers);
+-    DECODE_TYPE_WITH_KEY(encodedValue, String, text);
+-    DECODE_TYPE_WITH_KEY(encodedValue, String, unmodifiedText);
+-    DECODE_TYPE_WITH_KEY(encodedValue, String, keyIdentifier);
+-    DECODE_TYPE_WITH_KEY(encodedValue, int, windowsVirtualKeyCode);
+-    DECODE_TYPE_WITH_KEY(encodedValue, int, nativeVirtualKeyCode);
+-    DECODE_TYPE_WITH_KEY(encodedValue, int, macCharCode);
+-    DECODE_TYPE_WITH_KEY(encodedValue, bool, autoRepeat);
+-    DECODE_TYPE_WITH_KEY(encodedValue, bool, keypad);
+-    DECODE_TYPE_WITH_KEY(encodedValue, bool, systemKey);
+-#if USE(APPKIT)
+-    DECODE_TYPE_WITH_KEY(encodedValue, bool, handledByInputMethod);
+-    DECODE_TYPE_WITH_KEY(encodedValue, Vector<KeypressCommand>, commands);
+-#endif
+-
+-    PlatformKeyboardEvent platformEvent = PlatformKeyboardEvent(type, text, unmodifiedText, keyIdentifier, WTF::safeCast<int>(windowsVirtualKeyCode), WTF::safeCast<int>(nativeVirtualKeyCode), WTF::safeCast<int>(macCharCode), autoRepeat, keypad, systemKey, modifiers, timestamp);
+-#if USE(APPKIT)
+-    input = std::make_unique<PlatformKeyboardEventAppKit>(platformEvent, handledByInputMethod, commands);
+-#else
+-    input = std::make_unique<PlatformKeyboardEvent>(platformEvent);
+-#endif
+-    return true;
+-}
+-
+-#if PLATFORM(COCOA)
+-struct PlatformWheelEventCocoaArguments {
+-    bool directionInvertedFromDevice;
+-    bool hasPreciseScrollingDeltas;
+-    PlatformWheelEventPhase phase;
+-    PlatformWheelEventPhase momentumPhase;
+-    int scrollCount;
+-    float unacceleratedScrollingDeltaX;
+-    float unacceleratedScrollingDeltaY;
+-};
+-
+-class PlatformWheelEventCocoa : public PlatformWheelEvent {
+-public:
+-    PlatformWheelEventCocoa(PlatformWheelEvent& event, PlatformWheelEventCocoaArguments& arguments)
+-        : PlatformWheelEvent(event)
+-    {
+-        m_directionInvertedFromDevice = arguments.directionInvertedFromDevice;
+-        m_hasPreciseScrollingDeltas = arguments.hasPreciseScrollingDeltas;
+-        m_phase = arguments.phase;
+-        m_momentumPhase = arguments.momentumPhase;
+-        m_scrollCount = arguments.scrollCount;
+-        m_unacceleratedScrollingDeltaX = arguments.unacceleratedScrollingDeltaX;
+-        m_unacceleratedScrollingDeltaY = arguments.unacceleratedScrollingDeltaY;
+-    }
+-};
+-#endif // PLATFORM(COCOA)
+-
+-EncodedValue EncodingTraits<PlatformWheelEvent>::encodeValue(const PlatformWheelEvent& input)
+-{
+-    EncodedValue encodedData = EncodedValue::createObject();
+-
+-    ENCODE_TYPE_WITH_KEY(encodedData, int, positionX, input.position().x());
+-    ENCODE_TYPE_WITH_KEY(encodedData, int, positionY, input.position().y());
+-    ENCODE_TYPE_WITH_KEY(encodedData, int, globalPositionX, input.globalPosition().x());
+-    ENCODE_TYPE_WITH_KEY(encodedData, int, globalPositionY, input.globalPosition().y());
+-    ENCODE_TYPE_WITH_KEY(encodedData, bool, shiftKey, input.shiftKey());
+-    ENCODE_TYPE_WITH_KEY(encodedData, bool, ctrlKey, input.ctrlKey());
+-    ENCODE_TYPE_WITH_KEY(encodedData, bool, altKey, input.altKey());
+-    ENCODE_TYPE_WITH_KEY(encodedData, bool, metaKey, input.metaKey());
+-    ENCODE_TYPE_WITH_KEY(encodedData, float, deltaX, input.deltaX());
+-    ENCODE_TYPE_WITH_KEY(encodedData, float, deltaY, input.deltaY());
+-    ENCODE_TYPE_WITH_KEY(encodedData, float, wheelTicksX, input.wheelTicksX());
+-    ENCODE_TYPE_WITH_KEY(encodedData, float, wheelTicksY, input.wheelTicksY());
+-    ENCODE_TYPE_WITH_KEY(encodedData, PlatformWheelEventGranularity, granularity, static_cast<PlatformWheelEventGranularity>(input.granularity()));
+-
+-#if PLATFORM(COCOA)
+-    ENCODE_TYPE_WITH_KEY(encodedData, bool, directionInvertedFromDevice, input.directionInvertedFromDevice());
+-    ENCODE_TYPE_WITH_KEY(encodedData, bool, hasPreciseScrollingDeltas, input.hasPreciseScrollingDeltas());
+-    ENCODE_TYPE_WITH_KEY(encodedData, PlatformWheelEventPhase, phase, static_cast<PlatformWheelEventPhase>(input.phase()));
+-    ENCODE_TYPE_WITH_KEY(encodedData, PlatformWheelEventPhase, momentumPhase, static_cast<PlatformWheelEventPhase>(input.momentumPhase()));
+-    ENCODE_TYPE_WITH_KEY(encodedData, int, scrollCount, input.scrollCount());
+-    ENCODE_TYPE_WITH_KEY(encodedData, float, unacceleratedScrollingDeltaX, input.unacceleratedScrollingDeltaX());
+-    ENCODE_TYPE_WITH_KEY(encodedData, float, unacceleratedScrollingDeltaY, input.unacceleratedScrollingDeltaY());
+-#endif
+-
+-    return encodedData;
+-}
+-
+-bool EncodingTraits<PlatformWheelEvent>::decodeValue(EncodedValue& encodedData, std::unique_ptr<PlatformWheelEvent>& input)
+-{
+-    DECODE_TYPE_WITH_KEY(encodedData, int, positionX);
+-    DECODE_TYPE_WITH_KEY(encodedData, int, positionY);
+-    DECODE_TYPE_WITH_KEY(encodedData, int, globalPositionX);
+-    DECODE_TYPE_WITH_KEY(encodedData, int, globalPositionY);
+-    DECODE_TYPE_WITH_KEY(encodedData, bool, shiftKey);
+-    DECODE_TYPE_WITH_KEY(encodedData, bool, ctrlKey);
+-    DECODE_TYPE_WITH_KEY(encodedData, bool, altKey);
+-    DECODE_TYPE_WITH_KEY(encodedData, bool, metaKey);
+-    DECODE_TYPE_WITH_KEY(encodedData, float, deltaX);
+-    DECODE_TYPE_WITH_KEY(encodedData, float, deltaY);
+-    DECODE_TYPE_WITH_KEY(encodedData, float, wheelTicksX);
+-    DECODE_TYPE_WITH_KEY(encodedData, float, wheelTicksY);
+-    DECODE_TYPE_WITH_KEY(encodedData, PlatformWheelEventGranularity, granularity);
+-
+-#if PLATFORM(COCOA)
+-    PlatformWheelEventCocoaArguments arguments;
+-    DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, bool, directionInvertedFromDevice, arguments.directionInvertedFromDevice);
+-    DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, bool, hasPreciseScrollingDeltas, arguments.hasPreciseScrollingDeltas);
+-    DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, PlatformWheelEventPhase, phase, arguments.phase);
+-    DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, PlatformWheelEventPhase, momentumPhase, arguments.momentumPhase);
+-    DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, int, scrollCount, arguments.scrollCount);
+-    DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, float, unacceleratedScrollingDeltaX, arguments.unacceleratedScrollingDeltaX);
+-    DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, float, unacceleratedScrollingDeltaY, arguments.unacceleratedScrollingDeltaY);
+-#endif
+-
+-    PlatformWheelEvent event(IntPoint(positionX, positionY), IntPoint(globalPositionX, globalPositionY),
+-        deltaX, deltaY, wheelTicksX, wheelTicksY, granularity, shiftKey, ctrlKey, altKey, metaKey);
+-
+-#if PLATFORM(COCOA)
+-    input = std::make_unique<PlatformWheelEventCocoa>(event, arguments);
+-#else
+-    input = std::make_unique<PlatformWheelEvent>(event);
+-#endif
+-    return true;
+-}
+-
+ EncodedValue EncodingTraits<PluginData>::encodeValue(RefPtr<PluginData> input)
+ {
+     EncodedValue encodedData = EncodedValue::createObject();
+ 
+     Vector<uint32_t> castedMimePluginIndices(input->mimePluginIndices().size());
+     for (uint32_t index : input->mimePluginIndices())
+         castedMimePluginIndices.append(WTF::safeCast<uint32_t>(index));
+ 
+     ENCODE_TYPE_WITH_KEY(encodedData, Vector<PluginInfo>, plugins, input->plugins());
+     ENCODE_TYPE_WITH_KEY(encodedData, Vector<MimeClassInfo>, mimes, input->mimes());
+diff --git a/Source/WebCore/replay/WebReplayInputCoders.h b/Source/WebCore/replay/WebReplayInputCoders.h
+index a6c59bc..9101b9c8 100644
+--- a/Source/WebCore/replay/WebReplayInputCoders.h
++++ b/Source/WebCore/replay/WebReplayInputCoders.h
+@@ -32,29 +32,27 @@
+ 
+ #include <replay/EncodedValue.h>
+ #include <replay/NondeterministicInput.h>
+ #include <wtf/Vector.h>
+ 
+ namespace WebCore {
+ 
+ struct FrameLoadRequest;
+ 
+ class Document;
++class FloatSize;
+ class FormData;
+ class Frame;
+ class HTTPHeaderMap;
+ class HistoryItem;
+ class IntPoint;
+ class Page;
+-class PlatformKeyboardEvent;
+-class PlatformMouseEvent;
+-class PlatformWheelEvent;
+ class PluginData;
+ class ResourceError;
+ class ResourceRequest;
+ class ResourceResponse;
+ class SecurityOrigin;
+ class SerializedScriptValue;
+ class SharedBuffer;
+ class URL;
+ 
+ #if USE(APPKIT)
+@@ -64,20 +62,27 @@ struct KeypressCommand;
+ uint32_t frameIndexFromDocument(const Document*);
+ uint32_t frameIndexFromFrame(const Frame*);
+ Document* documentFromFrameIndex(Page*, uint32_t frameIndex);
+ Frame* frameFromFrameIndex(Page*, uint32_t frameIndex);
+ 
+ } // namespace WebCore
+ 
+ // Template specializations must be defined in the same namespace as the template declaration.
+ namespace JSC {
+ 
++template<> struct EncodingTraits<WebCore::FloatSize> {
++    typedef WebCore::FloatSize DecodedType;
++
++    static EncodedValue encodeValue(const WebCore::FloatSize& value);
++    static bool decodeValue(EncodedValue&, WebCore::FloatSize& value);
++};
++
+ template<> struct EncodingTraits<WebCore::FormData> {
+     typedef RefPtr<WebCore::FormData> DecodedType;
+ 
+     static EncodedValue encodeValue(RefPtr<WebCore::FormData>);
+     static bool decodeValue(EncodedValue&, RefPtr<WebCore::FormData>&);
+ };
+ 
+ template<> struct EncodingTraits<WebCore::FrameLoadRequest> {
+     typedef WebCore::FrameLoadRequest DecodedType;
+ 
+@@ -108,34 +113,20 @@ template<> struct EncodingTraits<WebCore::KeypressCommand> {
+ };
+ #endif // USE(APPKIT)
+ 
+ template<> struct EncodingTraits<WebCore::HistoryItem> {
+     typedef RefPtr<WebCore::HistoryItem> DecodedType;
+ 
+     static EncodedValue encodeValue(RefPtr<WebCore::HistoryItem>);
+     static bool decodeValue(EncodedValue&, RefPtr<WebCore::HistoryItem>&);
+ };
+ 
+-template<> struct EncodingTraits<WebCore::PlatformKeyboardEvent> {
+-    typedef WebCore::PlatformKeyboardEvent DecodedType;
+-
+-    static EncodedValue encodeValue(const WebCore::PlatformKeyboardEvent& value);
+-    static bool decodeValue(EncodedValue&, std::unique_ptr<WebCore::PlatformKeyboardEvent>& value);
+-};
+-
+-template<> struct EncodingTraits<WebCore::PlatformWheelEvent> {
+-    typedef WebCore::PlatformWheelEvent DecodedType;
+-
+-    static EncodedValue encodeValue(const WebCore::PlatformWheelEvent& value);
+-    static bool decodeValue(EncodedValue&, std::unique_ptr<WebCore::PlatformWheelEvent>& value);
+-};
+-
+ template<> struct EncodingTraits<WebCore::PluginData> {
+     typedef RefPtr<WebCore::PluginData> DecodedType;
+ 
+     static EncodedValue encodeValue(RefPtr<WebCore::PluginData> value);
+     static bool decodeValue(EncodedValue&, RefPtr<WebCore::PluginData>& value);
+ };
+ 
+ template<> struct EncodingTraits<WebCore::ResourceError> {
+     typedef WebCore::ResourceError DecodedType;
+ 
+diff --git a/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp b/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
+index ab420bc..2d7fa87 100644
+--- a/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
++++ b/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
+@@ -111,30 +111,21 @@ void InitializeHistory::dispatchOnPage(Page& page)
+     // FIXME: Load the empty document, so that when we prune the back-forward list it
+     // is the single remaining entry. <https://webkit.org/b/131989>
+     page.backForward().clear();
+ 
+     for (RefPtr<HistoryItem> historyEntry : m_entries)
+         page.backForward().addItem(historyEntry->copy());
+ 
+     page.mainFrame().loader().history().setCurrentItem(page.backForward().currentItem());
+ }
+ 
+-void HandleKeyPress::dispatchOnPage(Page& page)
+-{
+-    page.userInputBridge().handleKeyEvent(platformEvent(), InputSource::Synthetic);
+-}
+-
+ // User interaction inputs.
+-void HandleWheelEvent::dispatchOnPage(Page& page)
+-{
+-    page.userInputBridge().handleWheelEvent(platformEvent(), InputSource::Synthetic);
+-}
+ 
+ void LogicalScrollPage::dispatchOnPage(Page& page)
+ {
+     page.userInputBridge().logicalScrollRecursively(direction(), granularity(), InputSource::Synthetic);
+ }
+ 
+ void ScrollPage::dispatchOnPage(Page& page)
+ {
+     page.userInputBridge().scrollRecursively(direction(), granularity(), InputSource::Synthetic);
+ }
+diff --git a/Source/WebKit2/Shared/WebEvent.h b/Source/WebKit2/Shared/WebEvent.h
+index fc2d8c0..dd4ea05 100644
+--- a/Source/WebKit2/Shared/WebEvent.h
++++ b/Source/WebKit2/Shared/WebEvent.h
+@@ -144,27 +144,27 @@ private:
+     WebCore::IntPoint m_globalPosition;
+     float m_deltaX;
+     float m_deltaY;
+     float m_deltaZ;
+     int32_t m_clickCount;
+ };
+ 
+ // FIXME: Move this class to its own header file.
+ class WebWheelEvent : public WebEvent {
+ public:
+-    enum Granularity {
++    enum Granularity : uint8_t {
+         ScrollByPageWheelEvent,
+         ScrollByPixelWheelEvent
+     };
+ 
+ #if PLATFORM(COCOA)
+-    enum Phase {
++    enum Phase : uint8_t {
+         PhaseNone        = 0,
+         PhaseBegan       = 1 << 0,
+         PhaseStationary  = 1 << 1,
+         PhaseChanged     = 1 << 2,
+         PhaseEnded       = 1 << 3,
+         PhaseCancelled   = 1 << 4,
+         PhaseMayBegin    = 1 << 5,
+     };
+ #endif
+ 
+diff --git a/Source/WebKit2/WebProcess/Replay/WKInputs.json b/Source/WebKit2/WebProcess/Replay/WKInputs.json
+index c91c314..c5105ff 100644
+--- a/Source/WebKit2/WebProcess/Replay/WKInputs.json
++++ b/Source/WebKit2/WebProcess/Replay/WKInputs.json
+@@ -1,32 +1,69 @@
+ {
+     "types": {
++        "Global": [
++            { "name": "double", "mode": "SCALAR" },
++            { "name": "float", "mode": "SCALAR" },
++            { "name": "int8_t", "mode": "SCALAR", "description": "Signed 8-bit integer." },
++            { "name": "uint8_t", "mode": "SCALAR", "description": "Unsigned 8-bit integer." }
++        ],
+         "WebKit": [
+             {
+                 "name": "WebMouseEvent", "mode": "OWNED",
+                 "header": "Shared/WebEvent.h"
+             },
+             {
+                 "name": "Modifiers", "mode": "SCALAR", "storage": "uint8_t",
+                 "enclosing_class": "WebEvent",
+                 "flags": ["ENUM"],
+                 "values": ["ShiftKey", "ControlKey", "AltKey", "MetaKey", "CapsLockKey"],
+                 "header": "Shared/WebEvent.h"
+             },
+             {
+                 "name": "Button", "mode": "SCALAR", "storage": "int8_t",
+                 "enclosing_class": "WebMouseEvent",
+                 "flags": ["ENUM"],
+                 "values": ["NoButton", "LeftButton", "MiddleButton", "RightButton"],
+                 "header": "Shared/WebEvent.h"
+             },
+             {
++                "name": "WebKeyboardEvent", "mode": "OWNED",
++                "header": "Shared/WebEvent.h"
++            },
++            {
++                "name": "WebWheelEvent", "mode": "OWNED",
++                "header": "Shared/WebEvent.h"
++            },
++            {
++                "name": "Granularity", "mode": "SCALAR", "storage": "uint8_t",
++                "enclosing_class": "WebWheelEvent",
++                "flags": ["ENUM"],
++                "values": ["ScrollByPageWheelEvent", "ScrollByPixelWheelEvent"],
++                "header": "Shared/WebEvent.h"
++            },
++            {
++                "name": "Phase", "mode": "SCALAR", "storage": "uint8_t",
++                "enclosing_class": "WebWheelEvent",
++                "flags": ["ENUM"],
++                "guard": "PLATFORM(COCOA)",
++                "values": [
++                    "PhaseNone",
++                    "PhaseBegan",
++                    "PhaseStationary",
++                    "PhaseChanged",
++                    "PhaseEnded",
++                    "PhaseCancelled",
++                    "PhaseMayBegin"
++                ],
++                "header": "Shared/WebEvent.h"
++            },
++            {
+                 "name": "Type", "mode": "SCALAR", "storage": "int8_t",
+                 "enclosing_class": "WebEvent",
+                 "flags": ["ENUM"],
+                 "values": [
+                     "NoType",
+                     "MouseDown",
+                     "MouseUp",
+                     "MouseMove",
+                     "Wheel",
+                     "KeyDown",
+@@ -43,18 +80,43 @@
+                     ]
+                 },
+                 "header": "Shared/WebEvent.h"
+             }
+         ]
+     },
+ 
+     "inputs": [
+         {
+             "name": "HandleMouseEvent",
+-            "description": "A mouse event is handled by the web page.",
++            "description": "A mouse event is forwarded to the web page.",
+             "queue": "EVENT_LOOP",
+             "members": [
+                 { "name": "mouseEvent", "type": "WebMouseEvent" }
+             ]
++        },
++        {
++            "name": "HandleKeyEvent",
++            "description": "A keyboard event is forwarded to the web page.",
++            "queue": "EVENT_LOOP",
++            "members": [
++                { "name": "keyboardEvent", "type": "WebKeyboardEvent" }
++            ]
++        },
++        {
++            "name": "HandleScroll",
++            "description": "A scroll movement is forwarded to the web page.",
++            "queue": "EVENT_LOOP",
++            "members": [
++                { "name": "direction", "type": "ScrollDirection" },
++                { "name": "granularity", "type": "ScrollGranularity" }
++            ]
++        },
++        {
++            "name": "HandleWheelEvent",
++            "description": "A wheel event is forwarded to the web page.",
++            "queue": "EVENT_LOOP",
++            "members": [
++                { "name": "wheelEvent", "type": "WebWheelEvent" }
++            ]
+         }
+     ]
+ }
+diff --git a/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.cpp b/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.cpp
+index a830b9f..fc0766d 100644
+--- a/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.cpp
++++ b/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.cpp
+@@ -26,21 +26,25 @@
+  */
+ 
+ #include "config.h"
+ #include "WKReplayInputCoders.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include "WKReplayInputs.h"
+ #include "WebEvent.h"
+ #include <JavaScriptCore/JSReplayInputs.h>
++#include <WebCore/FloatSize.h>
++#include <WebCore/IntPoint.h>
++#include <WebCore/KeypressCommand.h>
+ #include <WebCore/MemoizedDOMResult.h>
++#include <Webcore/WebReplayInputCoders.h>
+ #include <WebCore/WebReplayInputs.h>
+ 
+ #define IMPORT_FROM_JSC_NAMESPACE(name) \
+ using JSC::name; \
+ 
+ JS_REPLAY_INPUT_NAMES_FOR_EACH(IMPORT_FROM_JSC_NAMESPACE)
+ #undef IMPORT_FROM_JSC_NAMESPACE
+ 
+ #define IMPORT_FROM_WEBCORE_NAMESPACE(name) \
+ using WebCore::name; \
+@@ -70,24 +74,28 @@ WK_REPLAY_INPUT_NAMES_FOR_EACH(IMPORT_FROM_WEBKIT_NAMESPACE)
+     EncodingTraits<_type>::DecodedType _key; \
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _key)
+ 
+ #define DECODE_OPTIONAL_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _lvalue) \
+     bool _key ## WasDecoded = _encodedValue.get<_type>(ASCIILiteral(#_key), _lvalue)
+ 
+ #define DECODE_OPTIONAL_TYPE_WITH_KEY(_encodedValue, _type, _key) \
+     EncodingTraits<_type>::DecodedType _key; \
+     DECODE_OPTIONAL_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _key)
+ 
++using WebCore::FloatSize;
+ using WebCore::IntPoint;
++using WebCore::KeypressCommand;
+ using WebCore::MemoizedDOMResultBase;
+ using WebKit::WebEvent;
+ using WebKit::WebMouseEvent;
++using WebKit::WebKeyboardEvent;
++using WebKit::WebWheelEvent;
+ 
+ namespace JSC {
+ 
+ EncodedValue EncodingTraits<NondeterministicInputBase>::encodeValue(const NondeterministicInputBase& input)
+ {
+     EncodedValue encodedValue = EncodedValue::createObject();
+     const AtomicString& type = input.type();
+ 
+     ENCODE_TYPE_WITH_KEY(encodedValue, String, type, type.string());
+ 
+@@ -138,20 +146,78 @@ bool EncodingTraits<NondeterministicInputBase>::decodeValue(EncodedValue& encode
+ 
+         input = WTF::move(decodedInput);
+         return true;
+     }
+ 
+     return false;
+ }
+ 
+ // Actual inputs below.
+ 
++EncodedValue EncodingTraits<WebKeyboardEvent>::encodeValue(const WebKeyboardEvent& input)
++{
++    EncodedValue encodedValue = EncodedValue::createObject();
++
++    // WebEvent members.
++    ENCODE_TYPE_WITH_KEY(encodedValue, WebEvent::Type, type, input.type());
++    ENCODE_TYPE_WITH_KEY(encodedValue, WebEvent::Modifiers, modifiers, input.modifiers());
++    ENCODE_TYPE_WITH_KEY(encodedValue, double, timestamp, input.timestamp());
++
++    // WebKeyboardEvent members.
++    ENCODE_TYPE_WITH_KEY(encodedValue, String, text, input.text());
++    ENCODE_TYPE_WITH_KEY(encodedValue, String, unmodifiedText, input.unmodifiedText());
++    ENCODE_TYPE_WITH_KEY(encodedValue, String, keyIdentifier, input.keyIdentifier());
++    ENCODE_TYPE_WITH_KEY(encodedValue, int32_t, windowsVirtualKeyCode, input.windowsVirtualKeyCode());
++    ENCODE_TYPE_WITH_KEY(encodedValue, int32_t, nativeVirtualKeyCode, input.nativeVirtualKeyCode());
++    ENCODE_TYPE_WITH_KEY(encodedValue, int32_t, macCharCode, input.macCharCode());
++#if USE(APPKIT)
++    ENCODE_TYPE_WITH_KEY(encodedValue, bool, handledByInputMethod, input.handledByInputMethod());
++    ENCODE_TYPE_WITH_KEY(encodedValue, Vector<KeypressCommand>, commands, input.commands());
++#endif
++    ENCODE_TYPE_WITH_KEY(encodedValue, bool, autoRepeat, input.isAutoRepeat());
++    ENCODE_TYPE_WITH_KEY(encodedValue, bool, keypad, input.isKeypad());
++    ENCODE_TYPE_WITH_KEY(encodedValue, bool, systemKey, input.isSystemKey());
++    return encodedValue;
++}
++
++bool EncodingTraits<WebKeyboardEvent>::decodeValue(EncodedValue& encodedValue, std::unique_ptr<WebKeyboardEvent>& input)
++{
++    // WebEvent members.
++    DECODE_TYPE_WITH_KEY(encodedValue, WebEvent::Type, type);
++    DECODE_TYPE_WITH_KEY(encodedValue, WebEvent::Modifiers, modifiers);
++    DECODE_TYPE_WITH_KEY(encodedValue, double, timestamp);
++
++    // WebKeyboardEvent members.
++    DECODE_TYPE_WITH_KEY(encodedValue, String, text);
++    DECODE_TYPE_WITH_KEY(encodedValue, String, unmodifiedText);
++    DECODE_TYPE_WITH_KEY(encodedValue, String, keyIdentifier);
++    DECODE_TYPE_WITH_KEY(encodedValue, int32_t, windowsVirtualKeyCode);
++    DECODE_TYPE_WITH_KEY(encodedValue, int32_t, nativeVirtualKeyCode);
++    DECODE_TYPE_WITH_KEY(encodedValue, int32_t, macCharCode);
++#if USE(APPKIT)
++    DECODE_TYPE_WITH_KEY(encodedValue, bool, handledByInputMethod);
++    DECODE_TYPE_WITH_KEY(encodedValue, Vector<KeypressCommand>, commands);
++#endif
++    DECODE_TYPE_WITH_KEY(encodedValue, bool, autoRepeat);
++    DECODE_TYPE_WITH_KEY(encodedValue, bool, keypad);
++    DECODE_TYPE_WITH_KEY(encodedValue, bool, systemKey);
++
++#if USE(APPKIT)
++    WebKeyboardEvent event(type, text, unmodifiedText, keyIdentifier, WTF::safeCast<int>(windowsVirtualKeyCode), WTF::safeCast<int>(nativeVirtualKeyCode), WTF::safeCast<int>(macCharCode), handledByInputMethod, commands, autoRepeat, keypad, systemKey, modifiers, timestamp);
++#else
++    WebKeyboardEvent event(type, text, unmodifiedText, keyIdentifier, WTF::safeCast<int>(windowsVirtualKeyCode), WTF::safeCast<int>(nativeVirtualKeyCode), WTF::safeCast<int>(macCharCode), autoRepeat, keypad, systemKey, modifiers, timestamp);
++#endif
++
++    input = std::make_unique<WebKeyboardEvent>(event);
++    return true;
++}
++
+ EncodedValue EncodingTraits<WebMouseEvent>::encodeValue(const WebMouseEvent& input)
+ {
+     EncodedValue encodedValue = EncodedValue::createObject();
+ 
+     // WebEvent members.
+     ENCODE_TYPE_WITH_KEY(encodedValue, WebEvent::Type, type, input.type());
+     ENCODE_TYPE_WITH_KEY(encodedValue, WebEvent::Modifiers, modifiers, input.modifiers());
+     ENCODE_TYPE_WITH_KEY(encodedValue, double, timestamp, input.timestamp());
+ 
+     // WebMouseEvent members.
+@@ -179,13 +245,72 @@ bool EncodingTraits<WebMouseEvent>::decodeValue(EncodedValue& encodedValue, std:
+     DECODE_TYPE_WITH_KEY(encodedValue, IntPoint, globalPosition);
+     DECODE_TYPE_WITH_KEY(encodedValue, float, deltaX);
+     DECODE_TYPE_WITH_KEY(encodedValue, float, deltaY);
+     DECODE_TYPE_WITH_KEY(encodedValue, float, deltaZ);
+     DECODE_TYPE_WITH_KEY(encodedValue, int32_t, clickCount);
+ 
+     input = std::make_unique<WebMouseEvent>(type, button, position, globalPosition, deltaX, deltaY, deltaZ, clickCount, modifiers, timestamp);
+     return true;
+ }
+ 
++EncodedValue EncodingTraits<WebWheelEvent>::encodeValue(const WebWheelEvent& input)
++{
++    EncodedValue encodedValue = EncodedValue::createObject();
++
++    // WebEvent members.
++    ENCODE_TYPE_WITH_KEY(encodedValue, WebEvent::Type, type, input.type());
++    ENCODE_TYPE_WITH_KEY(encodedValue, WebEvent::Modifiers, modifiers, input.modifiers());
++    ENCODE_TYPE_WITH_KEY(encodedValue, double, timestamp, input.timestamp());
++
++    // WebWheelEvent members.
++    ENCODE_TYPE_WITH_KEY(encodedValue, IntPoint, position, input.position());
++    ENCODE_TYPE_WITH_KEY(encodedValue, IntPoint, globalPosition, input.globalPosition());
++    ENCODE_TYPE_WITH_KEY(encodedValue, FloatSize, delta, input.delta());
++    ENCODE_TYPE_WITH_KEY(encodedValue, FloatSize, wheelTicks, input.wheelTicks());
++    ENCODE_TYPE_WITH_KEY(encodedValue, WebWheelEvent::Granularity, granularity, input.granularity());
++#if PLATFORM(COCOA)
++    ENCODE_TYPE_WITH_KEY(encodedValue, bool, directionInvertedFromDevice, input.directionInvertedFromDevice());
++    ENCODE_TYPE_WITH_KEY(encodedValue, WebWheelEvent::Phase, phase, input.phase());
++    ENCODE_TYPE_WITH_KEY(encodedValue, WebWheelEvent::Phase, momentumPhase, input.momentumPhase());
++    ENCODE_TYPE_WITH_KEY(encodedValue, bool, hasPreciseScrollingDeltas, input.hasPreciseScrollingDeltas());
++    ENCODE_TYPE_WITH_KEY(encodedValue, uint32_t, scrollCount, input.scrollCount());
++    ENCODE_TYPE_WITH_KEY(encodedValue, FloatSize, unacceleratedScrollingDelta, input.unacceleratedScrollingDelta());
++#endif
++
++    return encodedValue;
++}
++
++bool EncodingTraits<WebWheelEvent>::decodeValue(EncodedValue& encodedValue, std::unique_ptr<WebWheelEvent>& input)
++{
++    // WebEvent members.
++    DECODE_TYPE_WITH_KEY(encodedValue, WebEvent::Type, type);
++    DECODE_TYPE_WITH_KEY(encodedValue, WebEvent::Modifiers, modifiers);
++    DECODE_TYPE_WITH_KEY(encodedValue, double, timestamp);
++
++    // WebWheelEvent members.
++    DECODE_TYPE_WITH_KEY(encodedValue, IntPoint, position);
++    DECODE_TYPE_WITH_KEY(encodedValue, IntPoint, globalPosition);
++    DECODE_TYPE_WITH_KEY(encodedValue, FloatSize, delta);
++    DECODE_TYPE_WITH_KEY(encodedValue, FloatSize, wheelTicks);
++    DECODE_TYPE_WITH_KEY(encodedValue, WebWheelEvent::Granularity, granularity);
++#if PLATFORM(COCOA)
++    DECODE_TYPE_WITH_KEY(encodedValue, bool, directionInvertedFromDevice);
++    DECODE_TYPE_WITH_KEY(encodedValue, WebWheelEvent::Phase, phase);
++    DECODE_TYPE_WITH_KEY(encodedValue, WebWheelEvent::Phase, momentumPhase);
++    DECODE_TYPE_WITH_KEY(encodedValue, bool, hasPreciseScrollingDeltas);
++    DECODE_TYPE_WITH_KEY(encodedValue, uint32_t, scrollCount);
++    DECODE_TYPE_WITH_KEY(encodedValue, FloatSize, unacceleratedScrollingDelta);
++#endif
++
++#if PLATFORM(COCOA)
++    WebWheelEvent event(type, position, globalPosition, delta, wheelTicks, granularity, modifiers, timestamp);
++#else
++    WebWheelEvent event(type, position, globalPosition, delta, wheelTicks, granularity, phase, momentumPhase, hasPreciseScrollingDeltas, scrollCount, unacceleratedScrollingDelta, modifiers, time);
++#endif
++
++    input = std::make_unique<WebWheelEvent>(event);
++    return true;
++}
++
+ } // namespace JSC
+ 
+ #endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.h b/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.h
+index 2a183a5..f68c60c 100644
+--- a/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.h
++++ b/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.h
+@@ -26,35 +26,51 @@
+ 
+ #ifndef WKReplayInputCoders_h
+ #define WKReplayInputCoders_h
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include <JavaScriptCore/EncodedValue.h>
+ #include <JavaScriptCore/NondeterministicInput.h>
+ 
+ namespace WebKit {
++class WebKeyboardEvent;
+ class WebMouseEvent;
++class WebWheelEvent;
+ }
+ 
+ // Template specializations must be defined in the same namespace as the template declaration.
+ namespace JSC {
+ 
++template<> struct EncodingTraits<JSC::NondeterministicInputBase> {
++    typedef JSC::NondeterministicInputBase DecodedType;
++
++    static EncodedValue encodeValue(const JSC::NondeterministicInputBase& input);
++    static bool decodeValue(EncodedValue&, std::unique_ptr<JSC::NondeterministicInputBase>& input);
++};
++
++// Concrete input subclasses.
++template<> struct EncodingTraits<WebKit::WebKeyboardEvent> {
++    typedef WebKit::WebKeyboardEvent DecodedType;
++
++    static EncodedValue encodeValue(const WebKit::WebKeyboardEvent& value);
++    static bool decodeValue(EncodedValue&, std::unique_ptr<WebKit::WebKeyboardEvent>& value);
++};
+ template<> struct EncodingTraits<WebKit::WebMouseEvent> {
+     typedef WebKit::WebMouseEvent DecodedType;
+ 
+     static EncodedValue encodeValue(const WebKit::WebMouseEvent& value);
+     static bool decodeValue(EncodedValue&, std::unique_ptr<WebKit::WebMouseEvent>& value);
+ };
+ 
+-template<> struct EncodingTraits<JSC::NondeterministicInputBase> {
+-    typedef JSC::NondeterministicInputBase DecodedType;
++template<> struct EncodingTraits<WebKit::WebWheelEvent> {
++    typedef WebKit::WebWheelEvent DecodedType;
+ 
+-    static EncodedValue encodeValue(const JSC::NondeterministicInputBase& input);
+-    static bool decodeValue(EncodedValue&, std::unique_ptr<JSC::NondeterministicInputBase>& input);
++    static EncodedValue encodeValue(const WebKit::WebWheelEvent& value);
++    static bool decodeValue(EncodedValue&, std::unique_ptr<WebKit::WebWheelEvent>& value);
+ };
+ 
+ } // namespace JSC
+ 
+ #endif // ENABLE(WEB_REPLAY)
+ 
+ #endif // WKReplayInputCoders_h
+diff --git a/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp b/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp
+index f5d6ae4..00668bb 100644
+--- a/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp
++++ b/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp
+@@ -26,18 +26,28 @@
+ 
+ #include "config.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include "WKReplayInputs.h"
+ #include "WebPage.h"
+ 
+ namespace WebKit {
+ 
++void HandleKeyEvent::dispatchOnWebPage(WebPage& page)
++{
++    page.handleKeyEvent(keyboardEvent(), WebPage::ActionSource::Synthetic);
++}
++
+ void HandleMouseEvent::dispatchOnWebPage(WebPage& page)
+ {
+     page.handleMouseEvent(mouseEvent(), WebPage::ActionSource::Synthetic);
+ }
+ 
++void HandleWheelEvent::dispatchOnWebPage(WebPage& page)
++{
++    page.handleWheelEvent(wheelEvent(), WebPage::ActionSource::Synthetic);
++}
++
+ } // namespace WebKit
+ 
+ #endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
+index f7cbcb4..e2518d3 100644
+--- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
++++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
+@@ -1777,23 +1777,23 @@ WebContextMenu* WebPage::contextMenu()
+         m_contextMenu = WebContextMenu::create(this);
+     return m_contextMenu.get();
+ }
+ 
+ WebContextMenu* WebPage::contextMenuAtPointInWindow(const IntPoint& point)
+ {
+     corePage()->contextMenuController().clearContextMenu();
+     
+     // Simulate a mouse click to generate the correct menu.
+     PlatformMouseEvent mouseEvent(point, point, RightButton, PlatformEvent::MousePressed, 1, false, false, false, false, currentTime());
+-    bool handled = corePage()->userInputBridge().handleContextMenuEvent(mouseEvent, &corePage()->mainFrame());
++    bool handled = corePage()->mainFrame().eventHandler().sendContextMenuEvent(mouseEvent);
+     if (!handled)
+-        return 0;
++        return nullptr;
+ 
+     return contextMenu();
+ }
+ #endif
+ 
+ // Events 
+ 
+ static const WebEvent* g_currentEvent = 0;
+ 
+ // FIXME: WebPage::currentEvent is used by the plug-in code to avoid having to convert from DOM events back to
+@@ -1829,56 +1829,56 @@ static bool isContextClick(const PlatformMouseEvent& event)
+ 
+ #if PLATFORM(COCOA)
+     // FIXME: this really should be about OSX-style UI, not about the Mac port
+     if (event.button() == WebCore::LeftButton && event.ctrlKey())
+         return true;
+ #endif
+ 
+     return false;
+ }
+ 
+-static bool handleContextMenuEvent(const PlatformMouseEvent& platformMouseEvent, WebPage* page)
++static bool forwardContextMenuEvent(const PlatformMouseEvent& platformMouseEvent, WebPage* page)
+ {
+     IntPoint point = page->corePage()->mainFrame().view()->windowToContents(platformMouseEvent.position());
+     HitTestResult result = page->corePage()->mainFrame().eventHandler().hitTestResultAtPoint(point);
+ 
+     Frame* frame = &page->corePage()->mainFrame();
+     if (result.innerNonSharedNode())
+         frame = result.innerNonSharedNode()->document().frame();
+ 
+-    bool handled = page->corePage()->userInputBridge().handleContextMenuEvent(platformMouseEvent, frame);
++    bool handled = frame->eventHandler().sendContextMenuEvent(platformMouseEvent);
+     if (handled)
+         page->contextMenu()->show();
+ 
+     return handled;
+ }
+ #endif
+ 
+-static bool disambiguateMouseEvent(const WebMouseEvent& mouseEvent, WebPage* page, bool onlyUpdateScrollbars)
++static bool forwardMouseEvent(const WebMouseEvent& mouseEvent, WebPage* page, bool onlyUpdateScrollbars)
+ {
+     Frame& frame = page->corePage()->mainFrame();
+     if (!frame.view())
+         return false;
+ 
+     PlatformMouseEvent platformMouseEvent = platform(mouseEvent);
+ 
+     switch (platformMouseEvent.type()) {
+         case PlatformEvent::MousePressed: {
+ #if ENABLE(CONTEXT_MENUS)
+             if (isContextClick(platformMouseEvent))
+                 page->corePage()->contextMenuController().clearContextMenu();
+ #endif
+ 
+             bool handled = frame.eventHandler().handleMousePressEvent(platformMouseEvent);
+ #if ENABLE(CONTEXT_MENUS)
+             if (isContextClick(platformMouseEvent))
+-                handled = handleContextMenuEvent(platformMouseEvent, page);
++                handled = forwardContextMenuEvent(platformMouseEvent, page);
+ #endif
+             return handled;
+         }
+         case PlatformEvent::MouseReleased:
+             return frame.eventHandler().handleMouseReleaseEvent(platformMouseEvent);
+ 
+         case PlatformEvent::MouseMoved:
+             if (onlyUpdateScrollbars)
+                 return frame.eventHandler().passMouseMovedEventToScrollbars(platformMouseEvent);
+             return frame.eventHandler().handleMouseMoveEvent(platformMouseEvent);
+@@ -1887,21 +1887,21 @@ static bool disambiguateMouseEvent(const WebMouseEvent& mouseEvent, WebPage* pag
+             return false;
+     }
+ }
+ 
+ bool WebPage::handleMouseEvent(const WebMouseEvent& mouseEvent, ActionSource source)
+ {
+     ASSERT(m_page->pageThrottler());
+     m_page->pageThrottler()->didReceiveUserInput();
+ 
+ #if ENABLE(WEB_REPLAY)
+-    // Don't try to handle any real mouse events if the web content is being replayed.
++    // Don't try to handle any user events if the web content is being replayed.
+     InputCursor& cursor = corePage()->replayController().activeInputCursor();
+     if (cursor.isReplaying() && source != ActionSource::Synthetic)
+         return false;
+ #else
+     UNUSED_PARAM(source);
+ #endif
+ 
+ #if ENABLE(CONTEXT_MENUS)
+     // Don't try to handle any pending mouse events if a context menu is showing.
+     if (m_isShowingContextMenu)
+@@ -1923,21 +1923,21 @@ bool WebPage::handleMouseEvent(const WebMouseEvent& mouseEvent, ActionSource sou
+         if (cursor.isCapturing())
+             cursor.appendInput<HandleMouseEvent>(std::make_unique<WebMouseEvent>(mouseEvent));
+         EventLoopInputExtent extent(cursor);
+ #endif
+         // We need to do a full, normal hit test during this mouse event if the page is active or if a mouse
+         // button is currently pressed. It is possible that neither of those things will be true since on
+         // Lion when legacy scrollbars are enabled, WebKit receives mouse events all the time. If it is one
+         // of those cases where the page is not active and the mouse is not pressed, then we can fire a more
+         // efficient scrollbars-only version of the event.
+         bool onlyUpdateScrollbars = !(m_page->focusController().isActive() || (mouseEvent.button() != WebMouseEvent::NoButton));
+-        handled = disambiguateMouseEvent(mouseEvent, this, onlyUpdateScrollbars);
++        handled = forwardMouseEvent(mouseEvent, this, onlyUpdateScrollbars);
+     }
+ 
+     return handled;
+ }
+ 
+ void WebPage::mouseEvent(const WebMouseEvent& mouseEvent)
+ {
+     bool handled = handleMouseEvent(mouseEvent, ActionSource::User);
+     send(Messages::WebPageProxy::DidReceiveEvent(static_cast<uint32_t>(mouseEvent.type()), handled));
+ }
+@@ -1954,95 +1954,136 @@ void WebPage::mouseEventSyncForTesting(const WebMouseEvent& mouseEvent, bool& ha
+ 
+     if (!handled) {
+         CurrentEvent currentEvent(mouseEvent);
+ 
+         // We need to do a full, normal hit test during this mouse event if the page is active or if a mouse
+         // button is currently pressed. It is possible that neither of those things will be true since on 
+         // Lion when legacy scrollbars are enabled, WebKit receives mouse events all the time. If it is one 
+         // of those cases where the page is not active and the mouse is not pressed, then we can fire a more
+         // efficient scrollbars-only version of the event.
+         bool onlyUpdateScrollbars = !(m_page->focusController().isActive() || (mouseEvent.button() != WebMouseEvent::NoButton));
+-        handled = disambiguateMouseEvent(mouseEvent, this, onlyUpdateScrollbars);
++        handled = forwardMouseEvent(mouseEvent, this, onlyUpdateScrollbars);
+     }
+ }
+ 
+-static bool handleWheelEvent(const WebWheelEvent& wheelEvent, Page* page)
++static bool forwardWheelEvent(const WebWheelEvent& wheelEvent, Page* page)
+ {
+     Frame& frame = page->mainFrame();
+     if (!frame.view())
+         return false;
+ 
+     PlatformWheelEvent platformWheelEvent = platform(wheelEvent);
+-    return page->userInputBridge().handleWheelEvent(platformWheelEvent);
++    return page->mainFrame().eventHandler().handleWheelEvent(platformWheelEvent);
+ }
+ 
+ void WebPage::wheelEvent(const WebWheelEvent& wheelEvent)
+ {
++    bool handled = handleWheelEvent(wheelEvent, ActionSource::User);
++    send(Messages::WebPageProxy::DidReceiveEvent(static_cast<uint32_t>(wheelEvent.type()), handled));
++}
++
++bool WebPage::handleWheelEvent(const WebWheelEvent& wheelEvent, ActionSource source)
++{
+     ASSERT(m_page->pageThrottler());
+     m_page->pageThrottler()->didReceiveUserInput();
+ 
++#if ENABLE(WEB_REPLAY)
++    // Don't try to handle any user events if the web content is being replayed.
++    InputCursor& cursor = corePage()->replayController().activeInputCursor();
++    if (cursor.isReplaying() && source != ActionSource::Synthetic)
++        return false;
++#else
++    UNUSED_PARAM(source);
++#endif
++
+     bool handled = false;
+ 
+     if (canHandleUserEvents()) {
+         CurrentEvent currentEvent(wheelEvent);
+ 
+-        handled = handleWheelEvent(wheelEvent, m_page.get());
++#if ENABLE(WEB_REPLAY)
++        if (cursor.isCapturing())
++            cursor.appendInput<HandleWheelEvent>(std::make_unique<WebWheelEvent>(wheelEvent));
++        EventLoopInputExtent extent(cursor);
++#endif
++        handled = forwardWheelEvent(wheelEvent, m_page.get());
+     }
+-    send(Messages::WebPageProxy::DidReceiveEvent(static_cast<uint32_t>(wheelEvent.type()), handled));
++    return handled;
+ }
+ 
+ void WebPage::wheelEventSyncForTesting(const WebWheelEvent& wheelEvent, bool& handled)
+ {
+     CurrentEvent currentEvent(wheelEvent);
+ 
+     if (ScrollingCoordinator* scrollingCoordinator = m_page->scrollingCoordinator())
+         scrollingCoordinator->commitTreeStateIfNeeded();
+ 
+-    handled = handleWheelEvent(wheelEvent, m_page.get());
++    handled = forwardWheelEvent(wheelEvent, m_page.get());
+ }
+ 
+-static bool handleKeyEvent(const WebKeyboardEvent& keyboardEvent, Page* page)
++static bool forwardKeyEvent(const WebKeyboardEvent& keyboardEvent, Page* page)
+ {
+     if (!page->mainFrame().view())
+         return false;
+ 
+     if (keyboardEvent.type() == WebEvent::Char && keyboardEvent.isSystemKey())
+-        return page->userInputBridge().handleAccessKeyEvent(platform(keyboardEvent));
+-    return page->userInputBridge().handleKeyEvent(platform(keyboardEvent));
++        return page->focusController().focusedOrMainFrame().eventHandler().handleAccessKey(platform(keyboardEvent));
++    return page->focusController().focusedOrMainFrame().eventHandler().keyEvent(platform(keyboardEvent));
+ }
+ 
+ void WebPage::keyEvent(const WebKeyboardEvent& keyboardEvent)
+ {
++    bool handled = handleKeyEvent(keyboardEvent, ActionSource::User);
++    send(Messages::WebPageProxy::DidReceiveEvent(static_cast<uint32_t>(keyboardEvent.type()), handled));
++}
++
++bool WebPage::handleKeyEvent(const WebKeyboardEvent& keyboardEvent, ActionSource source)
++{
+     ASSERT(m_page->pageThrottler());
+     m_page->pageThrottler()->didReceiveUserInput();
+ 
++#if ENABLE(WEB_REPLAY)
++    // Don't try to handle any user events if the web content is being replayed.
++    InputCursor& cursor = corePage()->replayController().activeInputCursor();
++    if (cursor.isReplaying() && source != ActionSource::Synthetic)
++        return false;
++#else
++    UNUSED_PARAM(source);
++#endif
++
+     bool handled = false;
+ 
+     if (canHandleUserEvents()) {
+         CurrentEvent currentEvent(keyboardEvent);
+ 
+-        handled = handleKeyEvent(keyboardEvent, m_page.get());
++#if ENABLE(WEB_REPLAY)
++        if (cursor.isCapturing())
++            cursor.appendInput<HandleKeyEvent>(std::make_unique<WebKeyboardEvent>(keyboardEvent));
++        EventLoopInputExtent extent(cursor);
++#endif
++        handled = forwardKeyEvent(keyboardEvent, m_page.get());
+         // FIXME: Platform default behaviors should be performed during normal DOM event dispatch (in most cases, in default keydown event handler).
+         if (!handled)
+             handled = performDefaultBehaviorForKeyEvent(keyboardEvent);
+     }
+-    send(Messages::WebPageProxy::DidReceiveEvent(static_cast<uint32_t>(keyboardEvent.type()), handled));
++
++    return handled;
+ }
+ 
+ void WebPage::keyEventSyncForTesting(const WebKeyboardEvent& keyboardEvent, bool& handled)
+ {
+     CurrentEvent currentEvent(keyboardEvent);
+ 
+     Frame& frame = m_page->focusController().focusedOrMainFrame();
+     frame.document()->updateStyleIfNeeded();
+ 
+-    handled = handleKeyEvent(keyboardEvent, m_page.get());
++    handled = forwardKeyEvent(keyboardEvent, m_page.get());
+     if (!handled)
+         handled = performDefaultBehaviorForKeyEvent(keyboardEvent);
+ }
+ 
+ void WebPage::validateCommand(const String& commandName, uint64_t callbackID)
+ {
+     bool isEnabled = false;
+     int32_t state = 0;
+     Frame& frame = m_page->focusController().focusedOrMainFrame();
+     if (PluginView* pluginView = focusedPluginViewForFrame(frame))
+diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.h b/Source/WebKit2/WebProcess/WebPage/WebPage.h
+index 453d9a10..cb4b2b5 100644
+--- a/Source/WebKit2/WebProcess/WebPage/WebPage.h
++++ b/Source/WebKit2/WebProcess/WebPage/WebPage.h
+@@ -840,21 +840,24 @@ public:
+     void didChangeScrollOffsetForFrame(WebCore::Frame*);
+ 
+     void willChangeCurrentHistoryItemForMainFrame();
+ 
+     // Synthetic actions are simulated during web replay.
+     enum class ActionSource {
+         User,
+         Synthetic
+     };
+ 
++    // Entry points for actions that can be simulated during web replay.
+     bool handleMouseEvent(const WebMouseEvent&, ActionSource);
++    bool handleKeyEvent(const WebKeyboardEvent&, ActionSource);
++    bool handleWheelEvent(const WebWheelEvent&, ActionSource);
+ 
+ private:
+     WebPage(uint64_t pageID, const WebPageCreationParameters&);
+ 
+     // IPC::MessageSender
+     virtual IPC::Connection* messageSenderConnection() override;
+     virtual uint64_t messageSenderDestinationID() override;
+ 
+     void platformInitialize();
+     void platformDetach();
+-- 
+2.0.1
+

@@ -1,4 +1,4 @@
-From 02e96347b69019efd2df2a55daea1e5f575e0b6a Mon Sep 17 00:00:00 2001
+From 0ddcb9ce68a9e835324abcc6cdf8ab6ce5444235 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 19 Aug 2014 12:12:33 -0700
 Subject: [PATCH] Web Replay: Check event loop extents during replaying Need a
@@ -42,7 +42,7 @@ Source/WebCore:
  8 files changed, 70 insertions(+), 26 deletions(-)
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index 3a3ccce..cdec929 100644
+index e2ece2f..aea779d 100644
 --- a/Source/JavaScriptCore/ChangeLog
 +++ b/Source/JavaScriptCore/ChangeLog
 @@ -1,10 +1,27 @@
@@ -63,16 +63,16 @@ index 3a3ccce..cdec929 100644
 +        (JSC::InputCursor::setWithinEventLoopInputExtent): Added.
 +        (JSC::InputCursor::withinEventLoopInputExtent): Added.
 +
- 2014-08-20  Csaba Osztrogonác  <ossy@webkit.org>
+ 2014-08-26  Michael Saboff  <msaboff@apple.com>
  
-         URTBF after r172799.
+         REGRESSION(r172794) + 32Bit build: for-in-base-reassigned-later-and-change-structure.js fail with NaN result
+         https://bugs.webkit.org/show_bug.cgi?id=136187
  
-         * disassembler/ARM64/A64DOpcode.cpp:
-         * disassembler/ARM64Disassembler.cpp:
+         Reviewed by Mark Hahnenberg.
  
- 2014-08-20  Oliver Hunt  <oliver@apple.com>
- 
-         Stop implicitly skipping a function's own activation when walking the scope chain
+         Added two arg version for 32 bit builds of callOperation(J_JITOperation_ECJ, ...) that
+         doesn't require a tag for the second argument, instead it fills in a CellTag.  This is
+         used for the slow case of the GetDirectPname case in SpeculativeJIT::compile since we
 diff --git a/Source/JavaScriptCore/replay/InputCursor.h b/Source/JavaScriptCore/replay/InputCursor.h
 index 6102a7f..2f40040 100644
 --- a/Source/JavaScriptCore/replay/InputCursor.h
@@ -139,7 +139,7 @@ index 6102a7f..2f40040 100644
  
  #endif // InputCursor_h
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 2a28c53..d0464c5 100644
+index 16e7098..5b37c35 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,33 @@
@@ -166,16 +166,16 @@ index 2a28c53..d0464c5 100644
 +        * replay/ReplayController.cpp:
 +        (WebCore::ReplayController::willDispatchEvent): Expand the assetion to include replaying.
 +
- 2014-08-20  Alex Christensen  <achristensen@webkit.org>
+ 2014-08-26  Zoltan Horvath  <zoltan@webkit.org>
  
-         Introducing WEBCORE_EXPORT macro.
-         https://bugs.webkit.org/show_bug.cgi?id=136108
+         [CSS Shapes] Positioned polygon reftests failing
+         https://bugs.webkit.org/show_bug.cgi?id=135925
  
-         Reviewed by Antti Koivisto.
+         Reviewed by David Hyatt.
  
-         This should eventually replace WebCore.exp.in.
- 
-         * platform/PlatformExportMacros.h:
+         We didn't respect the shape-margin before a positioned polygon, since we checked
+         the shape-margin for only 1 vertex for a polygon edge. This patch fixes the behavior,
+         removes the tests from the skipped list and updates 1 test, which was incorrect.
 diff --git a/Source/WebCore/replay/CapturingInputCursor.cpp b/Source/WebCore/replay/CapturingInputCursor.cpp
 index 40db3b6..73b402f 100644
 --- a/Source/WebCore/replay/CapturingInputCursor.cpp

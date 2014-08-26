@@ -1,4 +1,4 @@
-From 71de6320f9b06afecae5c26b010240dccd13bfb1 Mon Sep 17 00:00:00 2001
+From fbf366f497a9c354071d90d972703eafe5750001 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 16 Jul 2014 14:58:22 -0700
 Subject: [PATCH] Web Replay: DOM Timers should be created and fired
@@ -51,15 +51,15 @@ Move the singleShot parameter to DOMTimer::start since it isn't used here now.
 (WebCore::DOMTimerFired::dispatch): Added.
 * replay/WebInputs.json: Add DOMTimerFired and DOMTimerCreated.
 ---
- Source/WebCore/ChangeLog                           |  52 +++++++
- Source/WebCore/page/DOMTimer.cpp                   | 157 ++++++++++++++++++---
- Source/WebCore/page/DOMTimer.h                     |  16 ++-
+ Source/WebCore/ChangeLog                           |  52 ++++++++
+ Source/WebCore/page/DOMTimer.cpp                   | 147 +++++++++++++++++++--
+ Source/WebCore/page/DOMTimer.h                     |  20 ++-
  .../WebCore/replay/ReplayInputDispatchMethods.cpp  |  11 ++
  Source/WebCore/replay/WebInputs.json               |  18 +++
- 5 files changed, 233 insertions(+), 21 deletions(-)
+ 5 files changed, 229 insertions(+), 19 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 4d89fd1..29a2f39 100644
+index 41e12e7..98f3029 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,62 @@
@@ -126,10 +126,10 @@ index 4d89fd1..29a2f39 100644
          the contents of the back-forward list at each main frame navigation.
          This can be done before the initial navigation that's kicked off when
 diff --git a/Source/WebCore/page/DOMTimer.cpp b/Source/WebCore/page/DOMTimer.cpp
-index 0712556..c7f43d5 100644
+index 348ef48..2d29cce 100644
 --- a/Source/WebCore/page/DOMTimer.cpp
 +++ b/Source/WebCore/page/DOMTimer.cpp
-@@ -36,77 +36,196 @@
+@@ -36,73 +36,190 @@
  #include <wtf/StdLibExtras.h>
  
  #if PLATFORM(IOS)
@@ -163,7 +163,7 @@ index 0712556..c7f43d5 100644
  
 -DOMTimer::DOMTimer(ScriptExecutionContext* context, std::unique_ptr<ScheduledAction> action, int interval, bool singleShot)
 +#if ENABLE(WEB_REPLAY)
-+class InstrumentedDOMTimer : public DOMTimer {
++class InstrumentedDOMTimer final : public DOMTimer {
 +public:
 +    InstrumentedDOMTimer(ScriptExecutionContext*, std::unique_ptr<ScheduledAction>, int originalInterval);
 +    virtual ~InstrumentedDOMTimer() { }
@@ -172,7 +172,7 @@ index 0712556..c7f43d5 100644
 +    virtual void fired() override;
 +};
 +
-+class DeterministicDOMTimer : public DOMTimer {
++class DeterministicDOMTimer final : public DOMTimer {
 +public:
 +    DeterministicDOMTimer(ScriptExecutionContext*, std::unique_ptr<ScheduledAction>, int originalInterval);
 +    virtual ~DeterministicDOMTimer() { }
@@ -210,7 +210,7 @@ index 0712556..c7f43d5 100644
 +    Document& document = toDocument(*scriptExecutionContext());
 +    InputCursor& cursor = document.inputCursor();
 +    // The timer could fire after capturing has stopped, since we don't replace
-+    // instrumented DOM timers with normal DOM timers. 
++    // instrumented DOM timers with normal DOM timers.
 +    if (!cursor.isCapturing()) {
 +        DOMTimer::fired();
 +        return;
@@ -262,20 +262,15 @@ index 0712556..c7f43d5 100644
      , m_originalInterval(interval)
      , m_shouldForwardUserGesture(shouldForwardUserGesture(interval, m_nestingLevel))
  {
+-    RefPtr<DOMTimer> reference = adoptRef(this);
 +}
-+
-+DOMTimer::~DOMTimer()
-+{
-+    if (scriptExecutionContext())
-+        scriptExecutionContext()->removeTimeout(m_timeoutId);
-+}
-+
+ 
 +void DOMTimer::start(int interval, bool singleShot)
 +{
      // Keep asking for the next id until we're given one that we don't already have.
      do {
 -        m_timeoutId = context->circularSequentialID();
--    } while (!context->addTimeout(m_timeoutId, this));
+-    } while (!context->addTimeout(m_timeoutId, reference));
 +        m_timeoutId = scriptExecutionContext()->circularSequentialID();
 +    } while (!scriptExecutionContext()->addTimeout(m_timeoutId, this));
  
@@ -287,18 +282,13 @@ index 0712556..c7f43d5 100644
          startRepeating(intervalMilliseconds);
  }
  
--DOMTimer::~DOMTimer()
--{
--    if (scriptExecutionContext())
--        scriptExecutionContext()->removeTimeout(m_timeoutId);
--}
--
  int DOMTimer::install(ScriptExecutionContext* context, std::unique_ptr<ScheduledAction> action, int timeout, bool singleShot)
  {
-     // DOMTimer constructor links the new timer into a list of ActiveDOMObjects held by the 'context'.
-     // The timer is deleted when context is deleted (DOMTimer::contextDestroyed) or explicitly via DOMTimer::removeById(),
-     // or if it is a one-time timer and it has fired (DOMTimer::fired).
+     // DOMTimer constructor passes ownership of the initial ref on the object to the constructor.
+     // This reference will be released automatically when a one-shot timer fires, when the context
+-    // is destroyed, or if explicitly cancelled by removeById. 
 -    DOMTimer* timer = new DOMTimer(context, WTF::move(action), timeout, singleShot);
++    // is destroyed, or if explicitly cancelled by removeById.
 +    DOMTimer* timer = nullptr;
 +#if ENABLE(WEB_REPLAY)
 +    do {
@@ -337,7 +327,7 @@ index 0712556..c7f43d5 100644
  {
      // timeout IDs have to be positive, and 0 and -1 are unsafe to
      // even look up since they are the empty and deleted value
-@@ -132,27 +251,29 @@ void DOMTimer::fired()
+@@ -132,27 +249,29 @@ void DOMTimer::fired()
  #endif
      timerNestingLevel = m_nestingLevel;
      ASSERT(!isSuspended());
@@ -365,7 +355,6 @@ index 0712556..c7f43d5 100644
 +            }
          }
  
-         // No access to member variables after this point, it can delete the timer.
          m_action->execute(context);
  
          InspectorInstrumentation::didFireTimer(cookie);
@@ -373,7 +362,8 @@ index 0712556..c7f43d5 100644
          return;
      }
  
-@@ -205,20 +326,22 @@ void DOMTimer::contextDestroyed()
+     context->removeTimeout(m_timeoutId);
+@@ -194,20 +313,22 @@ void DOMTimer::fired()
  void DOMTimer::didStop()
  {
      // Need to release JS objects potentially protected by ScheduledAction
@@ -397,26 +387,27 @@ index 0712556..c7f43d5 100644
          return;
      }
 diff --git a/Source/WebCore/page/DOMTimer.h b/Source/WebCore/page/DOMTimer.h
-index 9f1cbaa..7fcfbb4 100644
+index 066e07b..c811b7f 100644
 --- a/Source/WebCore/page/DOMTimer.h
 +++ b/Source/WebCore/page/DOMTimer.h
-@@ -26,50 +26,58 @@
- 
+@@ -27,45 +27,53 @@
  #ifndef DOMTimer_h
  #define DOMTimer_h
  
  #include "SuspendableTimer.h"
  #include <memory>
+ #include <wtf/RefCounted.h>
  
  namespace WebCore {
  
      class ScheduledAction;
 +    class DOMTimerFired;
  
--    class DOMTimer final : public SuspendableTimer {
-+    class DOMTimer : public SuspendableTimer {
+-    class DOMTimer final : public RefCounted<DOMTimer>, public SuspendableTimer {
++    class DOMTimer : public RefCounted<DOMTimer>, public SuspendableTimer {
+         WTF_MAKE_NONCOPYABLE(DOMTimer);
+         WTF_MAKE_FAST_ALLOCATED;
      public:
-         virtual ~DOMTimer();
          // Creates a new timer owned by specified ScriptExecutionContext, starts it
          // and returns its Id.
          static int install(ScriptExecutionContext*, std::unique_ptr<ScheduledAction>, int timeout, bool singleShot);
@@ -426,31 +417,27 @@ index 9f1cbaa..7fcfbb4 100644
          // This allows the minimum allowable interval time to be changed in response
          // to events like moving a tab to the background.
          void adjustMinimumTimerInterval(double oldMinimumTimerInterval);
- 
--    private:
--        DOMTimer(ScriptExecutionContext*, std::unique_ptr<ScheduledAction>, int interval, bool singleShot);
 +    protected:
 +        DOMTimer(ScriptExecutionContext*, std::unique_ptr<ScheduledAction>, int interval);
-+        // Provide a hook for replay-specific subclasses to capture or block DOM timers.
-+        virtual void start(int timeout, bool singleShot);
-+        // Also fired synthetically during web replay.
-         virtual void fired() override;
++        virtual void start(int interval, bool singleShot);
  
++        // SuspendableTimer
++        virtual void fired();
++
 +        int m_timeoutId;
 +        bool m_shouldScheduleNormally;
-+    private:
+     private:
+-        DOMTimer(ScriptExecutionContext*, std::unique_ptr<ScheduledAction>, int interval, bool singleShot);
 +        friend class DOMTimerFired;
 +
-         // ActiveDOMObject
-         virtual void contextDestroyed() override;
- 
-         // SuspendableTimer
-         virtual void didStop() override;
- 
          double intervalClampedToMinimum(int timeout, double minimumTimerInterval) const;
  
-         // Retuns timer fire time rounded to the next multiple of timer alignment interval.
-         virtual double alignedFireTime(double) const override;
+         // SuspendableTimer
+-        virtual void fired() override;
+-        virtual void didStop() override;
+-        virtual double alignedFireTime(double) const override;
++        virtual void didStop() final override;
++        virtual double alignedFireTime(double) const final override;
  
 -        int m_timeoutId;
          int m_nestingLevel;

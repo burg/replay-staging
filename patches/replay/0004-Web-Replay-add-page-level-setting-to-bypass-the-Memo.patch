@@ -1,4 +1,4 @@
-From 0ed08441dbd473dbcea7422503213d6a9ef9b336 Mon Sep 17 00:00:00 2001
+From 3877543e2a18165d43803262563bc1897d405a3d Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 11 Jun 2014 15:33:16 -0700
 Subject: [PATCH] Web Replay: add page-level setting to bypass the MemoryCache
@@ -62,7 +62,7 @@ and bypass cache session id are both considered to be non-ephemeral.
  11 files changed, 104 insertions(+), 11 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index fa3d637..d9cd3f5 100644
+index 52c9851..62d37fb 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,58 @@
@@ -221,7 +221,7 @@ index 3804134..59f1db5 100644
      }
      originMap->set(resource->cachePartition(), resource);
 diff --git a/Source/WebCore/page/Page.cpp b/Source/WebCore/page/Page.cpp
-index 7dd285e..eb1f27e 100644
+index ad0aa3d..42b1c76 100644
 --- a/Source/WebCore/page/Page.cpp
 +++ b/Source/WebCore/page/Page.cpp
 @@ -1173,22 +1173,22 @@ void Page::storageBlockingStateChanged()
@@ -249,7 +249,7 @@ index 7dd285e..eb1f27e 100644
      ASSERT(m_subframeCount >= 0);
  
      int subframeCount = 0;
-@@ -1603,20 +1603,23 @@ void Page::setUserContentController(UserContentController* userContentController
+@@ -1600,20 +1600,23 @@ void Page::setUserContentController(UserContentController* userContentController
  VisitedLinkStore& Page::visitedLinkStore()
  {
      if (m_visitedLinkStore)
@@ -386,7 +386,7 @@ index d713412..adadf9b 100644
          int last = m_page->backForward().forwardCount();
          for (int i = first; i <= last; i++)
 diff --git a/Source/WebCore/page/Settings.h b/Source/WebCore/page/Settings.h
-index ba283ea..74d9ac0 100644
+index a3a0147..9d4b44d 100644
 --- a/Source/WebCore/page/Settings.h
 +++ b/Source/WebCore/page/Settings.h
 @@ -173,21 +173,24 @@ public:
@@ -395,10 +395,10 @@ index ba283ea..74d9ac0 100644
  
  #if ENABLE(HIDDEN_PAGE_DOM_TIMER_THROTTLING)
      bool hiddenPageDOMTimerThrottlingEnabled() const { return m_hiddenPageDOMTimerThrottlingEnabled; }
-     void setHiddenPageDOMTimerThrottlingEnabled(bool);
+     WEBCORE_EXPORT void setHiddenPageDOMTimerThrottlingEnabled(bool);
  #endif
  
-     void setUsesPageCache(bool);
+     WEBCORE_EXPORT void setUsesPageCache(bool);
      bool usesPageCache() const { return m_usesPageCache; }
 -        
 +
@@ -408,7 +408,7 @@ index ba283ea..74d9ac0 100644
      void setFontRenderingMode(FontRenderingMode mode);
      FontRenderingMode fontRenderingMode() const;
  
-     void setShowTiledScrollingIndicator(bool);
+     WEBCORE_EXPORT void setShowTiledScrollingIndicator(bool);
      bool showTiledScrollingIndicator() const { return m_showTiledScrollingIndicator; }
  
  #if PLATFORM(WIN)
@@ -502,7 +502,7 @@ index ea1419d..70a60d8 100644
      // The active cursor is set to nullptr when invalid.
      RefPtr<JSC::InputCursor> m_activeCursor;
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 792749b..0e3e898 100644
+index 503208b..c0c8a9a 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,24 @@
@@ -529,7 +529,7 @@ index 792749b..0e3e898 100644
  
          * CMakeLists.txt: Add replay/ directory to header include paths.
  
- 2014-08-20  Alex Christensen  <achristensen@webkit.org>
+ 2014-08-26  Dana Burkart  <dburkart@apple.com>
 diff --git a/Source/WebKit2/Shared/SessionTracker.cpp b/Source/WebKit2/Shared/SessionTracker.cpp
 index ac79a9d..0886af1 100644
 --- a/Source/WebKit2/Shared/SessionTracker.cpp

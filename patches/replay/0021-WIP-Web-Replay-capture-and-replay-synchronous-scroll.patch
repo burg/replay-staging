@@ -1,0 +1,657 @@
+From a4ce51a3847b370b2a505979fea8fb5f8dfe0e49 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Fri, 22 Aug 2014 16:11:09 -0700
+Subject: [PATCH] [WIP] Web Replay: capture and replay synchronous scrolling
+ from WebPage
+
+---
+ Source/WebCore/WebCore.exp.in                      |  7 ---
+ Source/WebCore/platform/ScrollTypes.h              |  6 +-
+ Source/WebCore/replay/UserInputBridge.cpp          | 34 -----------
+ Source/WebCore/replay/UserInputBridge.h            |  3 -
+ Source/WebCore/replay/WebInputs.json               | 71 ----------------------
+ .../replay/WebReplayInputDispatchMethods.cpp       | 12 ----
+ Source/WebKit2/WebProcess/Replay/WKInputs.json     | 20 ++++++
+ .../Replay/WKReplayInputDispatchMethods.cpp        |  5 ++
+ Source/WebKit2/WebProcess/WebPage/WebPage.cpp      | 22 +++++--
+ Source/WebKit2/WebProcess/WebPage/WebPage.h        |  4 +-
+ .../WebKit2/WebProcess/WebPage/mac/WebPageMac.mm   | 24 ++++----
+ 11 files changed, 59 insertions(+), 149 deletions(-)
+
+diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
+index bfb8d56..4669ece 100644
+--- a/Source/WebCore/WebCore.exp.in
++++ b/Source/WebCore/WebCore.exp.in
+@@ -648,21 +648,20 @@ __ZN7WebCore15ScrollAlignment19alignToEdgeIfNeededE
+ __ZN7WebCore15StorageStrategy21localStorageNamespaceEPNS_9PageGroupE
+ __ZN7WebCore15StorageStrategy23sessionStorageNamespaceEPNS_4PageE
+ __ZN7WebCore15StorageStrategy30transientLocalStorageNamespaceEPNS_9PageGroupEPNS_14SecurityOriginE
+ __ZN7WebCore15StringTruncator13rightTruncateERKN3WTF6StringEfRKNS_4FontENS0_24EnableRoundingHacksOrNotE
+ __ZN7WebCore15StringTruncator14centerTruncateERKN3WTF6StringEfRKNS_4FontENS0_24EnableRoundingHacksOrNotE
+ __ZN7WebCore15StringTruncator5widthERKN3WTF6StringERKNS_4FontENS0_24EnableRoundingHacksOrNotE
+ __ZN7WebCore15UserInputBridge11loadRequestERKNS_16FrameLoadRequestENS_11InputSourceE
+ __ZN7WebCore15UserInputBridge11reloadFrameEPNS_5FrameEbNS_11InputSourceE
+ __ZN7WebCore15UserInputBridge12tryClosePageENS_11InputSourceE
+ __ZN7WebCore15UserInputBridge16stopLoadingFrameEPNS_5FrameENS_11InputSourceE
+-__ZN7WebCore15UserInputBridge17scrollRecursivelyENS_15ScrollDirectionENS_17ScrollGranularityENS_11InputSourceE
+ __ZN7WebCore15VisiblePositionC1ERKNS_8PositionENS_9EAffinityE
+ __ZN7WebCore15defaultLanguageEv
+ __ZN7WebCore15localizedStringEPKc
+ __ZN7WebCore15mimeTypeFromURLERKNS_3URLE
+ __ZN7WebCore15originalURLDataEP5NSURL
+ __ZN7WebCore15pathGetFileNameERKN3WTF6StringE
+ __ZN7WebCore15reportExceptionEPN3JSC9ExecStateENS0_7JSValueEPNS_12CachedScriptE
+ __ZN7WebCore15setDOMExceptionEPN3JSC9ExecStateEi
+ __ZN7WebCore15toDOMStringListEPN3JSC9ExecStateENS0_7JSValueE
+ __ZN7WebCore15visitedLinkHashEPKtj
+@@ -3469,23 +3468,20 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
+ 
+ #if ENABLE(VIDEO_TRACK)
+ __ZN7WebCore9PageGroup18captionPreferencesEv
+ #endif
+ 
+ #if ENABLE(VIEW_MODE_CSS_MEDIA)
+ __ZN7WebCore4Page11setViewModeENS0_8ViewModeE
+ #endif
+ 
+ #if ENABLE(WEB_REPLAY)
+-__ZN3JSC11InputTraitsIN7WebCore10ScrollPageEE4typeEv
+-__ZN3JSC11InputTraitsIN7WebCore10ScrollPageEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+-__ZN3JSC11InputTraitsIN7WebCore10ScrollPageEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore11ReloadFrameEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore11ReloadFrameEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore11ReloadFrameEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore12TryClosePageEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore12TryClosePageEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore12TryClosePageEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore13DOMTimerFiredEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore13DOMTimerFiredEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore13DOMTimerFiredEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore14LoadURLRequestEE4typeEv
+@@ -3502,23 +3498,20 @@ __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6decodeERNS_12EncodedValueERNS
+ __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore17InitialNavigationEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore17InitialNavigationEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore17InitialNavigationEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore17InitializeHistoryEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore17InitializeHistoryEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore17InitializeHistoryEE6encodeERNS_12EncodedValueERKS2_
+-__ZN3JSC11InputTraitsIN7WebCore17LogicalScrollPageEE4typeEv
+-__ZN3JSC11InputTraitsIN7WebCore17LogicalScrollPageEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+-__ZN3JSC11InputTraitsIN7WebCore17LogicalScrollPageEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore21MemoizedDOMResultBaseEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore21MemoizedDOMResultBaseEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore21MemoizedDOMResultBaseEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore21ResourceLoaderDidFailEE4typeEv
+diff --git a/Source/WebCore/platform/ScrollTypes.h b/Source/WebCore/platform/ScrollTypes.h
+index d616fe6..46df9fe 100644
+--- a/Source/WebCore/platform/ScrollTypes.h
++++ b/Source/WebCore/platform/ScrollTypes.h
+@@ -23,28 +23,28 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+  */
+ 
+ #ifndef ScrollTypes_h
+ #define ScrollTypes_h
+ 
+ #ifdef __cplusplus
+ 
+ namespace WebCore {
+ 
+-    enum ScrollDirection : uint64_t {
++    enum ScrollDirection : uint8_t {
+         ScrollUp,
+         ScrollDown,
+         ScrollLeft,
+         ScrollRight
+     };
+ 
+-    enum ScrollLogicalDirection : uint64_t {
++    enum ScrollLogicalDirection : uint8_t {
+         ScrollBlockDirectionBackward,
+         ScrollBlockDirectionForward,
+         ScrollInlineDirectionBackward,
+         ScrollInlineDirectionForward
+     };
+     
+     
+     inline ScrollDirection logicalToPhysical(ScrollLogicalDirection direction, bool isVertical, bool isFlipped) 
+     {
+         switch (direction) {
+@@ -96,21 +96,21 @@ namespace WebCore {
+             }
+             break;
+         }
+         default:
+             ASSERT_NOT_REACHED();
+             break;
+         }
+         return ScrollUp;
+     }
+ 
+-    enum ScrollGranularity : uint64_t {
++    enum ScrollGranularity : uint8_t {
+         ScrollByLine,
+         ScrollByPage,
+         ScrollByDocument,
+         ScrollByPixel,
+         ScrollByPrecisePixel
+     };
+ 
+     enum ScrollElasticity {
+         ScrollElasticityAutomatic,
+         ScrollElasticityNone,
+diff --git a/Source/WebCore/replay/UserInputBridge.cpp b/Source/WebCore/replay/UserInputBridge.cpp
+index 668a070..233b6e8 100644
+--- a/Source/WebCore/replay/UserInputBridge.cpp
++++ b/Source/WebCore/replay/UserInputBridge.cpp
+@@ -75,54 +75,20 @@ InputCursor& UserInputBridge::activeCursor() const
+ void UserInputBridge::focusSetActive(bool active, InputSource)
+ {
+     m_page.focusController().setActive(active);
+ }
+ 
+ void UserInputBridge::focusSetFocused(bool focused, InputSource)
+ {
+     m_page.focusController().setFocused(focused);
+ }
+ 
+-bool UserInputBridge::scrollRecursively(ScrollDirection direction, ScrollGranularity granularity, InputSource inputSource)
+-{
+-#if ENABLE(WEB_REPLAY)
+-    EARLY_RETURN_IF_SHOULD_IGNORE_INPUT;
+-
+-    InputCursor& cursor = activeCursor();
+-    if (cursor.isCapturing())
+-        cursor.appendInput<ScrollPage>(direction, granularity);
+-
+-    EventLoopInputExtent extent(cursor);
+-#else
+-    UNUSED_PARAM(inputSource);
+-#endif
+-
+-    return m_page.focusController().focusedOrMainFrame().eventHandler().scrollRecursively(direction, granularity, nullptr);
+-}
+-
+-bool UserInputBridge::logicalScrollRecursively(ScrollLogicalDirection direction, ScrollGranularity granularity, InputSource inputSource)
+-{
+-#if ENABLE(WEB_REPLAY)
+-    EARLY_RETURN_IF_SHOULD_IGNORE_INPUT;
+-
+-    InputCursor& cursor = activeCursor();
+-    if (cursor.isCapturing())
+-        cursor.appendInput<LogicalScrollPage>(direction, granularity);
+-
+-    EventLoopInputExtent extent(cursor);
+-#else
+-    UNUSED_PARAM(inputSource);
+-#endif
+-
+-    return m_page.focusController().focusedOrMainFrame().eventHandler().logicalScrollRecursively(direction, granularity, nullptr);
+-}
+-
+ void UserInputBridge::loadRequest(const FrameLoadRequest& request, InputSource inputSource)
+ {
+ #if ENABLE(WEB_REPLAY)
+     EARLY_VOID_RETURN_IF_SHOULD_IGNORE_INPUT;
+ 
+     InputCursor& cursor = activeCursor();
+     if (cursor.isCapturing()) {
+         std::unique_ptr<FrameLoadRequest> ownedRequest = std::make_unique<FrameLoadRequest>(request);
+         cursor.appendInput<LoadURLRequest>(std::move(ownedRequest));
+     }
+diff --git a/Source/WebCore/replay/UserInputBridge.h b/Source/WebCore/replay/UserInputBridge.h
+index 3467194..eefc8c8 100644
+--- a/Source/WebCore/replay/UserInputBridge.h
++++ b/Source/WebCore/replay/UserInputBridge.h
+@@ -21,21 +21,20 @@
+  * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+  * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #ifndef UserInputBridge_h
+ #define UserInputBridge_h
+ 
+-#include "ScrollTypes.h"
+ #include <wtf/Noncopyable.h>
+ 
+ namespace JSC {
+ class InputCursor;
+ }
+ 
+ namespace WebCore {
+ 
+ struct FrameLoadRequest;
+ 
+@@ -63,22 +62,20 @@ public:
+ 
+     void setState(State bridgeState) { m_state = bridgeState; }
+     State state() const { return m_state; }
+ 
+     JSC::InputCursor& activeCursor() const;
+ #endif
+ 
+     // User input APIs.
+     WEBCORE_EXPORT void focusSetActive(bool active, InputSource source = InputSource::User);
+     WEBCORE_EXPORT void focusSetFocused(bool focused, InputSource source = InputSource::User);
+-    WEBCORE_EXPORT bool scrollRecursively(ScrollDirection, ScrollGranularity, InputSource source = InputSource::User);
+-    WEBCORE_EXPORT bool logicalScrollRecursively(ScrollLogicalDirection, ScrollGranularity, InputSource source = InputSource::User);
+ 
+     // Navigation APIs.
+     WEBCORE_EXPORT void loadRequest(const FrameLoadRequest&, InputSource source = InputSource::User);
+     WEBCORE_EXPORT void reloadFrame(Frame*, bool endToEndReload, InputSource source = InputSource::User);
+     WEBCORE_EXPORT void stopLoadingFrame(Frame*, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool tryClosePage(InputSource source = InputSource::User);
+ 
+ private:
+     Page& m_page;
+ #if ENABLE(WEB_REPLAY)
+diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
+index 226ae56..f8707fa 100644
+--- a/Source/WebCore/replay/WebInputs.json
++++ b/Source/WebCore/replay/WebInputs.json
+@@ -40,66 +40,24 @@
+             {
+                 "name": "FrameLoadRequest", "mode": "OWNED",
+                 "flags": ["STRUCT"],
+                 "header": "loader/FrameLoadRequest.h"
+             },
+             {
+                 "name": "HistoryItem", "mode": "SHARED",
+                 "header": "history/HistoryItem.h"
+             },
+             {
+-                "name": "Modifiers", "mode": "SCALAR", "storage": "uint8_t",
+-                "enclosing_class": "PlatformEvent",
+-                "flags": ["ENUM"],
+-                "values": ["AltKey", "CtrlKey", "MetaKey", "ShiftKey"],
+-                "header": "platform/PlatformEvent.h"
+-            },
+-            {
+-                "name": "MouseButton", "mode": "SCALAR", "storage": "int8_t",
+-                "flags": ["ENUM"],
+-                "values": ["NoButton", "LeftButton", "MiddleButton", "RightButton"],
+-                "header": "platform/PlatformMouseEvent.h"
+-            },
+-            {
+                 "name": "Page", "mode": "OWNED",
+                 "header": "page/Page.h"
+             },
+             {
+-                "name": "PlatformKeyboardEvent", "mode": "OWNED",
+-                "header": "platform/PlatformKeyboardEvent.h"
+-            },
+-            {
+-                "name": "PlatformWheelEvent", "mode": "OWNED",
+-                "header": "platform/PlatformWheelEvent.h"
+-            },
+-            {
+-                "name": "PlatformWheelEventGranularity", "mode": "SCALAR", "storage": "uint64_t",
+-                "flags": ["ENUM"],
+-                "values": ["ScrollByPageWheelEvent", "ScrollByPixelWheelEvent"],
+-                "header": "platform/PlatformWheelEvent.h"
+-            },
+-            {
+-                "name": "PlatformWheelEventPhase", "mode": "SCALAR", "storage": "uint64_t",
+-                "flags": ["ENUM"],
+-                "guard": "PLATFORM(COCOA)",
+-                "values": [
+-                    "PlatformWheelEventPhaseNone",
+-                    "PlatformWheelEventPhaseBegan",
+-                    "PlatformWheelEventPhaseStationary",
+-                    "PlatformWheelEventPhaseChanged",
+-                    "PlatformWheelEventPhaseEnded",
+-                    "PlatformWheelEventPhaseCancelled",
+-                    "PlatformWheelEventPhaseMayBegin"
+-                ],
+-                "header": "platform/PlatformWheelEvent.h"
+-            },
+-            {
+                 "name": "PluginData", "mode": "SHARED",
+                 "header": "plugins/PluginData.h"
+             },
+             {
+                 "name": "ResourceLoadPriority", "mode": "SCALAR", "storage": "int64_t",
+                 "flags": ["ENUM"],
+                 "values": [
+                     "ResourceLoadPriorityUnresolved",
+                     "ResourceLoadPriorityVeryLow",
+                     "ResourceLoadPriorityLow",
+@@ -118,49 +76,20 @@
+                 "flags": ["ENUM"],
+                 "values": [
+                     "UseProtocolCachePolicy",
+                     "ReloadIgnoringCacheData",
+                     "ReturnCacheDataElseLoad",
+                     "ReturnCacheDataDontLoad"
+                 ],
+                 "header": "platform/network/ResourceRequest.h"
+             },
+             {
+-                "name": "ScrollDirection", "mode": "SCALAR", "storage": "uint64_t",
+-                "flags": ["ENUM"],
+-                "values": ["ScrollUp", "ScrollDown", "ScrollLeft", "ScrollRight"],
+-                "header": "platform/ScrollTypes.h"
+-            },
+-            {
+-                "name": "ScrollGranularity", "mode": "SCALAR", "storage": "uint64_t",
+-                "flags": ["ENUM"],
+-                "values": [
+-                    "ScrollByLine",
+-                    "ScrollByPage",
+-                    "ScrollByDocument",
+-                    "ScrollByPixel",
+-                    "ScrollByPrecisePixel"
+-                ],
+-                "header": "platform/ScrollTypes.h"
+-            },
+-            {
+-                "name": "ScrollLogicalDirection", "mode": "SCALAR", "storage": "uint64_t",
+-                "flags": ["ENUM"],
+-                "values": [
+-                    "ScrollBlockDirectionBackward",
+-                    "ScrollBlockDirectionForward",
+-                    "ScrollInlineDirectionBackward",
+-                    "ScrollInlineDirectionForward"
+-                ],
+-                "header": "platform/ScrollTypes.h"
+-            },
+-            {
+                 "name": "ResourceError", "mode": "OWNED",
+                 "header": "platform/network/ResourceError.h"
+             },
+             {
+                 "name": "ResourceResponse", "mode": "OWNED",
+                 "header": "platform/network/ResourceResponse.h"
+             },
+             {
+                 "name": "SecurityOrigin", "mode": "SHARED",
+                 "header": "page/SecurityOrigin.h"
+diff --git a/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp b/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
+index 2d7fa87..595f01c 100644
+--- a/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
++++ b/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
+@@ -111,32 +111,20 @@ void InitializeHistory::dispatchOnPage(Page& page)
+     // FIXME: Load the empty document, so that when we prune the back-forward list it
+     // is the single remaining entry. <https://webkit.org/b/131989>
+     page.backForward().clear();
+ 
+     for (RefPtr<HistoryItem> historyEntry : m_entries)
+         page.backForward().addItem(historyEntry->copy());
+ 
+     page.mainFrame().loader().history().setCurrentItem(page.backForward().currentItem());
+ }
+ 
+-// User interaction inputs.
+-
+-void LogicalScrollPage::dispatchOnPage(Page& page)
+-{
+-    page.userInputBridge().logicalScrollRecursively(direction(), granularity(), InputSource::Synthetic);
+-}
+-
+-void ScrollPage::dispatchOnPage(Page& page)
+-{
+-    page.userInputBridge().scrollRecursively(direction(), granularity(), InputSource::Synthetic);
+-}
+-
+ // Network inputs.
+ void ResourceLoaderDidFail::dispatchOnPage(Page& page)
+ {
+     if (ResourceLoader* loader = resourceLoaderForOrdinal(page, ordinal(), frameIndex()))
+         loader->didFail(m_error->copy());
+     // FIXME: signal error if the callback couldn't be fired.
+ }
+ 
+ void ResourceLoaderDidFinishLoading::dispatchOnPage(Page& page)
+ {
+diff --git a/Source/WebKit2/WebProcess/Replay/WKInputs.json b/Source/WebKit2/WebProcess/Replay/WKInputs.json
+index c5105ff..75960a1 100644
+--- a/Source/WebKit2/WebProcess/Replay/WKInputs.json
++++ b/Source/WebKit2/WebProcess/Replay/WKInputs.json
+@@ -1,18 +1,38 @@
+ {
+     "types": {
+         "Global": [
+             { "name": "double", "mode": "SCALAR" },
+             { "name": "float", "mode": "SCALAR" },
+             { "name": "int8_t", "mode": "SCALAR", "description": "Signed 8-bit integer." },
+             { "name": "uint8_t", "mode": "SCALAR", "description": "Unsigned 8-bit integer." }
+         ],
++        "WebCore": [
++            {
++                "name": "ScrollDirection", "mode": "SCALAR", "storage": "uint8_t",
++                "flags": ["ENUM"],
++                "values": ["ScrollUp", "ScrollDown", "ScrollLeft", "ScrollRight"],
++                "header": "platform/ScrollTypes.h"
++            },
++            {
++                "name": "ScrollGranularity", "mode": "SCALAR", "storage": "uint8_t",
++                "flags": ["ENUM"],
++                "values": [
++                    "ScrollByLine",
++                    "ScrollByPage",
++                    "ScrollByDocument",
++                    "ScrollByPixel",
++                    "ScrollByPrecisePixel"
++                ],
++                "header": "platform/ScrollTypes.h"
++            }
++        ],
+         "WebKit": [
+             {
+                 "name": "WebMouseEvent", "mode": "OWNED",
+                 "header": "Shared/WebEvent.h"
+             },
+             {
+                 "name": "Modifiers", "mode": "SCALAR", "storage": "uint8_t",
+                 "enclosing_class": "WebEvent",
+                 "flags": ["ENUM"],
+                 "values": ["ShiftKey", "ControlKey", "AltKey", "MetaKey", "CapsLockKey"],
+diff --git a/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp b/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp
+index 00668bb..c90e5b7 100644
+--- a/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp
++++ b/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp
+@@ -36,18 +36,23 @@ namespace WebKit {
+ void HandleKeyEvent::dispatchOnWebPage(WebPage& page)
+ {
+     page.handleKeyEvent(keyboardEvent(), WebPage::ActionSource::Synthetic);
+ }
+ 
+ void HandleMouseEvent::dispatchOnWebPage(WebPage& page)
+ {
+     page.handleMouseEvent(mouseEvent(), WebPage::ActionSource::Synthetic);
+ }
+ 
++void HandleScroll::dispatchOnWebPage(WebPage& page)
++{
++    page.handleScroll(direction(), granularity(), WebPage::ActionSource::Synthetic);
++}
++
+ void HandleWheelEvent::dispatchOnWebPage(WebPage& page)
+ {
+     page.handleWheelEvent(wheelEvent(), WebPage::ActionSource::Synthetic);
+ }
+ 
+ } // namespace WebKit
+ 
+ #endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
+index e2518d3..4cf2f49 100644
+--- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
++++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
+@@ -2163,33 +2163,45 @@ void WebPage::touchEvent(const WebTouchEvent& touchEvent)
+     send(Messages::WebPageProxy::DidReceiveEvent(static_cast<uint32_t>(touchEvent.type()), handled));
+ }
+ 
+ void WebPage::touchEventSyncForTesting(const WebTouchEvent& touchEvent, bool& handled)
+ {
+     CurrentEvent currentEvent(touchEvent);
+     handled = handleTouchEvent(touchEvent, m_page.get());
+ }
+ #endif
+ 
+-bool WebPage::scroll(Page* page, ScrollDirection direction, ScrollGranularity granularity)
++bool WebPage::scroll(Page& page, ScrollDirection scrollDirection, ScrollGranularity scrollGranularity)
+ {
+-    return page->userInputBridge().scrollRecursively(direction, granularity);
++    return page.focusController().focusedOrMainFrame().eventHandler().scrollRecursively(scrollDirection, scrollGranularity);
+ }
+ 
+-bool WebPage::logicalScroll(Page* page, ScrollLogicalDirection direction, ScrollGranularity granularity)
++bool WebPage::handleScroll(ScrollDirection scrollDirection, ScrollGranularity scrollGranularity, ActionSource source)
+ {
+-    return page->userInputBridge().logicalScrollRecursively(direction, granularity);
++    #if ENABLE(WEB_REPLAY)
++    // Don't try to handle any user events if the web content is being replayed.
++    InputCursor& cursor = corePage()->replayController().activeInputCursor();
++    if (cursor.isReplaying() && source != ActionSource::Synthetic)
++        return false;
++    if (cursor.isCapturing())
++        cursor.appendInput<HandleScroll>(scrollDirection, scrollGranularity);
++    EventLoopInputExtent extent(cursor);
++#else
++    UNUSED_PARAM(source);
++#endif
++
++    return scroll(*m_page, scrollDirection, scrollGranularity);
+ }
+ 
+ bool WebPage::scrollBy(uint32_t scrollDirection, uint32_t scrollGranularity)
+ {
+-    return scroll(m_page.get(), static_cast<ScrollDirection>(scrollDirection), static_cast<ScrollGranularity>(scrollGranularity));
++    return handleScroll(static_cast<ScrollDirection>(scrollDirection), static_cast<ScrollGranularity>(scrollGranularity), ActionSource::User);
+ }
+ 
+ void WebPage::centerSelectionInVisibleArea()
+ {
+     Frame& frame = m_page->focusController().focusedOrMainFrame();
+     frame.selection().revealSelection(ScrollAlignment::alignCenterAlways);
+     m_findController.showFindIndicatorInSelection();
+ }
+ 
+ #if ENABLE(REMOTE_INSPECTOR)
+diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.h b/Source/WebKit2/WebProcess/WebPage/WebPage.h
+index cb4b2b5..2b30a1c 100644
+--- a/Source/WebKit2/WebProcess/WebPage/WebPage.h
++++ b/Source/WebKit2/WebProcess/WebPage/WebPage.h
+@@ -844,20 +844,21 @@ public:
+     // Synthetic actions are simulated during web replay.
+     enum class ActionSource {
+         User,
+         Synthetic
+     };
+ 
+     // Entry points for actions that can be simulated during web replay.
+     bool handleMouseEvent(const WebMouseEvent&, ActionSource);
+     bool handleKeyEvent(const WebKeyboardEvent&, ActionSource);
+     bool handleWheelEvent(const WebWheelEvent&, ActionSource);
++    bool handleScroll(WebCore::ScrollDirection, WebCore::ScrollGranularity, ActionSource = ActionSource::User);
+ 
+ private:
+     WebPage(uint64_t pageID, const WebPageCreationParameters&);
+ 
+     // IPC::MessageSender
+     virtual IPC::Connection* messageSenderConnection() override;
+     virtual uint64_t messageSenderDestinationID() override;
+ 
+     void platformInitialize();
+     void platformDetach();
+@@ -928,22 +929,21 @@ private:
+ #if ENABLE(IOS_TOUCH_EVENTS)
+     void touchEventSync(const WebTouchEvent&, bool& handled);
+ #elif ENABLE(TOUCH_EVENTS)
+     void touchEvent(const WebTouchEvent&);
+     void touchEventSyncForTesting(const WebTouchEvent&, bool& handled);
+ #endif
+ #if ENABLE(CONTEXT_MENUS)
+     void contextMenuHidden() { m_isShowingContextMenu = false; }
+ #endif
+ 
+-    static bool scroll(WebCore::Page*, WebCore::ScrollDirection, WebCore::ScrollGranularity);
+-    static bool logicalScroll(WebCore::Page*, WebCore::ScrollLogicalDirection, WebCore::ScrollGranularity);
++    static bool scroll(WebCore::Page&, WebCore::ScrollDirection, WebCore::ScrollGranularity);
+ 
+     void loadURLInFrame(const String&, uint64_t frameID);
+ 
+     void restoreSession(const Vector<BackForwardListItemState>&);
+     void didRemoveBackForwardItem(uint64_t);
+ 
+ #if ENABLE(REMOTE_INSPECTOR)
+     void setAllowsRemoteInspection(bool);
+ #endif
+ 
+diff --git a/Source/WebKit2/WebProcess/WebPage/mac/WebPageMac.mm b/Source/WebKit2/WebProcess/WebPage/mac/WebPageMac.mm
+index e4a5f6d..1158c7e 100644
+--- a/Source/WebKit2/WebProcess/WebPage/mac/WebPageMac.mm
++++ b/Source/WebKit2/WebProcess/WebPage/mac/WebPageMac.mm
+@@ -643,43 +643,43 @@ bool WebPage::performNonEditingBehaviorForSelector(const String& selector, Keybo
+     frame->eventHandler().handleKeyboardSelectionMovementForAccessibility(event);
+     if (event->defaultHandled())
+         return true;
+ 
+     // FIXME: All these selectors have corresponding Editor commands, but the commands only work in editable content.
+     // Should such non-editing behaviors be implemented in Editor or EventHandler::defaultArrowEventHandler() perhaps?
+     
+     bool didPerformAction = false;
+ 
+     if (selector == "moveUp:")
+-        didPerformAction = scroll(m_page.get(), ScrollUp, ScrollByLine);
++        didPerformAction = scroll(*m_page, ScrollUp, ScrollByLine);
+     else if (selector == "moveToBeginningOfParagraph:")
+-        didPerformAction = scroll(m_page.get(), ScrollUp, ScrollByPage);
++        didPerformAction = scroll(*m_page, ScrollUp, ScrollByPage);
+     else if (selector == "moveToBeginningOfDocument:") {
+-        didPerformAction = scroll(m_page.get(), ScrollUp, ScrollByDocument);
+-        didPerformAction |= scroll(m_page.get(), ScrollLeft, ScrollByDocument);
++        didPerformAction = scroll(*m_page, ScrollUp, ScrollByDocument);
++        didPerformAction |= scroll(*m_page, ScrollLeft, ScrollByDocument);
+     } else if (selector == "moveDown:")
+-        didPerformAction = scroll(m_page.get(), ScrollDown, ScrollByLine);
++        didPerformAction = scroll(*m_page, ScrollDown, ScrollByLine);
+     else if (selector == "moveToEndOfParagraph:")
+-        didPerformAction = scroll(m_page.get(), ScrollDown, ScrollByPage);
++        didPerformAction = scroll(*m_page, ScrollDown, ScrollByPage);
+     else if (selector == "moveToEndOfDocument:") {
+-        didPerformAction = scroll(m_page.get(), ScrollDown, ScrollByDocument);
+-        didPerformAction |= scroll(m_page.get(), ScrollLeft, ScrollByDocument);
++        didPerformAction = scroll(*m_page, ScrollDown, ScrollByDocument);
++        didPerformAction |= scroll(*m_page, ScrollLeft, ScrollByDocument);
+     } else if (selector == "moveLeft:")
+-        didPerformAction = scroll(m_page.get(), ScrollLeft, ScrollByLine);
++        didPerformAction = scroll(*m_page, ScrollLeft, ScrollByLine);
+     else if (selector == "moveWordLeft:")
+-        didPerformAction = scroll(m_page.get(), ScrollLeft, ScrollByPage);
++        didPerformAction = scroll(*m_page, ScrollLeft, ScrollByPage);
+     else if (selector == "moveToLeftEndOfLine:")
+         didPerformAction = m_page->backForward().goBack();
+     else if (selector == "moveRight:")
+-        didPerformAction = scroll(m_page.get(), ScrollRight, ScrollByLine);
++        didPerformAction = scroll(*m_page, ScrollRight, ScrollByLine);
+     else if (selector == "moveWordRight:")
+-        didPerformAction = scroll(m_page.get(), ScrollRight, ScrollByPage);
++        didPerformAction = scroll(*m_page, ScrollRight, ScrollByPage);
+     else if (selector == "moveToRightEndOfLine:")
+         didPerformAction = m_page->backForward().goForward();
+ 
+     return didPerformAction;
+ }
+ 
+ #if ENABLE(SERVICE_CONTROLS)
+ static String& replaceSelectionPasteboardName()
+ {
+     static NeverDestroyed<String> string("ReplaceSelectionPasteboard");
+-- 
+2.0.1
+

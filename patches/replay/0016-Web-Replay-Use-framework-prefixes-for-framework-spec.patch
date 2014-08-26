@@ -1,4 +1,4 @@
-From 9dff019e52cde7eda260a776d4c9f16722837fef Mon Sep 17 00:00:00 2001
+From 6ee3044361f04bda9f130bb1b7aa94da4c190085 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 20 Aug 2014 12:50:30 -0700
 Subject: [PATCH] Web Replay: Use framework prefixes for framework-specific
@@ -63,7 +63,7 @@ Also rename SerializationMethods to ReplayInputCoders to match WebKit2 naming sc
  rename Source/WebCore/replay/{ReplayInputDispatchMethods.cpp => WebReplayInputDispatchMethods.cpp} (99%)
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index c928b82..cd21fbc 100644
+index b0fffba..4f08534 100644
 --- a/Source/JavaScriptCore/ChangeLog
 +++ b/Source/JavaScriptCore/ChangeLog
 @@ -1,12 +1,23 @@
@@ -118,10 +118,10 @@ index 256e1a6..9dd6c75 100644
              ("WTF", "wtf/text/AtomicString.h")
          ),
 diff --git a/Source/WebCore/CMakeLists.txt b/Source/WebCore/CMakeLists.txt
-index 7b39a38..4ab1e69 100644
+index b3d918b..bc6eb97 100644
 --- a/Source/WebCore/CMakeLists.txt
 +++ b/Source/WebCore/CMakeLists.txt
-@@ -3188,27 +3188,27 @@ if (ENABLE_WEB_REPLAY)
+@@ -3122,27 +3122,27 @@ if (ENABLE_WEB_REPLAY)
          VERBATIM)
  
      list(APPEND WebCore_SOURCES
@@ -153,7 +153,7 @@ index 7b39a38..4ab1e69 100644
  )
  
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index e475acb..5295dc52 100644
+index 059c54c..6b5001a 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,42 @@
@@ -200,10 +200,10 @@ index e475acb..5295dc52 100644
          Replace tag-checking uses of ReplayInputTypes with InputTraits<T>::type().
  
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index bb99151..fa39346 100644
+index 033f9b3..b650b09 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -3624,30 +3624,30 @@
+@@ -3604,30 +3604,30 @@
  		99CC0B4D18BE9849006CEBCC /* AllReplayInputs.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B3818BE9849006CEBCC /* AllReplayInputs.h */; };
  		99CC0B4E18BE9849006CEBCC /* CapturingInputCursor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B3918BE9849006CEBCC /* CapturingInputCursor.cpp */; };
  		99CC0B4F18BE9849006CEBCC /* CapturingInputCursor.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B3A18BE9849006CEBCC /* CapturingInputCursor.h */; };
@@ -238,7 +238,7 @@ index bb99151..fa39346 100644
  		9A528E8317D7F52F00AA9518 /* FloatingObjects.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9A528E8117D7F52F00AA9518 /* FloatingObjects.cpp */; };
  		9A528E8417D7F52F00AA9518 /* FloatingObjects.h in Headers */ = {isa = PBXBuildFile; fileRef = 9A528E8217D7F52F00AA9518 /* FloatingObjects.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		9AB1F38018E2489A00534743 /* CSSToLengthConversionData.h in Headers */ = {isa = PBXBuildFile; fileRef = 9AB1F37E18E2489A00534743 /* CSSToLengthConversionData.h */; };
-@@ -10797,30 +10797,30 @@
+@@ -10757,30 +10757,30 @@
  		99CC0B3818BE9849006CEBCC /* AllReplayInputs.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AllReplayInputs.h; sourceTree = "<group>"; };
  		99CC0B3918BE9849006CEBCC /* CapturingInputCursor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CapturingInputCursor.cpp; sourceTree = "<group>"; };
  		99CC0B3A18BE9849006CEBCC /* CapturingInputCursor.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = CapturingInputCursor.h; sourceTree = "<group>"; };
@@ -273,7 +273,7 @@ index bb99151..fa39346 100644
  		9A1B6F96158869C80011A8C4 /* JSDOMStringListCustom.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = JSDOMStringListCustom.cpp; sourceTree = "<group>"; };
  		9A528E8117D7F52F00AA9518 /* FloatingObjects.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = FloatingObjects.cpp; sourceTree = "<group>"; };
  		9A528E8217D7F52F00AA9518 /* FloatingObjects.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FloatingObjects.h; sourceTree = "<group>"; };
-@@ -18426,40 +18426,40 @@
+@@ -18351,40 +18351,40 @@
  				99CC0B3A18BE9849006CEBCC /* CapturingInputCursor.h */,
  				C400D10818F1C8F60090D863 /* EventLoopInput.cpp */,
  				99E45A1618A063BE0026D88F /* EventLoopInput.h */,
@@ -318,7 +318,7 @@ index bb99151..fa39346 100644
  				FE69986F192087E7006936BD /* FloatingPointEnvironment.cpp */,
  				FE699870192087E7006936BD /* FloatingPointEnvironment.h */,
  				A148328C187F508700DA63A6 /* WAKAppKitStubs.h */,
-@@ -25939,21 +25939,20 @@
+@@ -25850,21 +25850,20 @@
  				371F4FFC0D25E7F300ECE0D5 /* SegmentedFontData.h in Headers */,
  				99CC0B5E18BE984A006CEBCC /* SegmentedInputStorage.h in Headers */,
  				B2C3DA2F0D006C1D00EF6F26 /* SegmentedString.h in Headers */,
@@ -340,7 +340,7 @@ index bb99151..fa39346 100644
  				53EF766B16530A61004CBE49 /* SettingsMacros.h in Headers */,
  				0F3DD45012F5EA1B000D9190 /* ShadowBlur.h in Headers */,
  				BC5EB8C40E82031B00B25965 /* ShadowData.h in Headers */,
-@@ -26636,20 +26635,21 @@
+@@ -26547,20 +26546,21 @@
  				498391590F1E776900C23782 /* WebKitCSSMatrix.h in Headers */,
  				8AA61D00144D595B00F37350 /* WebKitCSSRegionRule.h in Headers */,
  				BC9ADD230CC4032600098C4C /* WebKitCSSTransformValue.h in Headers */,
@@ -362,7 +362,7 @@ index bb99151..fa39346 100644
  				97AABD1F14FA09D5007457AE /* WebSocketChannelClient.h in Headers */,
  				4A38BF5114FE1C0900612512 /* WebSocketDeflateFramer.h in Headers */,
  				97AABD2114FA09D5007457AE /* WebSocketDeflater.h in Headers */,
-@@ -29256,22 +29256,20 @@
+@@ -29160,22 +29160,20 @@
  				BCEA4888097D93020094C9E4 /* RenderThemeMac.mm in Sources */,
  				93F19AD508245E59001E9ABC /* RenderTreeAsText.cpp in Sources */,
  				E44614510CD68A3500FADA75 /* RenderVideo.cpp in Sources */,
@@ -385,7 +385,7 @@ index bb99151..fa39346 100644
  				514C76500CE9234E007EF3CD /* ResourceErrorMac.mm in Sources */,
  				514C76780CE923A1007EF3CD /* ResourceHandle.cpp in Sources */,
  				7EE6846C12D26E3800E79415 /* ResourceHandleCFNet.cpp in Sources */,
-@@ -29385,21 +29383,20 @@
+@@ -29289,21 +29287,20 @@
  				974D2DA4146A535D00D51F8B /* SecurityPolicy.cpp in Sources */,
  				371F4FFD0D25E7F300ECE0D5 /* SegmentedFontData.cpp in Sources */,
  				99CC0B5D18BE984A006CEBCC /* SegmentedInputStorage.cpp in Sources */,
@@ -407,7 +407,7 @@ index bb99151..fa39346 100644
  				BC5EB8C30E82031B00B25965 /* ShadowData.cpp in Sources */,
  				A6D169621346B49B000EB770 /* ShadowRoot.cpp in Sources */,
  				FD45A953175D3FB800C21EC8 /* Shape.cpp in Sources */,
-@@ -29932,20 +29929,23 @@
+@@ -29836,20 +29833,23 @@
  				498391580F1E776900C23782 /* WebKitCSSMatrix.cpp in Sources */,
  				8AA61CFF144D595B00F37350 /* WebKitCSSRegionRule.cpp in Sources */,
  				BC9ADD800CC4092200098C4C /* WebKitCSSTransformValue.cpp in Sources */,
@@ -432,14 +432,14 @@ index bb99151..fa39346 100644
  				97AABD2614FA09D5007457AE /* WebSocketHandshake.cpp in Sources */,
  				0F580FA41496939100FB5BD8 /* WebTiledBackingLayer.mm in Sources */,
 diff --git a/Source/WebCore/inspector/InspectorReplayAgent.cpp b/Source/WebCore/inspector/InspectorReplayAgent.cpp
-index 36bbeb7..d5ddb2c 100644
+index db04d79..7d28000 100644
 --- a/Source/WebCore/inspector/InspectorReplayAgent.cpp
 +++ b/Source/WebCore/inspector/InspectorReplayAgent.cpp
 @@ -37,21 +37,21 @@
  #include "FunctorInputCursor.h"
  #include "InspectorController.h"
  #include "InspectorPageAgent.h"
- #include "InspectorWebTypeBuilders.h"
+ #include "InspectorWebProtocolTypes.h"
  #include "InstrumentingAgents.h"
  #include "Logging.h"
  #include "Page.h"
@@ -457,9 +457,9 @@ index 36bbeb7..d5ddb2c 100644
  
  namespace WebCore {
  
- static PassRefPtr<TypeBuilder::Replay::ReplayPosition> buildInspectorObjectForPosition(const ReplayPosition& position)
+ static PassRefPtr<Inspector::Protocol::Replay::ReplayPosition> buildInspectorObjectForPosition(const ReplayPosition& position)
 diff --git a/Source/WebCore/loader/SubresourceLoader.cpp b/Source/WebCore/loader/SubresourceLoader.cpp
-index 115244e..40d704a 100644
+index 24704fc..f1ffe6e 100644
 --- a/Source/WebCore/loader/SubresourceLoader.cpp
 +++ b/Source/WebCore/loader/SubresourceLoader.cpp
 @@ -45,21 +45,21 @@
@@ -486,7 +486,7 @@ index 115244e..40d704a 100644
      : m_cachedResourceLoader(cachedResourceLoader)
      , m_resource(resource)
 diff --git a/Source/WebCore/page/DOMTimer.cpp b/Source/WebCore/page/DOMTimer.cpp
-index c7f43d5..783be32 100644
+index 2d29cce..ae721dc 100644
 --- a/Source/WebCore/page/DOMTimer.cpp
 +++ b/Source/WebCore/page/DOMTimer.cpp
 @@ -38,21 +38,21 @@

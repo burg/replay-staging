@@ -1,4 +1,4 @@
-From 99212cd47e2e1124696a540b110d05e2b89ffe4f Mon Sep 17 00:00:00 2001
+From f65759ddfe84912e10752c601fcfe89265982b44 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 21 Aug 2014 13:29:17 -0700
 Subject: [PATCH] WIP: Web Replay: dispatch UserInputBridge replay inputs from
@@ -7,7 +7,7 @@ Subject: [PATCH] WIP: Web Replay: dispatch UserInputBridge replay inputs from
 ---
  Source/WebCore/WebCore.exp.in                      |  16 ++--
  Source/WebCore/replay/UserInputBridge.cpp          |  72 --------------
- Source/WebCore/replay/UserInputBridge.h            |   2 +
+ Source/WebCore/replay/UserInputBridge.h            |   8 +-
  Source/WebCore/replay/WebInputs.json               |  29 ------
  Source/WebCore/replay/WebReplayInputCoders.cpp     |  46 ---------
  Source/WebCore/replay/WebReplayInputCoders.h       |  15 +--
@@ -20,10 +20,10 @@ Subject: [PATCH] WIP: Web Replay: dispatch UserInputBridge replay inputs from
  .../WebProcess/Replay/WKReplayInputCoders.h        |  11 +++
  Source/WebKit2/WebProcess/WebPage/WebPage.cpp      |  45 ++++++---
  Source/WebKit2/WebProcess/WebPage/WebPage.h        |   8 ++
- 15 files changed, 224 insertions(+), 209 deletions(-)
+ 15 files changed, 227 insertions(+), 212 deletions(-)
 
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index b62b4f5..cdf395a 100644
+index 8eae4d4..ca56388 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
 @@ -200,20 +200,21 @@ __ZN7WebCore11startOfWordERKNS_15VisiblePositionENS_9EWordSideE
@@ -73,7 +73,7 @@ index b62b4f5..cdf395a 100644
  __ZN7WebCore15setDOMExceptionEPN3JSC9ExecStateEi
  __ZN7WebCore15toDOMStringListEPN3JSC9ExecStateENS0_7JSValueE
  __ZN7WebCore15visitedLinkHashEPKtj
-@@ -3500,44 +3497,38 @@ __ZN3JSC11InputTraitsIN7WebCore14LoadURLRequestEE6decodeERNS_12EncodedValueERNSt
+@@ -3503,44 +3500,38 @@ __ZN3JSC11InputTraitsIN7WebCore14LoadURLRequestEE6decodeERNS_12EncodedValueERNSt
  __ZN3JSC11InputTraitsIN7WebCore14LoadURLRequestEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore15AsyncTimerFiredEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore15AsyncTimerFiredEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -118,7 +118,7 @@ index b62b4f5..cdf395a 100644
  __ZN3JSC11InputTraitsIN7WebCore21ResourceLoaderDidFailEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
  __ZN3JSC11InputTraitsIN7WebCore21ResourceLoaderDidFailEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore24DocumentLastModifiedDateEE4typeEv
-@@ -3548,15 +3539,20 @@ __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6decodeERNS_12Encode
+@@ -3551,15 +3542,20 @@ __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6decodeERNS_12Encode
  __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -237,10 +237,10 @@ index f1b5c93..0b1fd29 100644
          cursor.appendInput<HandleKeyPress>(WTF::move(ownedEvent));
      }
 diff --git a/Source/WebCore/replay/UserInputBridge.h b/Source/WebCore/replay/UserInputBridge.h
-index d9c7650..79bead4 100644
+index 79b7185..47b954f 100644
 --- a/Source/WebCore/replay/UserInputBridge.h
 +++ b/Source/WebCore/replay/UserInputBridge.h
-@@ -67,24 +67,26 @@ public:
+@@ -67,31 +67,33 @@ public:
      void setState(State bridgeState) { m_state = bridgeState; }
      State state() const { return m_state; }
  
@@ -249,24 +249,34 @@ index d9c7650..79bead4 100644
  
      // User input APIs.
  #if ENABLE(CONTEXT_MENUS)
-     bool handleContextMenuEvent(const PlatformMouseEvent&, const Frame*, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool handleContextMenuEvent(const PlatformMouseEvent&, const Frame*, InputSource source = InputSource::User);
  #endif
 +/*
-     bool handleMousePressEvent(const PlatformMouseEvent&, InputSource source = InputSource::User);
-     bool handleMouseReleaseEvent(const PlatformMouseEvent&, InputSource source = InputSource::User);
-     bool handleMouseMoveEvent(const PlatformMouseEvent&, InputSource source = InputSource::User);
-     bool handleMouseMoveOnScrollbarEvent(const PlatformMouseEvent&, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool handleMousePressEvent(const PlatformMouseEvent&, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool handleMouseReleaseEvent(const PlatformMouseEvent&, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool handleMouseMoveEvent(const PlatformMouseEvent&, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool handleMouseMoveOnScrollbarEvent(const PlatformMouseEvent&, InputSource source = InputSource::User);
 +*/
-     bool handleWheelEvent(const PlatformWheelEvent&, InputSource source = InputSource::User);
-     bool handleKeyEvent(const PlatformKeyboardEvent&, InputSource source = InputSource::User);
-     bool handleAccessKeyEvent(const PlatformKeyboardEvent&, InputSource source = InputSource::User);
-     void focusSetActive(bool active, InputSource source = InputSource::User);
-     void focusSetFocused(bool focused, InputSource source = InputSource::User);
-     bool scrollRecursively(ScrollDirection, ScrollGranularity, InputSource source = InputSource::User);
-     bool logicalScrollRecursively(ScrollLogicalDirection, ScrollGranularity, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool handleWheelEvent(const PlatformWheelEvent&, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool handleKeyEvent(const PlatformKeyboardEvent&, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool handleAccessKeyEvent(const PlatformKeyboardEvent&, InputSource source = InputSource::User);
+-    void focusSetActive(bool active, InputSource source = InputSource::User);
+-    void focusSetFocused(bool focused, InputSource source = InputSource::User);
++    WEBCORE_EXPORT void focusSetActive(bool active, InputSource source = InputSource::User);
++    WEBCORE_EXPORT void focusSetFocused(bool focused, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool scrollRecursively(ScrollDirection, ScrollGranularity, InputSource source = InputSource::User);
+-    bool logicalScrollRecursively(ScrollLogicalDirection, ScrollGranularity, InputSource source = InputSource::User);
++    WEBCORE_EXPORT bool logicalScrollRecursively(ScrollLogicalDirection, ScrollGranularity, InputSource source = InputSource::User);
  
      // Navigation APIs.
-     void loadRequest(const FrameLoadRequest&, InputSource source = InputSource::User);
+     WEBCORE_EXPORT void loadRequest(const FrameLoadRequest&, InputSource source = InputSource::User);
+     WEBCORE_EXPORT void reloadFrame(Frame*, bool endToEndReload, InputSource source = InputSource::User);
+     WEBCORE_EXPORT void stopLoadingFrame(Frame*, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool tryClosePage(InputSource source = InputSource::User);
+ 
+ private:
+     Page& m_page;
+ #if ENABLE(WEB_REPLAY)
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
 index 0c27dc8..734f14a 100644
 --- a/Source/WebCore/replay/WebInputs.json
@@ -612,10 +622,10 @@ index 063e139..ab420bc 100644
  }
  
 diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
-index 5813eee..8645ab9 100644
+index dc8d6b9..fc0f60a 100644
 --- a/Source/WebKit2/CMakeLists.txt
 +++ b/Source/WebKit2/CMakeLists.txt
-@@ -752,20 +752,21 @@ if (ENABLE_WEB_REPLAY)
+@@ -751,20 +751,21 @@ if (ENABLE_WEB_REPLAY)
          DEPENDS ${WebKit2_WEB_REPLAY_INPUTS}
          COMMAND ${PYTHON_EXECUTABLE} ${JAVASCRIPTCORE_DIR}/replay/scripts/CodeGeneratorReplayInputs.py --outputDir ${DERIVED_SOURCES_WEBKIT2_DIR}/ --framework WebKit ${WebKit2_WEB_REPLAY_INPUTS}
          VERBATIM)
@@ -711,10 +721,10 @@ index 68ecff9..fc2d8c0 100644
      WebMouseEvent(Type, Button, const WebCore::IntPoint& position, const WebCore::IntPoint& globalPosition, float deltaX, float deltaY, float deltaZ, int clickCount, Modifiers, double timestamp);
  
 diff --git a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
-index 4ce680a..0be46b1 100644
+index 19c0f26..b55f620 100644
 --- a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
 +++ b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
-@@ -3644,21 +3644,21 @@
+@@ -3640,21 +3640,21 @@
  		C0CE72581247E4DA00BC0EC4 /* WebPage.messages.in */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = WebPage.messages.in; sourceTree = "<group>"; };
  		C0CE729E1247E71D00BC0EC4 /* WebPageMessageReceiver.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WebPageMessageReceiver.cpp; sourceTree = "<group>"; };
  		C0CE729F1247E71D00BC0EC4 /* WebPageMessages.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WebPageMessages.h; sourceTree = "<group>"; };
@@ -737,7 +747,7 @@ index 4ce680a..0be46b1 100644
  		C517388012DF8F4F00EE3F47 /* DragControllerAction.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DragControllerAction.h; sourceTree = "<group>"; };
  		C5237F5F12441CA300780472 /* WebEditorClientMac.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = WebEditorClientMac.mm; sourceTree = "<group>"; };
  		C54256AF18BEC18B00DE4179 /* WKFormInputControl.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WKFormInputControl.h; path = ios/forms/WKFormInputControl.h; sourceTree = "<group>"; };
-@@ -6927,20 +6927,21 @@
+@@ -6921,20 +6921,21 @@
  			sourceTree = "<group>";
  			tabWidth = 8;
  			usesTabs = 0;
@@ -759,7 +769,7 @@ index 4ce680a..0be46b1 100644
  			children = (
  				C5FA1ED118E1062200B3F402 /* WKAirPlayRoutePicker.h */,
  				C5FA1ED218E1062200B3F402 /* WKAirPlayRoutePicker.mm */,
-@@ -9124,20 +9125,21 @@
+@@ -9116,20 +9117,21 @@
  				C5E1AFEC16B21012006CC1F2 /* APIWebArchive.cpp in Sources */,
  				512A9769180E09B80039A149 /* DatabaseProcessProxyMessageReceiver.cpp in Sources */,
  				C5E1AFEE16B21025006CC1F2 /* APIWebArchiveResource.cpp in Sources */,
@@ -1060,7 +1070,7 @@ index e12f187..2a183a5 100644
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-index 8f633b1..af10794 100644
+index e87cf2a..f7cbcb4 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 @@ -169,21 +169,24 @@
@@ -1230,10 +1240,10 @@ index 8f633b1..af10794 100644
  
      PlatformWheelEvent platformWheelEvent = platform(wheelEvent);
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.h b/Source/WebKit2/WebProcess/WebPage/WebPage.h
-index 88a9615..cf1c963 100644
+index baba506..453d9a10 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.h
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.h
-@@ -836,20 +836,28 @@ public:
+@@ -834,20 +834,28 @@ public:
      ServicesOverlayController& servicesOverlayController();
      void handleTelephoneNumberClick(const String& number, const WebCore::IntPoint&);
      void handleSelectionServiceClick(WebCore::FrameSelection&, const Vector<String>& telephoneNumbers, const WebCore::IntPoint&);

@@ -1,4 +1,4 @@
-From 11e26144b5b58f49f6edbd96e56b7deff1c2817d Mon Sep 17 00:00:00 2001
+From 5d653c22713decdaafe6393add11a8ee62e44727 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 12 Jun 2014 16:49:07 -0700
 Subject: [PATCH] Web Replay: capture and replay ResourceLoader callbacks
@@ -96,7 +96,7 @@ from taking over and fulfilling the loads nondeterministically.
  Source/WebCore/loader/ResourceLoadScheduler.cpp    |   9 ++
  Source/WebCore/loader/ResourceLoader.cpp           |  23 +++
  Source/WebCore/loader/ResourceLoader.h             |  10 ++
- Source/WebCore/loader/SubresourceLoader.cpp        |  70 ++++++++-
+ Source/WebCore/loader/SubresourceLoader.cpp        |  72 ++++++++-
  Source/WebCore/loader/SubresourceLoader.h          |   4 +
  .../WebCore/platform/network/ResourceErrorBase.cpp |   8 +
  .../WebCore/platform/network/ResourceErrorBase.h   |   1 +
@@ -105,8 +105,8 @@ from taking over and fulfilling the loads nondeterministically.
  Source/WebCore/replay/SerializationMethods.h       |  40 ++++-
  Source/WebCore/replay/WebInputs.json               |  64 ++++++++
  Source/WebKit2/ChangeLog                           |  15 +-
- .../Network/WebResourceLoadScheduler.cpp           |  12 ++
- 18 files changed, 608 insertions(+), 10 deletions(-)
+ .../Network/WebResourceLoadScheduler.cpp           |  11 ++
+ 18 files changed, 609 insertions(+), 10 deletions(-)
 
 diff --git a/Source/JavaScriptCore/replay/EncodedValue.h b/Source/JavaScriptCore/replay/EncodedValue.h
 index c0010e8..3ed089f 100644
@@ -138,7 +138,7 @@ index c0010e8..3ed089f 100644
      {
          decodedValue = encodedValue.convertTo<DecodedType>();
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 06e7f48..ceaa91a 100644
+index 83d7da8..4315e4d 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,91 @@
@@ -234,10 +234,10 @@ index 06e7f48..ceaa91a 100644
  
          No new tests. No behavior was changed.
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index ebcfc46..99e72de 100644
+index f5330fc..e46b5d3 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -3471,10 +3471,18 @@ __ZN7WebCore32WebVideoFullscreenInterfaceAVKitC2Ev
+@@ -3474,10 +3474,18 @@ __ZN7WebCore32WebVideoFullscreenInterfaceAVKitC2Ev
  __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
  #endif
  
@@ -409,7 +409,7 @@ index a8aceab..237ed4a 100644
      {
          loadsSet.swap(m_resourcesLoadedFromMemoryCacheForClientNotification);
 diff --git a/Source/WebCore/loader/ResourceLoadScheduler.cpp b/Source/WebCore/loader/ResourceLoadScheduler.cpp
-index a70d243..e265001 100644
+index 8a41b87..019fa24 100644
 --- a/Source/WebCore/loader/ResourceLoadScheduler.cpp
 +++ b/Source/WebCore/loader/ResourceLoadScheduler.cpp
 @@ -35,20 +35,24 @@
@@ -437,7 +437,7 @@ index a70d243..e265001 100644
  
  namespace WebCore {
  
-@@ -290,20 +294,25 @@ void ResourceLoadScheduler::servePendingRequests(HostInformation* host, Resource
+@@ -292,20 +296,25 @@ void ResourceLoadScheduler::servePendingRequests(HostInformation* host, Resource
              // For named hosts - which are only http(s) hosts - we should always enforce the connection limit.
              // For non-named hosts - everything but http(s) - we should only enforce the limit if the document isn't done parsing 
              // and we don't know all stylesheets yet.
@@ -464,7 +464,7 @@ index a70d243..e265001 100644
      }
  }
 diff --git a/Source/WebCore/loader/ResourceLoader.cpp b/Source/WebCore/loader/ResourceLoader.cpp
-index 9b65156..b4e0f03 100644
+index d34bd61..b700bdf 100644
 --- a/Source/WebCore/loader/ResourceLoader.cpp
 +++ b/Source/WebCore/loader/ResourceLoader.cpp
 @@ -44,20 +44,25 @@
@@ -493,7 +493,7 @@ index 9b65156..b4e0f03 100644
      , m_notifiedLoadComplete(false)
      , m_cancellationStatus(NotCancelled)
      , m_defersLoading(frame->page()->defersLoading())
-@@ -617,11 +622,29 @@ void ResourceLoader::unschedule(SchedulePair& pair)
+@@ -611,11 +616,29 @@ void ResourceLoader::unschedule(SchedulePair& pair)
  #endif
  
  #if USE(QUICK_LOOK)
@@ -524,7 +524,7 @@ index 9b65156..b4e0f03 100644
 +
  }
 diff --git a/Source/WebCore/loader/ResourceLoader.h b/Source/WebCore/loader/ResourceLoader.h
-index e3128a2..9289bf4 100644
+index 2bf7537..05cee25 100644
 --- a/Source/WebCore/loader/ResourceLoader.h
 +++ b/Source/WebCore/loader/ResourceLoader.h
 @@ -33,20 +33,26 @@
@@ -554,7 +554,7 @@ index e3128a2..9289bf4 100644
  class ResourceBuffer;
  
  #if USE(QUICK_LOOK)
-@@ -131,20 +137,24 @@ public:
+@@ -130,20 +136,24 @@ public:
  
      void setDataBufferingPolicy(DataBufferingPolicy);
  
@@ -580,7 +580,7 @@ index e3128a2..9289bf4 100644
      void didFinishLoadingOnePart(double finishTime);
      void cleanupForError(const ResourceError&);
 diff --git a/Source/WebCore/loader/SubresourceLoader.cpp b/Source/WebCore/loader/SubresourceLoader.cpp
-index cbb0561..115244e 100644
+index cbb0561..24704fc 100644
 --- a/Source/WebCore/loader/SubresourceLoader.cpp
 +++ b/Source/WebCore/loader/SubresourceLoader.cpp
 @@ -41,20 +41,28 @@
@@ -664,7 +664,7 @@ index cbb0561..115244e 100644
                  ResourceLoader::didReceiveResponse(response);
              return;
          }
-@@ -259,21 +286,33 @@ void SubresourceLoader::didReceiveDataOrBuffer(const char* data, int length, Pas
+@@ -259,21 +286,35 @@ void SubresourceLoader::didReceiveDataOrBuffer(const char* data, int length, Pas
  {
      if (m_resource->response().httpStatusCode() >= 400 && !m_resource->shouldIgnoreHTTPStatusCodeErrors())
          return;
@@ -685,7 +685,9 @@ index cbb0561..115244e 100644
 +            serializedBuffer = SharedBuffer::create(data, length);
 +        cursor->appendInput<ResourceLoaderDidReceiveData>(ordinalForIdentifier(), frameIndexFromFrame(m_frame.get()), serializedBuffer, encodedDataLength);
 +    }
-+
++    // If the main resource changes, then a new input cursor will be created for a new replay session segment.
++    // FIXME: Is there a good place to add RAII to check extent of the first input for the new input cursor?
++    RefPtr<InputCursor> protectCursor(cursor);
 +    EventLoopInputExtent extent(cursor);
 +#endif
 +
@@ -699,7 +701,7 @@ index cbb0561..115244e 100644
      }
  }
  
-@@ -292,20 +331,29 @@ void SubresourceLoader::didFinishLoading(double finishTime)
+@@ -292,20 +333,29 @@ void SubresourceLoader::didFinishLoading(double finishTime)
  {
      if (m_state != Initialized)
          return;
@@ -729,7 +731,7 @@ index cbb0561..115244e 100644
          return;
      m_resource->finish();
      ASSERT(!reachedTerminalState());
-@@ -317,20 +365,29 @@ void SubresourceLoader::didFinishLoading(double finishTime)
+@@ -317,20 +367,29 @@ void SubresourceLoader::didFinishLoading(double finishTime)
  }
  
  void SubresourceLoader::didFail(const ResourceError& error)
@@ -759,7 +761,7 @@ index cbb0561..115244e 100644
      m_resource->error(CachedResource::LoadError);
      cleanupForError(error);
      notifyDone();
-@@ -396,11 +453,22 @@ void SubresourceLoader::releaseResources()
+@@ -396,11 +455,22 @@ void SubresourceLoader::releaseResources()
  #if PLATFORM(IOS)
      if (m_state != Uninitialized && m_state != CancelledWhileInitializing)
  #else
@@ -783,7 +785,7 @@ index cbb0561..115244e 100644
 +
  }
 diff --git a/Source/WebCore/loader/SubresourceLoader.h b/Source/WebCore/loader/SubresourceLoader.h
-index a43534f..162ef07 100644
+index 303ffd9..ab9ed71 100644
 --- a/Source/WebCore/loader/SubresourceLoader.h
 +++ b/Source/WebCore/loader/SubresourceLoader.h
 @@ -90,20 +90,24 @@ private:
@@ -845,7 +847,7 @@ index ce58f8e..27c9cc4 100644
          return true;
  
 diff --git a/Source/WebCore/platform/network/ResourceErrorBase.h b/Source/WebCore/platform/network/ResourceErrorBase.h
-index 50794e4..e5759a0 100644
+index 5ae837c..e28d1a9 100644
 --- a/Source/WebCore/platform/network/ResourceErrorBase.h
 +++ b/Source/WebCore/platform/network/ResourceErrorBase.h
 @@ -31,20 +31,21 @@
@@ -1483,7 +1485,7 @@ index 4fbc592..a444b03 100644
      ]
  }
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 0e3e898..a558979 100644
+index c0c8a9a..94294ec 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,11 +1,24 @@
@@ -1513,7 +1515,7 @@ index 0e3e898..a558979 100644
  
          * Shared/SessionTracker.cpp:
 diff --git a/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp b/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
-index cabc3c3..593ed21 100644
+index 2813fbc..b3dbaf8 100644
 --- a/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
 +++ b/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
 @@ -46,20 +46,24 @@
@@ -1541,18 +1543,9 @@ index cabc3c3..593ed21 100644
      : m_internallyFailedLoadTimer(RunLoop::main(), this, &WebResourceLoadScheduler::internallyFailedLoadTimerFired)
      , m_suspendPendingRequestsCount(0)
  {
-@@ -103,28 +107,36 @@ void WebResourceLoadScheduler::scheduleLoad(ResourceLoader* resourceLoader, Cach
-         return;
-     }
- #endif
- 
-     if (resourceLoader->documentLoader()->applicationCacheHost()->maybeLoadResource(resourceLoader, resourceLoader->request(), resourceLoader->request().url())) {
-         LOG(NetworkScheduling, "(WebProcess) WebResourceLoadScheduler::scheduleLoad, url '%s' will be loaded from application cache.", resourceLoader->url().string().utf8().data());
-         m_webResourceLoaders.set(identifier, WebResourceLoader::create(resourceLoader));
-         return;
+@@ -109,20 +113,27 @@ void WebResourceLoadScheduler::scheduleLoad(ResourceLoader* resourceLoader, Cach
      }
  
-+
  #if USE(QUICK_LOOK)
      if (maybeLoadQuickLookResource(*resourceLoader)) {
          LOG(NetworkScheduling, "(WebProcess) WebResourceLoadScheduler::scheduleLoad, url '%s' will be handled as a QuickLook resource.", resourceLoader->url().string().utf8().data());
@@ -1568,7 +1561,7 @@ index cabc3c3..593ed21 100644
 +    }
 +#endif
 +
-     LOG(NetworkScheduling, "(WebProcess) WebResourceLoadScheduler::scheduleLoad, url '%s' will be scheduled with the NetworkProcess with priority %i", resourceLoader->url().string().utf8().data(), priority);
+     LOG(NetworkScheduling, "(WebProcess) WebResourceLoadScheduler::scheduleLoad, url '%s' will be scheduled with the NetworkProcess with priority %i", resourceLoader->url().string().utf8().data(), resourceLoader->request().priority());
  
      ContentSniffingPolicy contentSniffingPolicy = resourceLoader->shouldSniffContent() ? SniffContent : DoNotSniffContent;
      StoredCredentials allowStoredCredentials = resourceLoader->shouldUseCredentialStorage() ? AllowStoredCredentials : DoNotAllowStoredCredentials;

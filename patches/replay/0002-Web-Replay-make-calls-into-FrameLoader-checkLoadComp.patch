@@ -1,4 +1,4 @@
-From 2ccd13427a689374856f91a4625ea159a271d774 Mon Sep 17 00:00:00 2001
+From a3471f5d6c4d9dddc2d3fcb92cfc91c915fe4c2c Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 14:34:56 -0700
 Subject: [PATCH] Web Replay: make calls into FrameLoader::checkLoadComplete()
@@ -78,7 +78,7 @@ Source/WebKit2:
 ---
  Source/WebCore/CMakeLists.txt                      |   1 +
  Source/WebCore/ChangeLog                           |  70 ++++++++++++
- Source/WebCore/WebCore.vcxproj/WebCore.vcxproj     |   4 +-
+ Source/WebCore/WebCore.vcxproj/WebCore.vcxproj     |   2 +
  .../WebCore.vcxproj/WebCore.vcxproj.filters        |   6 +
  .../WebCore.vcxproj/copyForwardingHeaders.cmd      |   1 +
  Source/WebCore/WebCore.xcodeproj/project.pbxproj   |  20 +++-
@@ -98,17 +98,17 @@ Source/WebKit2:
  Source/WebKit/ChangeLog                            |   9 ++
  Source/WebKit2/CMakeLists.txt                      |   1 +
  Source/WebKit2/ChangeLog                           |   9 ++
- 22 files changed, 528 insertions(+), 17 deletions(-)
+ 22 files changed, 527 insertions(+), 16 deletions(-)
  create mode 100644 Source/WebCore/replay/ReplayableTimer.cpp
  create mode 100644 Source/WebCore/replay/ReplayableTimer.h
  create mode 100644 Source/WebCore/replay/ReplayableTimers.cpp
  create mode 100644 Source/WebCore/replay/ReplayableTimers.h
 
 diff --git a/Source/WebCore/CMakeLists.txt b/Source/WebCore/CMakeLists.txt
-index ce1581d..4e3c145 100644
+index d25f86f..8867651 100644
 --- a/Source/WebCore/CMakeLists.txt
 +++ b/Source/WebCore/CMakeLists.txt
-@@ -2503,20 +2503,21 @@ set(WebCore_SOURCES
+@@ -2489,20 +2489,21 @@ set(WebCore_SOURCES
      rendering/svg/SVGTextLayoutAttributes.cpp
      rendering/svg/SVGTextLayoutAttributesBuilder.cpp
      rendering/svg/SVGTextLayoutEngine.cpp
@@ -131,7 +131,7 @@ index ce1581d..4e3c145 100644
      storage/StorageNamespace.cpp
      storage/StorageNamespaceImpl.cpp
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index d0464c5..6b24220 100644
+index 5b37c35..e5515c7 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,80 @@
@@ -216,10 +216,10 @@ index d0464c5..6b24220 100644
          executions, so we should support determinism checks during replay too.
  
 diff --git a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
-index f0b9d0c..5a3b68a 100644
+index 594f9ba..c9f8315 100644
 --- a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
 +++ b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
-@@ -12330,20 +12330,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -12329,20 +12329,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug_WinCairo|x64'">true</ExcludedFromBuild>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|Win32'">true</ExcludedFromBuild>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|x64'">true</ExcludedFromBuild>
@@ -241,7 +241,7 @@ index f0b9d0c..5a3b68a 100644
      <ClCompile Include="..\xml\XMLHttpRequestProgressEventThrottle.cpp" />
      <ClCompile Include="..\xml\XMLHttpRequestUpload.cpp" />
      <ClCompile Include="..\xml\XMLSerializer.cpp" />
-@@ -20418,20 +20419,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -20417,20 +20418,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
      <ClInclude Include="..\rendering\svg\SVGTextFragment.h" />
      <ClInclude Include="..\rendering\svg\SVGTextLayoutAttributes.h" />
      <ClInclude Include="..\rendering\svg\SVGTextLayoutAttributesBuilder.h" />
@@ -263,25 +263,11 @@ index f0b9d0c..5a3b68a 100644
      <ClInclude Include="..\xml\XMLHttpRequestProgressEventThrottle.h" />
      <ClInclude Include="..\xml\XMLHttpRequestUpload.h" />
      <ClInclude Include="..\xml\XMLSerializer.h" />
-@@ -21375,11 +21377,11 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
-       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
-       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Production|Win32'">true</ExcludedFromBuild>
-       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release_WinCairo|Win32'">true</ExcludedFromBuild>
-       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|Win32'">true</ExcludedFromBuild>
-     </MASM>
-   </ItemGroup>
-   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-   <ImportGroup Label="ExtensionTargets">
-     <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
-   </ImportGroup>
--</Project>
-\ No newline at end of file
-+</Project>
 diff --git a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
-index 360b79a..0011f6a 100644
+index 1f22dfe..6049e61 100644
 --- a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
 +++ b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
-@@ -2930,20 +2930,23 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -2927,20 +2927,23 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
      </ClCompile>
      <ClCompile Include="..\rendering\svg\SVGTextQuery.cpp">
        <Filter>rendering\svg</Filter>
@@ -305,7 +291,7 @@ index 360b79a..0011f6a 100644
        <Filter>xml</Filter>
      </ClCompile>
      <ClCompile Include="..\xml\XMLErrors.cpp">
-@@ -9989,20 +9992,23 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -9983,20 +9986,23 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
      </ClInclude>
      <ClInclude Include="..\rendering\svg\SVGTextMetricsBuilder.h">
        <Filter>rendering\svg</Filter>
@@ -356,10 +342,10 @@ index fbf69f1..3fe4742 100644
  xcopy /y /d "%ProjectDir%..\storage\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
  xcopy /y /d "%ProjectDir%..\style\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index 359f4ac..891d99d 100644
+index c297656..aa9844a 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -5530,20 +5530,24 @@
+@@ -5510,20 +5510,24 @@
  		C375D7FD16639519006184AB /* TypeAhead.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C375D7FB16639519006184AB /* TypeAhead.cpp */; };
  		C375D7FE16639519006184AB /* TypeAhead.h in Headers */ = {isa = PBXBuildFile; fileRef = C375D7FC16639519006184AB /* TypeAhead.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		C37CDEBD149EF2030042090D /* ColorChooserClient.h in Headers */ = {isa = PBXBuildFile; fileRef = C37CDEBC149EF2030042090D /* ColorChooserClient.h */; settings = {ATTRIBUTES = (Private, ); }; };
@@ -384,7 +370,7 @@ index 359f4ac..891d99d 100644
  		C5102ED00FD9EF8C00FAFF04 /* StorageAreaSync.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C5102ECE0FD9EF8C00FAFF04 /* StorageAreaSync.cpp */; };
  		C5137CF211A58378004ADB99 /* JSDOMStringList.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */; };
  		C5137CF311A58378004ADB99 /* JSDOMStringList.h in Headers */ = {isa = PBXBuildFile; fileRef = C5137CF111A58378004ADB99 /* JSDOMStringList.h */; };
-@@ -12954,20 +12958,24 @@
+@@ -12914,20 +12918,24 @@
  		C375D7FC16639519006184AB /* TypeAhead.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TypeAhead.h; sourceTree = "<group>"; };
  		C37CDEBC149EF2030042090D /* ColorChooserClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ColorChooserClient.h; sourceTree = "<group>"; };
  		C3CF17A015B0063F00276D39 /* IdTargetObserver.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = IdTargetObserver.cpp; sourceTree = "<group>"; };
@@ -409,7 +395,7 @@ index 359f4ac..891d99d 100644
  		C5102ECE0FD9EF8C00FAFF04 /* StorageAreaSync.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = StorageAreaSync.cpp; sourceTree = "<group>"; };
  		C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = JSDOMStringList.cpp; sourceTree = "<group>"; };
  		C5137CF111A58378004ADB99 /* JSDOMStringList.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSDOMStringList.h; sourceTree = "<group>"; };
-@@ -18415,30 +18423,34 @@
+@@ -18340,30 +18348,34 @@
  				99CC0B3A18BE9849006CEBCC /* CapturingInputCursor.h */,
  				C400D10818F1C8F60090D863 /* EventLoopInput.cpp */,
  				99E45A1618A063BE0026D88F /* EventLoopInput.h */,
@@ -446,7 +432,7 @@ index 359f4ac..891d99d 100644
  			);
  			path = replay;
  			sourceTree = "<group>";
-@@ -24135,20 +24147,21 @@
+@@ -24059,20 +24071,21 @@
  				316FE0800E6CCC2800BF6088 /* DOMWebKitCSSKeyframesRule.h in Headers */,
  				316FE0820E6CCC2800BF6088 /* DOMWebKitCSSKeyframesRuleInternal.h in Headers */,
  				498391500F1E76B400C23782 /* DOMWebKitCSSMatrix.h in Headers */,
@@ -468,7 +454,7 @@ index 359f4ac..891d99d 100644
  				FC9A0F75164094CF003D6B8D /* DOMWindowCSS.h in Headers */,
  				51FA2D78152132B300C1BA0B /* DOMWindowExtension.h in Headers */,
  				51D719B7181106E00016DC51 /* DOMWindowIndexedDatabase.h in Headers */,
-@@ -26615,20 +26628,21 @@
+@@ -26526,20 +26539,21 @@
  				31288E730E3005D6003619AE /* WebKitCSSKeyframeRule.h in Headers */,
  				31288E750E3005D6003619AE /* WebKitCSSKeyframesRule.h in Headers */,
  				498391590F1E776900C23782 /* WebKitCSSMatrix.h in Headers */,
@@ -490,7 +476,7 @@ index 359f4ac..891d99d 100644
  				97AABD1E14FA09D5007457AE /* WebSocketChannel.h in Headers */,
  				97AABD1F14FA09D5007457AE /* WebSocketChannelClient.h in Headers */,
  				4A38BF5114FE1C0900612512 /* WebSocketDeflateFramer.h in Headers */,
-@@ -28152,20 +28166,21 @@
+@@ -28056,20 +28070,21 @@
  				073AB4B717F92ECF006E0D6F /* JSCapabilityRange.cpp in Sources */,
  				93F9B7A00BA6032600854064 /* JSCDATASection.cpp in Sources */,
  				93BA59B20F2AA5FE008E8E99 /* JSCDATASectionCustom.cpp in Sources */,
@@ -512,7 +498,7 @@ index 359f4ac..891d99d 100644
  				FDA15EBD12B03F0B003A583A /* JSConvolverNode.cpp in Sources */,
  				FE6FD48D0F676E9300092873 /* JSCoordinates.cpp in Sources */,
  				930705D809E0C9B700B17FE4 /* JSCounter.cpp in Sources */,
-@@ -28918,20 +28933,21 @@
+@@ -28822,20 +28837,21 @@
  				078E093317D16B0600420AA1 /* MediaStreamCenter.cpp in Sources */,
  				078E093117D1684200420AA1 /* MediaStreamCenterMac.cpp in Sources */,
  				078E090017D14CEE00420AA1 /* MediaStreamEvent.cpp in Sources */,
@@ -625,7 +611,7 @@ index e1e5a05..698b409 100644
  
  #endif // CSSFontSelector_h
 diff --git a/Source/WebCore/dom/Document.cpp b/Source/WebCore/dom/Document.cpp
-index 80d9a16..aa30785 100644
+index 1b4ac77..6ecd6be 100644
 --- a/Source/WebCore/dom/Document.cpp
 +++ b/Source/WebCore/dom/Document.cpp
 @@ -214,20 +214,21 @@
@@ -700,7 +686,7 @@ index 80d9a16..aa30785 100644
      if (!m_scriptedAnimationController) {
  #if USE(REQUEST_ANIMATION_FRAME_DISPLAY_MONITOR)
 diff --git a/Source/WebCore/dom/Document.h b/Source/WebCore/dom/Document.h
-index 158fbc37e..a666fd8 100644
+index b6c510d..7452547 100644
 --- a/Source/WebCore/dom/Document.h
 +++ b/Source/WebCore/dom/Document.h
 @@ -34,20 +34,21 @@
@@ -725,7 +711,7 @@ index 158fbc37e..a666fd8 100644
  #include <chrono>
  #include <memory>
  #include <wtf/Deque.h>
-@@ -186,20 +187,24 @@ class TextAutosizer;
+@@ -187,20 +188,24 @@ class TextAutosizer;
  #endif
  
  #if ENABLE(CSP_NEXT)
@@ -750,7 +736,7 @@ index 158fbc37e..a666fd8 100644
  #endif
  
  #if ENABLE(IOS_TEXT_AUTOSIZING)
-@@ -477,20 +482,22 @@ public:
+@@ -478,20 +483,22 @@ public:
      void setHasXMLDeclaration(bool hasXMLDeclaration) { m_hasXMLDeclaration = hasXMLDeclaration ? 1 : 0; }
  
      String documentURI() const { return m_documentURI; }
@@ -773,7 +759,7 @@ index 158fbc37e..a666fd8 100644
      DOMSecurityPolicy* securityPolicy();
  #endif
  
-@@ -1324,21 +1331,21 @@ private:
+@@ -1323,21 +1330,21 @@ private:
      virtual double timerAlignmentInterval() const override;
  
      void updateTitle(const StringWithDirection&);
@@ -796,7 +782,7 @@ index 158fbc37e..a666fd8 100644
  
      PassRefPtr<HTMLCollection> ensureCachedCollection(CollectionType);
  
-@@ -1570,21 +1577,21 @@ private:
+@@ -1569,21 +1576,21 @@ private:
      RenderFullScreen* m_fullScreenRenderer;
      Timer<Document> m_fullScreenChangeDelayTimer;
      Deque<RefPtr<Node>> m_fullScreenChangeEventTargetQueue;
@@ -819,7 +805,7 @@ index 158fbc37e..a666fd8 100644
  
  #if ENABLE(WEB_TIMING)
      DocumentTiming m_documentTiming;
-@@ -1680,20 +1687,21 @@ private:
+@@ -1679,20 +1686,21 @@ private:
      RefPtr<Document> m_templateDocument;
      Document* m_templateDocumentHost; // Manually managed weakref (backpointer from m_templateDocument).
  #endif
@@ -890,7 +876,7 @@ index 3258bce..2f5e11d 100644
  void FrameLoader::scheduleCheckLoadComplete()
  {
 diff --git a/Source/WebCore/loader/FrameLoader.h b/Source/WebCore/loader/FrameLoader.h
-index 7619f22..64cdca8 100644
+index 52efa3c9..3f67e6a 100644
 --- a/Source/WebCore/loader/FrameLoader.h
 +++ b/Source/WebCore/loader/FrameLoader.h
 @@ -31,24 +31,24 @@
@@ -1471,7 +1457,7 @@ index e8d692e..f60bc77 100644
      "${JAVASCRIPTCORE_DIR}/API"
      "${JAVASCRIPTCORE_DIR}/assembler"
 diff --git a/Source/WebKit/ChangeLog b/Source/WebKit/ChangeLog
-index 3cf38c8..67b128c 100644
+index 6775043..9df0800 100644
 --- a/Source/WebKit/ChangeLog
 +++ b/Source/WebKit/ChangeLog
 @@ -1,10 +1,19 @@
@@ -1484,18 +1470,18 @@ index 3cf38c8..67b128c 100644
 +
 +        * CMakeLists.txt: Add replay/ directory to header include paths.
 +
+ 2014-08-20  Benjamin Poulain  <bpoulain@apple.com>
+ 
+         Remove HTMLInputElement's suggestedValue
+         https://bugs.webkit.org/show_bug.cgi?id=136094
+ 
+         Reviewed by Darin Adler.
+ 
+         * WebKit.vcxproj/WebKitExportGenerator/WebKitExports.def.in:
+ 
  2014-08-20  Mark Rowe  <mrowe@apple.com>
- 
-         <https://webkit.org/b/136119> WebKit1 plug-in test failures in production builds after r172595
- 
-         Reviewed by Alexey Proskuryakov.
- 
-         * WebKit.xcodeproj/project.pbxproj: Add the symlinks at the top level of WebKitLegacy.framework
-         even in Production builds. Add the symlinks in the right locations too.
- 
- 2014-08-15  Andy Estes  <aestes@apple.com>
 diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
-index d058eb1..31ac6a3 100644
+index 5fb1c90..340920e 100644
 --- a/Source/WebKit2/CMakeLists.txt
 +++ b/Source/WebKit2/CMakeLists.txt
 @@ -100,20 +100,21 @@ set(WebKit2_INCLUDE_DIRECTORIES
@@ -1521,7 +1507,7 @@ index d058eb1..31ac6a3 100644
      "${JAVASCRIPTCORE_DIR}/assembler"
      "${JAVASCRIPTCORE_DIR}/bytecode"
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 4620749..792749b 100644
+index 51122d5..503208b 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,19 @@
@@ -1534,16 +1520,16 @@ index 4620749..792749b 100644
 +
 +        * CMakeLists.txt: Add replay/ directory to header include paths.
 +
- 2014-08-20  Alex Christensen  <achristensen@webkit.org>
+ 2014-08-26  Dana Burkart  <dburkart@apple.com>
  
-         Introducing WEBCORE_EXPORT macro.
-         https://bugs.webkit.org/show_bug.cgi?id=136108
+         The UNUSED_PARAM macros in ServicesOverlayController.mm are causing ASan build failures.
+         https://bugs.webkit.org/show_bug.cgi?id=136262
  
-         Reviewed by Antti Koivisto.
+         Reviewed by David Kilzer.
  
-         * config.h:
-         Added stub definition of WEBCORE_EXPORT defined to nothing to be able to compile with WebCore headers.
- 
+         * WebProcess/WebPage/mac/ServicesOverlayController.mm:
+         (WebKit::ServicesOverlayController::selectionRectsDidChange):
+         (WebKit::ServicesOverlayController::selectedTelephoneNumberRangesChanged):
 -- 
 2.0.1
 

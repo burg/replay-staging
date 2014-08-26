@@ -1,4 +1,4 @@
-From 6db1e7bb73eb194cd4e6d2d5c29deccbea543b26 Mon Sep 17 00:00:00 2001
+From 43a4bb1b8e7ee3e5cf4e930334a5de5842f41189 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 11:45:23 -0700
 Subject: [PATCH] Web Replay: capture and replay Reload, Navigate, and Stop
@@ -97,12 +97,10 @@ an enum with uint64_t-sized storage rather than int.
  Source/WebCore/replay/UserInputBridge.cpp          |  67 +++++-
  Source/WebCore/replay/WebInputs.json               |  75 +++++++
  Source/WebKit2/ChangeLog                           |  15 ++
- .../NetworkResourceLoadScheduler.cpp               |   2 +-
- .../Network/WebResourceLoadScheduler.cpp           |   2 +-
- 14 files changed, 513 insertions(+), 11 deletions(-)
+ 12 files changed, 511 insertions(+), 9 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index ceaa91a..1df47dd 100644
+index 4315e4d..0eb8548 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,83 @@
@@ -190,7 +188,7 @@ index ceaa91a..1df47dd 100644
          callbacks during capturing, and then manually invoke loader callbacks during replay
          in lieu of using the resource loader scheduler.
 diff --git a/Source/WebCore/loader/FrameLoadRequest.h b/Source/WebCore/loader/FrameLoadRequest.h
-index 1a2bbf8..1e2f9a8 100644
+index 81e3f65..e665e7a 100644
 --- a/Source/WebCore/loader/FrameLoadRequest.h
 +++ b/Source/WebCore/loader/FrameLoadRequest.h
 @@ -66,21 +66,21 @@ public:
@@ -244,7 +242,7 @@ index 8e9c6c6..e07b494 100644
          return 0;
  
 diff --git a/Source/WebCore/platform/network/FormData.h b/Source/WebCore/platform/network/FormData.h
-index e6ac52f..11d54d9 100644
+index c5e7f0f..f07f358 100644
 --- a/Source/WebCore/platform/network/FormData.h
 +++ b/Source/WebCore/platform/network/FormData.h
 @@ -245,28 +245,30 @@ public:
@@ -307,7 +305,7 @@ index 5a7104f..94e722e 100644
      ResourceLoadPriorityHighest = ResourceLoadPriorityVeryHigh,
  };
 diff --git a/Source/WebCore/platform/network/ResourceRequestBase.h b/Source/WebCore/platform/network/ResourceRequestBase.h
-index 90b074d..6006e85 100644
+index c2c134e..268898d 100644
 --- a/Source/WebCore/platform/network/ResourceRequestBase.h
 +++ b/Source/WebCore/platform/network/ResourceRequestBase.h
 @@ -28,21 +28,21 @@
@@ -1139,7 +1137,7 @@ index a444b03..d76bbee 100644
      ]
  }
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index a558979..30e9e9c 100644
+index 94294ec..4901968 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,25 @@
@@ -1168,60 +1166,6 @@ index a558979..30e9e9c 100644
          During playback, don't schedule resource loaders. This prevents the NetworkProcess
          from taking over and fulfilling the loads nondeterministically.
  
-diff --git a/Source/WebKit2/NetworkProcess/NetworkResourceLoadScheduler.cpp b/Source/WebKit2/NetworkProcess/NetworkResourceLoadScheduler.cpp
-index 56c4cc2..a41d065 100644
---- a/Source/WebKit2/NetworkProcess/NetworkResourceLoadScheduler.cpp
-+++ b/Source/WebKit2/NetworkProcess/NetworkResourceLoadScheduler.cpp
-@@ -107,21 +107,21 @@ void NetworkResourceLoadScheduler::receivedRedirect(NetworkResourceLoader* loade
-     
-     if (oldHost->name() == newHost->name())
-         return;
- 
-     oldHost->removeLoader(loader);
-     newHost->addLoaderInProgress(loader);
- }
- 
- void NetworkResourceLoadScheduler::servePendingRequests(ResourceLoadPriority minimumPriority)
- {
--    LOG(NetworkScheduling, "(NetworkProcess) NetworkResourceLoadScheduler::servePendingRequests Serving requests for up to %i hosts with minimum priority %i", m_hosts.size(), minimumPriority);
-+    LOG(NetworkScheduling, "(NetworkProcess) NetworkResourceLoadScheduler::servePendingRequests Serving requests for up to %i hosts with minimum priority %lli", m_hosts.size(), minimumPriority);
- 
-     m_requestTimer.stop();
-     
-     m_nonHTTPProtocolHost->servePendingRequests(minimumPriority);
- 
-     m_hosts.checkConsistency();
-     Vector<RefPtr<HostRecord>> hostsToServe;
-     copyValuesToVector(m_hosts, hostsToServe);
- 
-     size_t size = hostsToServe.size();
-diff --git a/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp b/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
-index 593ed21..acdbf26 100644
---- a/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
-+++ b/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
-@@ -123,21 +123,21 @@ void WebResourceLoadScheduler::scheduleLoad(ResourceLoader* resourceLoader, Cach
-     }
- #endif
- 
- #if ENABLE(WEB_REPLAY)
-     if (InputCursor* cursor = resourceLoader->activeInputCursor()) {
-         if (cursor->isReplaying())
-             return;
-     }
- #endif
- 
--    LOG(NetworkScheduling, "(WebProcess) WebResourceLoadScheduler::scheduleLoad, url '%s' will be scheduled with the NetworkProcess with priority %i", resourceLoader->url().string().utf8().data(), priority);
-+    LOG(NetworkScheduling, "(WebProcess) WebResourceLoadScheduler::scheduleLoad, url '%s' will be scheduled with the NetworkProcess with priority %lli", resourceLoader->url().string().utf8().data(), priority);
- 
-     ContentSniffingPolicy contentSniffingPolicy = resourceLoader->shouldSniffContent() ? SniffContent : DoNotSniffContent;
-     StoredCredentials allowStoredCredentials = resourceLoader->shouldUseCredentialStorage() ? AllowStoredCredentials : DoNotAllowStoredCredentials;
- 
-     // FIXME: Some entities in WebCore use WebCore's "EmptyFrameLoaderClient" instead of having a proper WebFrameLoaderClient.
-     // EmptyFrameLoaderClient shouldn't exist and everything should be using a WebFrameLoaderClient,
-     // but in the meantime we have to make sure not to mis-cast.
-     WebFrameLoaderClient* webFrameLoaderClient = toWebFrameLoaderClient(resourceLoader->frameLoader()->client());
-     WebFrame* webFrame = webFrameLoaderClient ? webFrameLoaderClient->webFrame() : 0;
-     WebPage* webPage = webFrame ? webFrame->page() : 0;
 -- 
 2.0.1
 
