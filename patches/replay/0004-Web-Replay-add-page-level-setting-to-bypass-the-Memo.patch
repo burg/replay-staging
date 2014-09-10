@@ -1,4 +1,4 @@
-From 3877543e2a18165d43803262563bc1897d405a3d Mon Sep 17 00:00:00 2001
+From c64b1f167b27a6050e874cd9baa928f3d503faab Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 11 Jun 2014 15:33:16 -0700
 Subject: [PATCH] Web Replay: add page-level setting to bypass the MemoryCache
@@ -62,7 +62,7 @@ and bypass cache session id are both considered to be non-ephemeral.
  11 files changed, 104 insertions(+), 11 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 52c9851..62d37fb 100644
+index 5aa98a8..39e825d 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,58 @@
@@ -125,7 +125,7 @@ index 52c9851..62d37fb 100644
  
          This patch shares EventSender instances among elements in the same Document.
 diff --git a/Source/WebCore/loader/cache/CachedResourceLoader.cpp b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
-index fa3c54f..8e9c6c6 100644
+index f93b0d3..21f4aa8 100644
 --- a/Source/WebCore/loader/cache/CachedResourceLoader.cpp
 +++ b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
 @@ -420,21 +420,21 @@ CachedResourceHandle<CachedResource> CachedResourceLoader::requestResource(Cache
@@ -221,7 +221,7 @@ index 3804134..59f1db5 100644
      }
      originMap->set(resource->cachePartition(), resource);
 diff --git a/Source/WebCore/page/Page.cpp b/Source/WebCore/page/Page.cpp
-index ad0aa3d..42b1c76 100644
+index b2a41a7..b49fd2e 100644
 --- a/Source/WebCore/page/Page.cpp
 +++ b/Source/WebCore/page/Page.cpp
 @@ -1173,22 +1173,22 @@ void Page::storageBlockingStateChanged()
@@ -238,7 +238,7 @@ index ad0aa3d..42b1c76 100644
 -    // Don't allow changing the legacy private browsing state if we have set a session ID.
 -    ASSERT(m_sessionID == SessionID::defaultSessionID() || m_sessionID == SessionID::legacyPrivateSessionID());
 +    // Don't allow changing the legacy private browsing state if we have set an ephemeral session ID.
-+    ASSERT(m_sessionID.isEphemeral() || m_sessionID == SessionID::legacyPrivateSessionID());
++    ASSERT(!m_sessionID.isEphemeral());
  
      setSessionID(privateBrowsingEnabled ? SessionID::legacyPrivateSessionID() : SessionID::defaultSessionID());
  }
@@ -386,11 +386,11 @@ index d713412..adadf9b 100644
          int last = m_page->backForward().forwardCount();
          for (int i = first; i <= last; i++)
 diff --git a/Source/WebCore/page/Settings.h b/Source/WebCore/page/Settings.h
-index a3a0147..9d4b44d 100644
+index 1a66576..e55e977 100644
 --- a/Source/WebCore/page/Settings.h
 +++ b/Source/WebCore/page/Settings.h
 @@ -173,21 +173,24 @@ public:
-     void setLayoutInterval(std::chrono::milliseconds);
+     WEBCORE_EXPORT void setLayoutInterval(std::chrono::milliseconds);
      std::chrono::milliseconds layoutInterval() const { return m_layoutInterval; }
  
  #if ENABLE(HIDDEN_PAGE_DOM_TIMER_THROTTLING)
@@ -502,7 +502,7 @@ index ea1419d..70a60d8 100644
      // The active cursor is set to nullptr when invalid.
      RefPtr<JSC::InputCursor> m_activeCursor;
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 503208b..c0c8a9a 100644
+index 66e1de7..a1a831e 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,24 @@
@@ -529,7 +529,7 @@ index 503208b..c0c8a9a 100644
  
          * CMakeLists.txt: Add replay/ directory to header include paths.
  
- 2014-08-26  Dana Burkart  <dburkart@apple.com>
+ 2014-09-04  Carlos Garcia Campos  <cgarcia@igalia.com>
 diff --git a/Source/WebKit2/Shared/SessionTracker.cpp b/Source/WebKit2/Shared/SessionTracker.cpp
 index ac79a9d..0886af1 100644
 --- a/Source/WebKit2/Shared/SessionTracker.cpp

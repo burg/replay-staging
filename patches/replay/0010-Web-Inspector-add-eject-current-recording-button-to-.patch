@@ -1,4 +1,4 @@
-From 3bd1dae2d50c81cfb4f2109a658d0639b842319e Mon Sep 17 00:00:00 2001
+From 21ca7e5e47567cdf1bab99a296526beb32fc971e Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Mon, 11 Aug 2014 23:52:17 -0700
 Subject: [PATCH] Web Inspector: add eject current recording button to the
@@ -48,7 +48,7 @@ This will be replaced soon with a mini-timeline content view.
  Source/WebCore/inspector/InspectorReplayAgent.h    |   1 +
  Source/WebCore/inspector/protocol/Replay.json      |   7 +++
  Source/WebInspectorUI/ChangeLog                    |  32 ++++++++++++++
- .../Localizations/en.lproj/localizedStrings.js     | Bin 55280 -> 55394 bytes
+ .../Localizations/en.lproj/localizedStrings.js     | Bin 56188 -> 56302 bytes
  .../UserInterface/Controllers/ReplayManager.js     |  33 ++++++++++++++
  .../UserInterface/Images/ReplayEjectButton.svg     |   8 ++++
  .../UserInterface/Views/ReplayDashboardView.css    |  13 ++++++
@@ -57,7 +57,7 @@ This will be replaced soon with a mini-timeline content view.
  create mode 100644 Source/WebInspectorUI/UserInterface/Images/ReplayEjectButton.svg
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 98f3029..6c81929 100644
+index c47404b..8e0c87b 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,25 @@
@@ -147,10 +147,10 @@ index 02cc7e0..f4fba87 100644
  
  private:
 diff --git a/Source/WebCore/inspector/protocol/Replay.json b/Source/WebCore/inspector/protocol/Replay.json
-index be26988..1c9a7a5 100644
+index 7d8f565..773f9d7 100644
 --- a/Source/WebCore/inspector/protocol/Replay.json
 +++ b/Source/WebCore/inspector/protocol/Replay.json
-@@ -90,20 +90,27 @@
+@@ -91,20 +91,27 @@
          },
          {
              "name": "pausePlayback",
@@ -179,7 +179,7 @@ index be26988..1c9a7a5 100644
              "description": "Splices the specified session segment into the session at the specified index.",
              "parameters": [
 diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
-index 61d7221..74064ae 100644
+index c39ff3d..214eec9 100644
 --- a/Source/WebInspectorUI/ChangeLog
 +++ b/Source/WebInspectorUI/ChangeLog
 @@ -1,10 +1,42 @@
@@ -215,34 +215,34 @@ index 61d7221..74064ae 100644
 +        (WebInspector.ReplayDashboardView.prototype._playbackFinished):
 +        (WebInspector.ReplayDashboardView.prototype._activeSessionChanged):
 +
- 2014-08-25  Brent Fulgham  <bfulgham@apple.com>
+ 2014-09-02  Brian J. Burg  <burg@cs.washington.edu>
  
-         [Win] Pass OFFICIAL_BUILD flag to WebInspectorUI build process
-         https://bugs.webkit.org/show_bug.cgi?id=136229
+         LegacyProfiler: remove redundant ProfileNode members and other cleanup
+         https://bugs.webkit.org/show_bug.cgi?id=136380
  
-         Reviewed by Dean Jackson.
+         Reviewed by Timothy Hatcher.
  
-         * WebInspectorUI.vcxproj/WebInspectorUI.make: Pass OFFICIAL_BUILD
-         flag to build-webinspectorui.pl.
-         * WebInspectorUI.vcxproj/build-webinspectorui.pl: Accept and use
+         Remove unused Profile.idleTime member.
+ 
+         * UserInterface/Models/Profile.js:
 diff --git a/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js b/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js
-index 09cdb2ec02f4de68c0a0fbcf5517bbc89b7ef82b..e4bef17e012912cb87cb7f3a9933ea4e9849f43b 100644
+index 648f5e2b457505e95e6aea28d012de082e8b5a8c..f4635febb02c77bde510d010769b3c68f296af30 100644
 GIT binary patch
 delta 516
-zcmeycp83%RX3qcr$`}$EiWn3oZcyB)T__~PAfuqlP|P5!pukW9lu2U9nY=()cXGav
+zcmeyfjrrYnX3qcr$`}$EiWn3oZcyB)T__~PAfuqlP|P5!pukW9lu2U9nY=()cXGav
 zE+<@Sv!JlPJ~M-w!sLsNVv}{9gu(2M{yLLqI~_+T1Icp0jGMgC-(s?Lgw*8P2p!fe
-zhE#^+$$a}IC;y+z#qP=g<2z11?;<cc+r?(`d@rfZ*)H9j%s@*g=leM_16?%P)(>ba
-z68~b5+hlz=4kn;buD>aY5*Qz<L_$UZ=o6r=c?>BGx(vAt`9L}qYNjO6OdPUM?MgBV
-z1wbvu44J?{$po_U7_1l+7}9|33ZOA5P=l0#1`$+;<mjD&@+gjm@sX5h2brTNf$}$B
-l40>3M6w<qonWFGiHp?E*6+jYNucL>EiuF1wEY=KM3;?BuevkkF
+zhE#^+$qx=nPCkE-i`|t0#&?{2-bG+?wu{Z=`Cd|+vt7D5nSqv0&i8X<2D)gntsl@<
+zB>u%9x5@f$985r=Tz^v(B``iziG+*-&?i7!^B7VXbQy9P@_}?J)J#dBnK)#j+LdG!
+z3V>RQ88U%^k_lwxF<3DuFr)$56+mNBpav-e4I-!x$<aFl<xw0B<0C224l+kk0_AVM
+l7__+zDWrQ(nxgPjHorfqE{G(wUPliR73+0WSgaYi7ywE4fM5Us
 
-delta 486
-zcmaE~f%(IFX0Ct#8Oj(E8HyMbCJTxvZqzCi5>k+1P-Q4qkY!L{C;>_(G2~31FRVK`
+delta 526
+zcmaF2o%zo;X0Ct#8Oj(E8HyMbCJTxvZqzCi5>k+1P-Q4qkY!L{C;>_(G2~31FRVK`
 zPe_*&F11-eSYMw>L2dGRNAbxzPQoCjVu0@CSx(0}V2XfpVhE06faT-^&Tf+h-1sKn
-zaj}^!;4QWJj!QQuGf?^D2Y!ysKno|Y^V3J+`vm!d`S<)yQRHEKpu8kdKhTK`sSJ4x
-zDGa&{xeWP0Iu&Xf9$BDXWuV>yp!#BlOrTdYfvh|RE1<X2fb0sOi78N1h*Af0t5%Ra
-zid$iPpgfa;%w$DR;mPZQRAEZcg?xhCCQk@un|vTxX!C;L=3+#UPu4kZio#Rb+;==z
-R01?7#b@Y%qs?635TmW#nb#VXy
+zaj}^!;4QWJj!QQuGf?^D2Y!ysKno|Y^V5g%*}x7cp6qzcc(Q@JI9T|ezbT3`ARkSc
+zB+xXVgBem8@)%MWbQy9P@_}?J)NC1?vI-1vo0Nfy3V_;*88U(X&jhma7_5L{kp^T}
+z01Zxo8m2~sIwWJk9?%MsNAUoVkLCd;1)0f;p2CyY1*yVRA_*ZYZU_~dd>~k8^Mc^e
+jGDO5o{&&(8g{QJP;gq@{lF)?PNbxv%!fh31YX&X=@3Ml@
 
 diff --git a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
 index 46c0505..364a6b4 100644

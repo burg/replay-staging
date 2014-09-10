@@ -1,4 +1,4 @@
-From 1505da469411ff9206783bf491c5a7a68323ec40 Mon Sep 17 00:00:00 2001
+From a46e2d66b1d873232d09deb6b47b8c33dcf571ea Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 15:34:16 -0700
 Subject: [PATCH] Web Replay: window.history.length should be captured at main
@@ -85,7 +85,7 @@ LayoutTests:
  create mode 100644 LayoutTests/inspector/replay/history-length-single-segment.html
 
 diff --git a/LayoutTests/ChangeLog b/LayoutTests/ChangeLog
-index 0133954..eeb06df 100644
+index cc6e491..d4700f4 100644
 --- a/LayoutTests/ChangeLog
 +++ b/LayoutTests/ChangeLog
 @@ -1,10 +1,20 @@
@@ -99,16 +99,16 @@ index 0133954..eeb06df 100644
 +        * inspector/replay/history-length-single-segment-expected.txt: Added.
 +        * inspector/replay/history-length-single-segment.html: Added.
 +
- 2014-08-26  Zoltan Horvath  <zoltan@webkit.org>
+ 2014-09-03  Youenn Fablet  <youenn.fablet@crf.canon.fr>
  
-         [CSS Shapes] Positioned polygon reftests failing
-         https://bugs.webkit.org/show_bug.cgi?id=135925
+         XMLHttpRequest always defaults Content-Type to application/xml, while it should depend on data type
+         https://bugs.webkit.org/show_bug.cgi?id=11049
  
-         Reviewed by David Hyatt.
+         Reviewed by Darin Adler.
  
-         * TestExpectations: Remove passing tests.
-         * css3/shapes/shape-outside/supported-shapes/polygon/shape-outside-polygon-012.html: Fix test behavior.
- 
+         * http/tests/xmlhttprequest/methods-lower-case-expected.txt: Rebaseline (application/xml -> text/plain;charset=UTF-8).
+         * http/tests/xmlhttprequest/post-content-type-document.html: New test to cover default mime type for XML and HTML document data types.
+         * http/tests/xmlhttprequest/post-content-type-document-expected.txt: Ditto.
 diff --git a/LayoutTests/inspector/replay/history-length-single-segment-expected.txt b/LayoutTests/inspector/replay/history-length-single-segment-expected.txt
 new file mode 100644
 index 0000000..b797ffd
@@ -165,7 +165,7 @@ index 0000000..a88d9c1
 +</body>
 +</html>
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 0eb8548..41e12e7 100644
+index b3480ef..9ccee1f 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,64 @@
@@ -838,7 +838,7 @@ index df16473..fae5319 100644
  
  #endif // SerializationMethods_h
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
-index d76bbee..bcf3002 100644
+index 6a63171..2ac077a 100644
 --- a/Source/WebCore/replay/WebInputs.json
 +++ b/Source/WebCore/replay/WebInputs.json
 @@ -36,20 +36,24 @@
@@ -897,7 +897,7 @@ index d76bbee..bcf3002 100644
              ]
          },
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 4901968..63c628c 100644
+index e4c8ebe..f8c6de2 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,21 @@

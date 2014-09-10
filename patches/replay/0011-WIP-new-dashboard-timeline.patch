@@ -1,4 +1,4 @@
-From 164ec761d9be25d6f0a27d65fd60e74b9660dc17 Mon Sep 17 00:00:00 2001
+From de1497e785d4950434993ea5cb6817396fd7e220 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 31 Jul 2014 09:54:28 -0700
 Subject: [PATCH] WIP - new dashboard timeline
@@ -16,7 +16,7 @@ Subject: [PATCH] WIP - new dashboard timeline
  create mode 100644 Source/WebInspectorUI/UserInterface/Views/SimpleNetworkTimelineOverviewGraph.js
 
 diff --git a/Source/WebInspectorUI/UserInterface/Main.html b/Source/WebInspectorUI/UserInterface/Main.html
-index 28ba47f..9d62313 100644
+index d894aa1..698c687 100644
 --- a/Source/WebInspectorUI/UserInterface/Main.html
 +++ b/Source/WebInspectorUI/UserInterface/Main.html
 @@ -49,20 +49,21 @@
@@ -41,7 +41,7 @@ index 28ba47f..9d62313 100644
      <link rel="stylesheet" href="Views/DefaultDashboardView.css">
      <link rel="stylesheet" href="Views/DataGrid.css">
      <link rel="stylesheet" href="Views/DatabaseContentView.css">
-@@ -347,20 +348,21 @@
+@@ -341,20 +342,21 @@
      <script src="Views/DOMNodeDetailsSidebarPanel.js"></script>
      <script src="Views/DOMStorageContentView.js"></script>
      <script src="Views/DOMStorageTreeElement.js"></script>
@@ -63,7 +63,7 @@ index 28ba47f..9d62313 100644
      <script src="Views/DashboardView.js"></script>
      <script src="Views/DebuggerDashboardView.js"></script>
      <script src="Views/DefaultDashboardView.js"></script>
-@@ -436,20 +438,21 @@
+@@ -425,20 +427,21 @@
      <script src="Views/ScopeVariableTreeElement.js"></script>
      <script src="Views/ScriptContentView.js"></script>
      <script src="Views/ScriptTimelineDataGrid.js"></script>

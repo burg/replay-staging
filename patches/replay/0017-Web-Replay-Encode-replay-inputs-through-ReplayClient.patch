@@ -1,4 +1,4 @@
-From b04fcdd56eeab2c8f7ddc1ac52318c29f20e8502 Mon Sep 17 00:00:00 2001
+From 0bb4ffa1038b4e7247eceb5bba97f1a0d529ad4d Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 20 Aug 2014 15:32:34 -0700
 Subject: [PATCH] Web Replay: Encode replay inputs through ReplayClient Need
@@ -64,7 +64,7 @@ Source/WebKit2:
  Source/WebCore/ChangeLog                           | 50 ++++++++++++
  Source/WebCore/WebCore.exp.in                      | 76 ++++++++++++++++++-
  Source/WebCore/WebCore.xcodeproj/project.pbxproj   |  8 +-
- Source/WebCore/inspector/InspectorReplayAgent.cpp  | 25 ++++--
+ Source/WebCore/inspector/InspectorReplayAgent.cpp  | 38 +++++-----
  Source/WebCore/loader/EmptyClients.h               |  2 +
  Source/WebCore/replay/AllReplayInputs.h            | 48 ------------
  Source/WebCore/replay/CapturingInputCursor.cpp     | 41 +++++++++-
@@ -86,13 +86,13 @@ Source/WebKit2:
  .../WebProcess/Replay/WKReplayInputCoders.h        | 49 ++++++++++++
  .../WebProcess/WebCoreSupport/WebReplayClient.cpp  | 12 +++
  .../WebProcess/WebCoreSupport/WebReplayClient.h    |  3 +
- 25 files changed, 420 insertions(+), 184 deletions(-)
+ 25 files changed, 421 insertions(+), 196 deletions(-)
  delete mode 100644 Source/WebCore/replay/AllReplayInputs.h
  create mode 100644 Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.cpp
  create mode 100644 Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.h
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 6b5001a..d661d14 100644
+index e591ce2..4b0eb64 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,62 @@
@@ -159,10 +159,10 @@ index 6b5001a..d661d14 100644
  
          Also rename SerializationMethods to ReplayInputCoders to match WebKit2 naming schemes.
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index e46b5d3..8eae4d4 100644
+index c7f9711..4d0594d 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -3476,16 +3476,90 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
+@@ -3483,16 +3483,90 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
  
  #if ENABLE(VIDEO_TRACK)
  __ZN7WebCore9PageGroup18captionPreferencesEv
@@ -255,10 +255,10 @@ index e46b5d3..8eae4d4 100644
  __ZNK7WebCore20ResourceResponseBase18resourceLoadTimingEv
  #endif
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index b650b09..c96226f 100644
+index d631bed..cc580e3 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -3592,23 +3592,22 @@
+@@ -3582,23 +3582,22 @@
  		984264F112D5280A000D88A4 /* LinkLoaderClient.h in Headers */ = {isa = PBXBuildFile; fileRef = 984264EF12D5280A000D88A4 /* LinkLoaderClient.h */; };
  		985BB96D13A94058007A0B69 /* LinkRelAttribute.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 985BB96B13A94058007A0B69 /* LinkRelAttribute.cpp */; };
  		985BB96E13A94058007A0B69 /* LinkRelAttribute.h in Headers */ = {isa = PBXBuildFile; fileRef = 985BB96C13A94058007A0B69 /* LinkRelAttribute.h */; };
@@ -283,7 +283,7 @@ index b650b09..c96226f 100644
  		99CC0B5518BE9849006CEBCC /* ReplayingInputCursor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4018BE9849006CEBCC /* ReplayingInputCursor.cpp */; };
  		99CC0B5618BE984A006CEBCC /* ReplayingInputCursor.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4118BE9849006CEBCC /* ReplayingInputCursor.h */; };
  		99CC0B5718BE984A006CEBCC /* WebReplayInputCreationMethods.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4218BE9849006CEBCC /* WebReplayInputCreationMethods.cpp */; };
-@@ -3617,21 +3616,21 @@
+@@ -3607,21 +3606,21 @@
  		99CC0B5A18BE984A006CEBCC /* ReplaySession.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4518BE9849006CEBCC /* ReplaySession.h */; };
  		99CC0B5B18BE984A006CEBCC /* ReplaySessionSegment.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4618BE9849006CEBCC /* ReplaySessionSegment.cpp */; };
  		99CC0B5C18BE984A006CEBCC /* ReplaySessionSegment.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4718BE9849006CEBCC /* ReplaySessionSegment.h */; };
@@ -306,7 +306,7 @@ index b650b09..c96226f 100644
  		9B1AB07C1648C7C40051F3F2 /* JSHTMLFormControlsCollectionCustom.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9B1AB07B1648C7C40051F3F2 /* JSHTMLFormControlsCollectionCustom.cpp */; };
  		9B24DE8E15194B9500C59C27 /* HTMLBDIElement.h in Headers */ = {isa = PBXBuildFile; fileRef = 9B24DE8C15194B9500C59C27 /* HTMLBDIElement.h */; };
  		9B2D8A7914997CCF00ECEF3E /* UndoStep.h in Headers */ = {isa = PBXBuildFile; fileRef = 9B2D8A7814997CCF00ECEF3E /* UndoStep.h */; settings = {ATTRIBUTES = (Private, ); }; };
-@@ -10747,21 +10746,20 @@
+@@ -10732,21 +10731,20 @@
  		985BB96B13A94058007A0B69 /* LinkRelAttribute.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = LinkRelAttribute.cpp; sourceTree = "<group>"; };
  		985BB96C13A94058007A0B69 /* LinkRelAttribute.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = LinkRelAttribute.h; sourceTree = "<group>"; };
  		98CE4325129E00BD005821DC /* LinkLoader.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = LinkLoader.cpp; sourceTree = "<group>"; };
@@ -328,7 +328,7 @@ index b650b09..c96226f 100644
  		99CC0B4018BE9849006CEBCC /* ReplayingInputCursor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReplayingInputCursor.cpp; sourceTree = "<group>"; };
  		99CC0B4118BE9849006CEBCC /* ReplayingInputCursor.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ReplayingInputCursor.h; sourceTree = "<group>"; };
  		99CC0B4218BE9849006CEBCC /* WebReplayInputCreationMethods.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WebReplayInputCreationMethods.cpp; sourceTree = "<group>"; };
-@@ -18339,21 +18337,20 @@
+@@ -18313,21 +18311,20 @@
  				977E2E0C12F0FC9C00C13379 /* XSSAuditor.h */,
  				977E2E0B12F0FC9C00C13380 /* XSSAuditorDelegate.cpp */,
  				977E2E0C12F0FC9C00C13380 /* XSSAuditorDelegate.h */,
@@ -350,7 +350,7 @@ index b650b09..c96226f 100644
  				99C7CCB418C6B8990032E413 /* MemoizedDOMResult.cpp */,
  				99C7CCB218C663E40032E413 /* MemoizedDOMResult.h */,
  				99CC0B3E18BE9849006CEBCC /* ReplayController.cpp */,
-@@ -23273,21 +23270,20 @@
+@@ -23249,21 +23246,20 @@
  				29A8122B0FBB9C1D00510293 /* AccessibilityTable.h in Headers */,
  				29A812320FBB9C1D00510293 /* AccessibilityTableCell.h in Headers */,
  				29A812410FBB9C1D00510293 /* AccessibilityTableColumn.h in Headers */,
@@ -373,7 +373,7 @@ index b650b09..c96226f 100644
  				49E912AB0EFAC906009D0CAF /* Animation.h in Headers */,
  				316FE1120E6E1DA700BF6088 /* AnimationBase.h in Headers */,
 diff --git a/Source/WebCore/inspector/InspectorReplayAgent.cpp b/Source/WebCore/inspector/InspectorReplayAgent.cpp
-index 7d28000..1349c57 100644
+index 7d28000..8b54800 100644
 --- a/Source/WebCore/inspector/InspectorReplayAgent.cpp
 +++ b/Source/WebCore/inspector/InspectorReplayAgent.cpp
 @@ -35,20 +35,21 @@
@@ -398,7 +398,39 @@ index 7d28000..1349c57 100644
  
  using namespace Inspector;
  
-@@ -106,44 +107,54 @@ static Inspector::Protocol::Replay::SegmentState buildInspectorObjectForSegmentS
+@@ -56,31 +57,20 @@ namespace WebCore {
+ 
+ static PassRefPtr<Inspector::Protocol::Replay::ReplayPosition> buildInspectorObjectForPosition(const ReplayPosition& position)
+ {
+     RefPtr<Inspector::Protocol::Replay::ReplayPosition> positionObject = Inspector::Protocol::Replay::ReplayPosition::create()
+         .setSegmentOffset(position.segmentOffset)
+         .setInputOffset(position.inputOffset);
+ 
+     return positionObject.release();
+ }
+ 
+-static PassRefPtr<Inspector::Protocol::Replay::ReplayInput> buildInspectorObjectForInput(const NondeterministicInputBase& input, size_t offset)
+-{
+-    EncodedValue encodedInput = EncodingTraits<NondeterministicInputBase>::encodeValue(input);
+-    RefPtr<Inspector::Protocol::Replay::ReplayInput> inputObject = Inspector::Protocol::Replay::ReplayInput::create()
+-        .setType(input.type())
+-        .setOffset(offset)
+-        .setData(encodedInput.asObject());
+-
+-    return inputObject.release();
+-}
+-
+ static PassRefPtr<Inspector::Protocol::Replay::ReplaySession> buildInspectorObjectForSession(PassRefPtr<ReplaySession> prpSession)
+ {
+     RefPtr<ReplaySession> session = prpSession;
+     RefPtr<Inspector::Protocol::Array<SegmentIdentifier>> segments = Inspector::Protocol::Array<SegmentIdentifier>::create();
+ 
+     for (auto it = session->begin(); it != session->end(); ++it)
+         segments->addItem((*it)->identifier());
+ 
+     RefPtr<Inspector::Protocol::Replay::ReplaySession> sessionObject = Inspector::Protocol::Replay::ReplaySession::create()
+         .setId(session->identifier())
+@@ -106,44 +96,54 @@ static Inspector::Protocol::Replay::SegmentState buildInspectorObjectForSegmentS
      case WebCore::SegmentState::Unloaded: return Inspector::Protocol::Replay::SegmentState::Unloaded;
      case WebCore::SegmentState::Loaded: return Inspector::Protocol::Replay::SegmentState::Loaded;
      case WebCore::SegmentState::Dispatching: return Inspector::Protocol::Replay::SegmentState::Dispatching;
@@ -459,7 +491,30 @@ index 7d28000..1349c57 100644
  
          queuesObject->addItem(queueObject.release());
      }
-@@ -518,16 +529,16 @@ void InspectorReplayAgent::getSessionData(ErrorString* errorString, Inspector::P
+@@ -388,21 +388,21 @@ void InspectorReplayAgent::cancelPlayback(ErrorString* errorString)
+     m_page.replayController().cancelPlayback();
+ }
+ 
+ void InspectorReplayAgent::createSession(ErrorString*, Inspector::Protocol::Replay::SessionIdentifier* identifier)
+ {
+     RefPtr<ReplaySession> session = ReplaySession::create();
+     sessionCreated(session);
+     *identifier = WTF::safeCast<int>(session->identifier());
+ }
+ 
+-void InspectorReplayAgent::switchSession(ErrorString* errorString, TypeBuilder::Replay::SessionIdentifier identifier)
++void InspectorReplayAgent::switchSession(ErrorString* errorString, Inspector::Protocol::Replay::SessionIdentifier identifier)
+ {
+     ASSERT(identifier > 0);
+ 
+     if (sessionState() != WebCore::SessionState::Inactive) {
+         *errorString = ASCIILiteral("Can't switch sessions unless the session is neither capturing or replaying.");
+         return;
+     }
+ 
+     RefPtr<ReplaySession> session = findSession(errorString, identifier);
+     if (!session)
+@@ -518,16 +518,16 @@ void InspectorReplayAgent::getSessionData(ErrorString* errorString, Inspector::P
  }
  
  void InspectorReplayAgent::getSegmentData(ErrorString* errorString, Inspector::Protocol::Replay::SegmentIdentifier identifier, RefPtr<Inspector::Protocol::Replay::SessionSegment>& serializedObject)
@@ -1278,10 +1333,10 @@ index ea452e6..7b5662c 100644
      Frame* frame = frameFromFrameIndex(&page, frameIndex);
      ASSERT(frame);
 diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
-index 58703586..cb4406b 100644
+index 1d02947a..957cb09 100644
 --- a/Source/WebKit2/CMakeLists.txt
 +++ b/Source/WebKit2/CMakeLists.txt
-@@ -755,19 +755,20 @@ if (ENABLE_WEB_REPLAY)
+@@ -752,19 +752,20 @@ if (ENABLE_WEB_REPLAY)
  =======
      set(WebKit2_WEB_REPLAY_INPUTS ${WEBKIT2_DIR}/WebProcess/Replay/WebInputs.json)
      add_custom_command(
@@ -1303,7 +1358,7 @@ index 58703586..cb4406b 100644
  install(TARGETS WebKit2 DESTINATION "${LIB_INSTALL_DIR}")
  install(TARGETS WebProcess DESTINATION "${LIBEXEC_INSTALL_DIR}")
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 63c628c..8adc5b1 100644
+index f8c6de2..63c7a20 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,33 @@
@@ -1341,10 +1396,10 @@ index 63c628c..8adc5b1 100644
  
          * WebProcess/WebPage/WebBackForwardListProxy.h:
 diff --git a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
-index 118588b..f602d0e 100644
+index 3fb8304..09bb13d 100644
 --- a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
 +++ b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
-@@ -1544,20 +1544,22 @@
+@@ -1539,20 +1539,22 @@
  		C0CE72A01247E71D00BC0EC4 /* WebPageMessageReceiver.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0CE729E1247E71D00BC0EC4 /* WebPageMessageReceiver.cpp */; };
  		C0CE72A11247E71D00BC0EC4 /* WebPageMessages.h in Headers */ = {isa = PBXBuildFile; fileRef = C0CE729F1247E71D00BC0EC4 /* WebPageMessages.h */; };
  		C0CE72AD1247E78D00BC0EC4 /* HandleMessage.h in Headers */ = {isa = PBXBuildFile; fileRef = C0CE72AC1247E78D00BC0EC4 /* HandleMessage.h */; };
@@ -1367,7 +1422,7 @@ index 118588b..f602d0e 100644
  		C54256BA18BEC18C00DE4179 /* WKFormSelectControl.h in Headers */ = {isa = PBXBuildFile; fileRef = C54256B418BEC18C00DE4179 /* WKFormSelectControl.h */; };
  		C55CB5B718C269CF00CA81E1 /* WKFormSelectPopover.mm in Sources */ = {isa = PBXBuildFile; fileRef = C57193BA18C149D0002D0F12 /* WKFormSelectPopover.mm */; };
  		C55CB5B818C2A5D600CA81E1 /* WKFormSelectPicker.mm in Sources */ = {isa = PBXBuildFile; fileRef = C57193B918C149D0002D0F12 /* WKFormSelectPicker.mm */; };
-@@ -3641,20 +3643,22 @@
+@@ -3631,20 +3633,22 @@
  		C0CE73361247F70E00BC0EC4 /* generate-message-receiver.py */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.python; path = "generate-message-receiver.py"; sourceTree = "<group>"; };
  		C0CE73371247F70E00BC0EC4 /* generate-messages-header.py */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.python; path = "generate-messages-header.py"; sourceTree = "<group>"; };
  		C0E3AA441209E2BA00A49D01 /* Module.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Module.h; sourceTree = "<group>"; };
@@ -1390,7 +1445,7 @@ index 118588b..f602d0e 100644
  		C54256B418BEC18C00DE4179 /* WKFormSelectControl.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WKFormSelectControl.h; path = ios/forms/WKFormSelectControl.h; sourceTree = "<group>"; };
  		C554FFA212E4E8EA002F22C0 /* WebDragClientMac.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = WebDragClientMac.mm; sourceTree = "<group>"; };
  		C57193B918C149D0002D0F12 /* WKFormSelectPicker.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WKFormSelectPicker.mm; path = ios/forms/WKFormSelectPicker.mm; sourceTree = "<group>"; };
-@@ -6912,20 +6916,22 @@
+@@ -6897,20 +6901,22 @@
  			);
  			path = Scripts;
  			sourceTree = "<group>";
@@ -1413,7 +1468,7 @@ index 118588b..f602d0e 100644
  				C5FA1ED118E1062200B3F402 /* WKAirPlayRoutePicker.h */,
  				C5FA1ED218E1062200B3F402 /* WKAirPlayRoutePicker.mm */,
  				A58B6F0618FCA733008CBA53 /* WKFileUploadPanel.h */,
-@@ -7794,20 +7800,21 @@
+@@ -7776,20 +7782,21 @@
  				BCD597D0112B56AC00EC8C23 /* WKPreferencesRef.h in Headers */,
  				762B748D120BC75C00819339 /* WKPreferencesRefPrivate.h in Headers */,
  				37C4C08918149F23003688B9 /* WKBackForwardListItemInternal.h in Headers */,
@@ -1435,7 +1490,7 @@ index 118588b..f602d0e 100644
  				1F604BAA1889FBB800EE0395 /* WKRenderingProgressEventsInternal.h in Headers */,
  				1F7506B81859165D00EC0FF7 /* WKWebProcessPlugInFrameInternal.h in Headers */,
  				F67DD7BA125E40D9007BDCB8 /* WKSerializedScriptValuePrivate.h in Headers */,
-@@ -8810,20 +8817,21 @@
+@@ -8792,20 +8799,21 @@
  				515E773318402D510007203F /* UniqueIDBDatabaseIdentifier.cpp in Sources */,
  				2DA049B7180CCD0A00AAFA9E /* GraphicsLayerCARemote.cpp in Sources */,
  				378E1A4D18208D700031007A /* WKNSURL.mm in Sources */,

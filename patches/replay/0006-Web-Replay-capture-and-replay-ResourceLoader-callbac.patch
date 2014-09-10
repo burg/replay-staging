@@ -1,4 +1,4 @@
-From 5d653c22713decdaafe6393add11a8ee62e44727 Mon Sep 17 00:00:00 2001
+From 9c7c92eb6fb959963f8fd6fe9217f5b1d436f8ac Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 12 Jun 2014 16:49:07 -0700
 Subject: [PATCH] Web Replay: capture and replay ResourceLoader callbacks
@@ -98,6 +98,7 @@ from taking over and fulfilling the loads nondeterministically.
  Source/WebCore/loader/ResourceLoader.h             |  10 ++
  Source/WebCore/loader/SubresourceLoader.cpp        |  72 ++++++++-
  Source/WebCore/loader/SubresourceLoader.h          |   4 +
+ Source/WebCore/platform/network/FormData.cpp       |   2 +-
  .../WebCore/platform/network/ResourceErrorBase.cpp |   8 +
  .../WebCore/platform/network/ResourceErrorBase.h   |   1 +
  .../WebCore/replay/ReplayInputDispatchMethods.cpp  |  54 ++++++-
@@ -105,8 +106,8 @@ from taking over and fulfilling the loads nondeterministically.
  Source/WebCore/replay/SerializationMethods.h       |  40 ++++-
  Source/WebCore/replay/WebInputs.json               |  64 ++++++++
  Source/WebKit2/ChangeLog                           |  15 +-
- .../Network/WebResourceLoadScheduler.cpp           |  11 ++
- 18 files changed, 609 insertions(+), 10 deletions(-)
+ .../Network/WebResourceLoadScheduler.cpp           |  13 +-
+ 19 files changed, 611 insertions(+), 12 deletions(-)
 
 diff --git a/Source/JavaScriptCore/replay/EncodedValue.h b/Source/JavaScriptCore/replay/EncodedValue.h
 index c0010e8..3ed089f 100644
@@ -138,7 +139,7 @@ index c0010e8..3ed089f 100644
      {
          decodedValue = encodedValue.convertTo<DecodedType>();
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 83d7da8..4315e4d 100644
+index c6e4c8f..c21ed4e 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,91 @@
@@ -234,10 +235,10 @@ index 83d7da8..4315e4d 100644
  
          No new tests. No behavior was changed.
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index f5330fc..e46b5d3 100644
+index d0a2c68..c7f9711 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -3474,10 +3474,18 @@ __ZN7WebCore32WebVideoFullscreenInterfaceAVKitC2Ev
+@@ -3481,10 +3481,18 @@ __ZN7WebCore32WebVideoFullscreenInterfaceAVKitC2Ev
  __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
  #endif
  
@@ -355,7 +356,7 @@ index 39d336c..f862a19 100644
 +
  } // namespace WebCore
 diff --git a/Source/WebCore/loader/DocumentLoader.h b/Source/WebCore/loader/DocumentLoader.h
-index a8aceab..237ed4a 100644
+index 396fffb..cf8c5f4 100644
 --- a/Source/WebCore/loader/DocumentLoader.h
 +++ b/Source/WebCore/loader/DocumentLoader.h
 @@ -225,20 +225,24 @@ namespace WebCore {
@@ -813,6 +814,33 @@ index 303ffd9..ab9ed71 100644
      };
  
      class RequestCountTracker {
+diff --git a/Source/WebCore/platform/network/FormData.cpp b/Source/WebCore/platform/network/FormData.cpp
+index 263ab2a..48c46cd 100644
+--- a/Source/WebCore/platform/network/FormData.cpp
++++ b/Source/WebCore/platform/network/FormData.cpp
+@@ -31,21 +31,21 @@
+ #include "File.h"
+ #include "FileSystem.h"
+ #include "FormDataBuilder.h"
+ #include "FormDataList.h"
+ #include "MIMETypeRegistry.h"
+ #include "Page.h"
+ #include "TextEncoding.h"
+ 
+ namespace WebCore {
+ 
+-inline FormData::FormData()
++FormData::FormData()
+     : m_identifier(0)
+     , m_alwaysStream(false)
+     , m_containsPasswordData(false)
+ {
+ }
+ 
+ inline FormData::FormData(const FormData& data)
+     : RefCounted<FormData>()
+     , m_elements(data.m_elements)
+     , m_identifier(data.m_identifier)
 diff --git a/Source/WebCore/platform/network/ResourceErrorBase.cpp b/Source/WebCore/platform/network/ResourceErrorBase.cpp
 index ce58f8e..27c9cc4 100644
 --- a/Source/WebCore/platform/network/ResourceErrorBase.cpp
@@ -1378,7 +1406,7 @@ index e7ec315..38a1d50 100644
  
  #endif // SerializationMethods_h
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
-index 4fbc592..a444b03 100644
+index 599e328..1dfa9be 100644
 --- a/Source/WebCore/replay/WebInputs.json
 +++ b/Source/WebCore/replay/WebInputs.json
 @@ -114,24 +114,36 @@
@@ -1485,7 +1513,7 @@ index 4fbc592..a444b03 100644
      ]
  }
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index c0c8a9a..94294ec 100644
+index a1a831e..598f638 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,11 +1,24 @@
@@ -1515,7 +1543,7 @@ index c0c8a9a..94294ec 100644
  
          * Shared/SessionTracker.cpp:
 diff --git a/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp b/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
-index 2813fbc..b3dbaf8 100644
+index 2813fbc..2f98595 100644
 --- a/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
 +++ b/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
 @@ -46,20 +46,24 @@
@@ -1543,7 +1571,7 @@ index 2813fbc..b3dbaf8 100644
      : m_internallyFailedLoadTimer(RunLoop::main(), this, &WebResourceLoadScheduler::internallyFailedLoadTimerFired)
      , m_suspendPendingRequestsCount(0)
  {
-@@ -109,20 +113,27 @@ void WebResourceLoadScheduler::scheduleLoad(ResourceLoader* resourceLoader, Cach
+@@ -109,21 +113,28 @@ void WebResourceLoadScheduler::scheduleLoad(ResourceLoader* resourceLoader, Cach
      }
  
  #if USE(QUICK_LOOK)
@@ -1554,6 +1582,7 @@ index 2813fbc..b3dbaf8 100644
      }
  #endif
  
+-    LOG(NetworkScheduling, "(WebProcess) WebResourceLoadScheduler::scheduleLoad, url '%s' will be scheduled with the NetworkProcess with priority %i", resourceLoader->url().string().utf8().data(), resourceLoader->request().priority());
 +#if ENABLE(WEB_REPLAY)
 +    if (InputCursor* cursor = resourceLoader->activeInputCursor()) {
 +        if (cursor->isReplaying())
@@ -1561,7 +1590,7 @@ index 2813fbc..b3dbaf8 100644
 +    }
 +#endif
 +
-     LOG(NetworkScheduling, "(WebProcess) WebResourceLoadScheduler::scheduleLoad, url '%s' will be scheduled with the NetworkProcess with priority %i", resourceLoader->url().string().utf8().data(), resourceLoader->request().priority());
++    LOG(NetworkScheduling, "(WebProcess) WebResourceLoadScheduler::scheduleLoad, url '%s' will be scheduled with the NetworkProcess with priority %lli", resourceLoader->url().string().utf8().data(), resourceLoader->request().priority());
  
      ContentSniffingPolicy contentSniffingPolicy = resourceLoader->shouldSniffContent() ? SniffContent : DoNotSniffContent;
      StoredCredentials allowStoredCredentials = resourceLoader->shouldUseCredentialStorage() ? AllowStoredCredentials : DoNotAllowStoredCredentials;
@@ -1571,6 +1600,7 @@ index 2813fbc..b3dbaf8 100644
      // but in the meantime we have to make sure not to mis-cast.
      WebFrameLoaderClient* webFrameLoaderClient = toWebFrameLoaderClient(resourceLoader->frameLoader()->client());
      WebFrame* webFrame = webFrameLoaderClient ? webFrameLoaderClient->webFrame() : 0;
+     WebPage* webPage = webFrame ? webFrame->page() : 0;
 -- 
 2.0.1
 

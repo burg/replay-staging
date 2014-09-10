@@ -1,25 +1,24 @@
-From a4ce51a3847b370b2a505979fea8fb5f8dfe0e49 Mon Sep 17 00:00:00 2001
+From 1408a6dd5b71b042a5f5c494dc2adc8b54aeb220 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Fri, 22 Aug 2014 16:11:09 -0700
 Subject: [PATCH] [WIP] Web Replay: capture and replay synchronous scrolling
  from WebPage
 
 ---
- Source/WebCore/WebCore.exp.in                      |  7 ---
- Source/WebCore/platform/ScrollTypes.h              |  6 +-
- Source/WebCore/replay/UserInputBridge.cpp          | 34 -----------
- Source/WebCore/replay/UserInputBridge.h            |  3 -
- Source/WebCore/replay/WebInputs.json               | 71 ----------------------
- .../replay/WebReplayInputDispatchMethods.cpp       | 12 ----
- Source/WebKit2/WebProcess/Replay/WKInputs.json     | 20 ++++++
- .../Replay/WKReplayInputDispatchMethods.cpp        |  5 ++
- Source/WebKit2/WebProcess/WebPage/WebPage.cpp      | 22 +++++--
- Source/WebKit2/WebProcess/WebPage/WebPage.h        |  4 +-
- .../WebKit2/WebProcess/WebPage/mac/WebPageMac.mm   | 24 ++++----
- 11 files changed, 59 insertions(+), 149 deletions(-)
+ Source/WebCore/WebCore.exp.in                      |  7 -----
+ Source/WebCore/replay/UserInputBridge.cpp          | 34 ----------------------
+ Source/WebCore/replay/UserInputBridge.h            |  3 --
+ Source/WebCore/replay/WebInputs.json               | 13 ---------
+ .../replay/WebReplayInputDispatchMethods.cpp       | 12 --------
+ Source/WebKit2/WebProcess/Replay/WKInputs.json     | 20 +++++++++++++
+ .../Replay/WKReplayInputDispatchMethods.cpp        |  5 ++++
+ Source/WebKit2/WebProcess/WebPage/WebPage.cpp      | 22 ++++++++++----
+ Source/WebKit2/WebProcess/WebPage/WebPage.h        |  4 +--
+ .../WebKit2/WebProcess/WebPage/mac/WebPageMac.mm   | 24 +++++++--------
+ 10 files changed, 56 insertions(+), 88 deletions(-)
 
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index bfb8d56..4669ece 100644
+index 54ed786..80a943e 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
 @@ -648,21 +648,20 @@ __ZN7WebCore15ScrollAlignment19alignToEdgeIfNeededE
@@ -44,7 +43,7 @@ index bfb8d56..4669ece 100644
  __ZN7WebCore15setDOMExceptionEPN3JSC9ExecStateEi
  __ZN7WebCore15toDOMStringListEPN3JSC9ExecStateENS0_7JSValueE
  __ZN7WebCore15visitedLinkHashEPKtj
-@@ -3469,23 +3468,20 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
+@@ -3476,23 +3475,20 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
  
  #if ENABLE(VIDEO_TRACK)
  __ZN7WebCore9PageGroup18captionPreferencesEv
@@ -68,7 +67,7 @@ index bfb8d56..4669ece 100644
  __ZN3JSC11InputTraitsIN7WebCore13DOMTimerFiredEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
  __ZN3JSC11InputTraitsIN7WebCore13DOMTimerFiredEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore14LoadURLRequestEE4typeEv
-@@ -3502,23 +3498,20 @@ __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6decodeERNS_12EncodedValueERNS
+@@ -3509,23 +3505,20 @@ __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6decodeERNS_12EncodedValueERNS
  __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -92,64 +91,6 @@ index bfb8d56..4669ece 100644
  __ZN3JSC11InputTraitsIN7WebCore21MemoizedDOMResultBaseEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
  __ZN3JSC11InputTraitsIN7WebCore21MemoizedDOMResultBaseEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore21ResourceLoaderDidFailEE4typeEv
-diff --git a/Source/WebCore/platform/ScrollTypes.h b/Source/WebCore/platform/ScrollTypes.h
-index d616fe6..46df9fe 100644
---- a/Source/WebCore/platform/ScrollTypes.h
-+++ b/Source/WebCore/platform/ScrollTypes.h
-@@ -23,28 +23,28 @@
-  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
-  */
- 
- #ifndef ScrollTypes_h
- #define ScrollTypes_h
- 
- #ifdef __cplusplus
- 
- namespace WebCore {
- 
--    enum ScrollDirection : uint64_t {
-+    enum ScrollDirection : uint8_t {
-         ScrollUp,
-         ScrollDown,
-         ScrollLeft,
-         ScrollRight
-     };
- 
--    enum ScrollLogicalDirection : uint64_t {
-+    enum ScrollLogicalDirection : uint8_t {
-         ScrollBlockDirectionBackward,
-         ScrollBlockDirectionForward,
-         ScrollInlineDirectionBackward,
-         ScrollInlineDirectionForward
-     };
-     
-     
-     inline ScrollDirection logicalToPhysical(ScrollLogicalDirection direction, bool isVertical, bool isFlipped) 
-     {
-         switch (direction) {
-@@ -96,21 +96,21 @@ namespace WebCore {
-             }
-             break;
-         }
-         default:
-             ASSERT_NOT_REACHED();
-             break;
-         }
-         return ScrollUp;
-     }
- 
--    enum ScrollGranularity : uint64_t {
-+    enum ScrollGranularity : uint8_t {
-         ScrollByLine,
-         ScrollByPage,
-         ScrollByDocument,
-         ScrollByPixel,
-         ScrollByPrecisePixel
-     };
- 
-     enum ScrollElasticity {
-         ScrollElasticityAutomatic,
-         ScrollElasticityNone,
 diff --git a/Source/WebCore/replay/UserInputBridge.cpp b/Source/WebCore/replay/UserInputBridge.cpp
 index 668a070..233b6e8 100644
 --- a/Source/WebCore/replay/UserInputBridge.cpp
@@ -259,10 +200,10 @@ index 3467194..eefc8c8 100644
      Page& m_page;
  #if ENABLE(WEB_REPLAY)
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
-index 226ae56..f8707fa 100644
+index d123812..c285540 100644
 --- a/Source/WebCore/replay/WebInputs.json
 +++ b/Source/WebCore/replay/WebInputs.json
-@@ -40,66 +40,24 @@
+@@ -40,33 +40,20 @@
              {
                  "name": "FrameLoadRequest", "mode": "OWNED",
                  "flags": ["STRUCT"],
@@ -290,95 +231,12 @@ index 226ae56..f8707fa 100644
                  "header": "page/Page.h"
              },
              {
--                "name": "PlatformKeyboardEvent", "mode": "OWNED",
--                "header": "platform/PlatformKeyboardEvent.h"
--            },
--            {
--                "name": "PlatformWheelEvent", "mode": "OWNED",
--                "header": "platform/PlatformWheelEvent.h"
--            },
--            {
--                "name": "PlatformWheelEventGranularity", "mode": "SCALAR", "storage": "uint64_t",
--                "flags": ["ENUM"],
--                "values": ["ScrollByPageWheelEvent", "ScrollByPixelWheelEvent"],
--                "header": "platform/PlatformWheelEvent.h"
--            },
--            {
--                "name": "PlatformWheelEventPhase", "mode": "SCALAR", "storage": "uint64_t",
--                "flags": ["ENUM"],
--                "guard": "PLATFORM(COCOA)",
--                "values": [
--                    "PlatformWheelEventPhaseNone",
--                    "PlatformWheelEventPhaseBegan",
--                    "PlatformWheelEventPhaseStationary",
--                    "PlatformWheelEventPhaseChanged",
--                    "PlatformWheelEventPhaseEnded",
--                    "PlatformWheelEventPhaseCancelled",
--                    "PlatformWheelEventPhaseMayBegin"
--                ],
--                "header": "platform/PlatformWheelEvent.h"
--            },
--            {
-                 "name": "PluginData", "mode": "SHARED",
-                 "header": "plugins/PluginData.h"
+                 "name": "PlatformKeyboardEvent", "mode": "OWNED",
+                 "header": "platform/PlatformKeyboardEvent.h"
              },
              {
-                 "name": "ResourceLoadPriority", "mode": "SCALAR", "storage": "int64_t",
-                 "flags": ["ENUM"],
-                 "values": [
-                     "ResourceLoadPriorityUnresolved",
-                     "ResourceLoadPriorityVeryLow",
-                     "ResourceLoadPriorityLow",
-@@ -118,49 +76,20 @@
-                 "flags": ["ENUM"],
-                 "values": [
-                     "UseProtocolCachePolicy",
-                     "ReloadIgnoringCacheData",
-                     "ReturnCacheDataElseLoad",
-                     "ReturnCacheDataDontLoad"
-                 ],
-                 "header": "platform/network/ResourceRequest.h"
-             },
-             {
--                "name": "ScrollDirection", "mode": "SCALAR", "storage": "uint64_t",
--                "flags": ["ENUM"],
--                "values": ["ScrollUp", "ScrollDown", "ScrollLeft", "ScrollRight"],
--                "header": "platform/ScrollTypes.h"
--            },
--            {
--                "name": "ScrollGranularity", "mode": "SCALAR", "storage": "uint64_t",
--                "flags": ["ENUM"],
--                "values": [
--                    "ScrollByLine",
--                    "ScrollByPage",
--                    "ScrollByDocument",
--                    "ScrollByPixel",
--                    "ScrollByPrecisePixel"
--                ],
--                "header": "platform/ScrollTypes.h"
--            },
--            {
--                "name": "ScrollLogicalDirection", "mode": "SCALAR", "storage": "uint64_t",
--                "flags": ["ENUM"],
--                "values": [
--                    "ScrollBlockDirectionBackward",
--                    "ScrollBlockDirectionForward",
--                    "ScrollInlineDirectionBackward",
--                    "ScrollInlineDirectionForward"
--                ],
--                "header": "platform/ScrollTypes.h"
--            },
--            {
-                 "name": "ResourceError", "mode": "OWNED",
-                 "header": "platform/network/ResourceError.h"
-             },
-             {
-                 "name": "ResourceResponse", "mode": "OWNED",
-                 "header": "platform/network/ResourceResponse.h"
-             },
-             {
-                 "name": "SecurityOrigin", "mode": "SHARED",
-                 "header": "page/SecurityOrigin.h"
+                 "name": "PlatformWheelEvent", "mode": "OWNED",
+                 "header": "platform/PlatformWheelEvent.h"
 diff --git a/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp b/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
 index 2d7fa87..595f01c 100644
 --- a/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
@@ -488,10 +346,10 @@ index 00668bb..c90e5b7 100644
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-index e2518d3..4cf2f49 100644
+index 3bc8afa..c118f3d 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-@@ -2163,33 +2163,45 @@ void WebPage::touchEvent(const WebTouchEvent& touchEvent)
+@@ -2171,33 +2171,45 @@ void WebPage::touchEvent(const WebTouchEvent& touchEvent)
      send(Messages::WebPageProxy::DidReceiveEvent(static_cast<uint32_t>(touchEvent.type()), handled));
  }
  

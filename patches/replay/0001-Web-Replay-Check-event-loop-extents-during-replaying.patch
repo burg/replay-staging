@@ -1,4 +1,4 @@
-From 0ddcb9ce68a9e835324abcc6cdf8ab6ce5444235 Mon Sep 17 00:00:00 2001
+From ee9803196f53878852d648f79c1c7d87114933e9 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 19 Aug 2014 12:12:33 -0700
 Subject: [PATCH] Web Replay: Check event loop extents during replaying Need a
@@ -42,7 +42,7 @@ Source/WebCore:
  8 files changed, 70 insertions(+), 26 deletions(-)
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index e2ece2f..aea779d 100644
+index 04f8534..ea32efb 100644
 --- a/Source/JavaScriptCore/ChangeLog
 +++ b/Source/JavaScriptCore/ChangeLog
 @@ -1,10 +1,27 @@
@@ -63,16 +63,16 @@ index e2ece2f..aea779d 100644
 +        (JSC::InputCursor::setWithinEventLoopInputExtent): Added.
 +        (JSC::InputCursor::withinEventLoopInputExtent): Added.
 +
- 2014-08-26  Michael Saboff  <msaboff@apple.com>
+ 2014-09-02  Brian J. Burg  <burg@cs.washington.edu>
  
-         REGRESSION(r172794) + 32Bit build: for-in-base-reassigned-later-and-change-structure.js fail with NaN result
-         https://bugs.webkit.org/show_bug.cgi?id=136187
+         Web Inspector: fix prefixes for subclasses of JSC::ConsoleClient
+         https://bugs.webkit.org/show_bug.cgi?id=136476
  
-         Reviewed by Mark Hahnenberg.
+         Reviewed by Timothy Hatcher.
  
-         Added two arg version for 32 bit builds of callOperation(J_JITOperation_ECJ, ...) that
-         doesn't require a tag for the second argument, instead it fills in a CellTag.  This is
-         used for the slow case of the GetDirectPname case in SpeculativeJIT::compile since we
+         * CMakeLists.txt:
+         * JavaScriptCore.xcodeproj/project.pbxproj:
+         * inspector/JSGlobalObjectConsoleClient.cpp: Renamed from Source/JavaScriptCore/inspector/JSConsoleClient.cpp.
 diff --git a/Source/JavaScriptCore/replay/InputCursor.h b/Source/JavaScriptCore/replay/InputCursor.h
 index 6102a7f..2f40040 100644
 --- a/Source/JavaScriptCore/replay/InputCursor.h
@@ -139,7 +139,7 @@ index 6102a7f..2f40040 100644
  
  #endif // InputCursor_h
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 16e7098..5b37c35 100644
+index e4b4f78..84254e2 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,33 @@
@@ -166,16 +166,16 @@ index 16e7098..5b37c35 100644
 +        * replay/ReplayController.cpp:
 +        (WebCore::ReplayController::willDispatchEvent): Expand the assetion to include replaying.
 +
- 2014-08-26  Zoltan Horvath  <zoltan@webkit.org>
+ 2014-09-04  Daniel Bates  <dabates@apple.com>
  
-         [CSS Shapes] Positioned polygon reftests failing
-         https://bugs.webkit.org/show_bug.cgi?id=135925
+         [iOS] Make iOS build when ENABLE_TOUCH_EVENT and ENABLE_IOS_TOUCH_EVENTS disabled
+         https://bugs.webkit.org/show_bug.cgi?id=136494
  
-         Reviewed by David Hyatt.
+         Reviewed by Andy Estes.
  
-         We didn't respect the shape-margin before a positioned polygon, since we checked
-         the shape-margin for only 1 vertex for a polygon edge. This patch fixes the behavior,
-         removes the tests from the skipped list and updates 1 test, which was incorrect.
+         * WebCore.exp.in: Add ENABLE(IOS_TOUCH_EVENTS) and ENABLE(TOUCH_EVENTS) guards. Also, sort this file using
+         the script Tools/Scripts/sort-export-file.
+         * bindings/js/JSDocumentCustom.cpp: Add ENABLE(TOUCH_EVENTS)-guard around headers JSTouch.h and JSTouchList.h.
 diff --git a/Source/WebCore/replay/CapturingInputCursor.cpp b/Source/WebCore/replay/CapturingInputCursor.cpp
 index 40db3b6..73b402f 100644
 --- a/Source/WebCore/replay/CapturingInputCursor.cpp

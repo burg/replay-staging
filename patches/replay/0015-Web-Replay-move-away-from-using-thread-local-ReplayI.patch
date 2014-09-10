@@ -1,4 +1,4 @@
-From 034c647a85bc78ce01604d6b983d94b2cc16fef4 Mon Sep 17 00:00:00 2001
+From c634f8171f62f9f3633f78f896b41381411fca79 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 20 Aug 2014 12:18:16 -0700
 Subject: [PATCH] Web Replay: move away from using thread-local
@@ -68,7 +68,7 @@ Replace tag-checking uses of ReplayInputTypes with InputTraits<T>::type().
  delete mode 100644 Source/WebCore/replay/ReplayInputTypes.h
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index aea779d..b0fffba 100644
+index ea32efb..7bfd18a 100644
 --- a/Source/JavaScriptCore/ChangeLog
 +++ b/Source/JavaScriptCore/ChangeLog
 @@ -1,10 +1,32 @@
@@ -293,10 +293,10 @@ index 1095dfd..f72513a 100644
  {
  }""")
 diff --git a/Source/WebCore/CMakeLists.txt b/Source/WebCore/CMakeLists.txt
-index 8867651..b3d918b 100644
+index 5c2f26e..8f18afd 100644
 --- a/Source/WebCore/CMakeLists.txt
 +++ b/Source/WebCore/CMakeLists.txt
-@@ -3124,21 +3124,20 @@ if (ENABLE_WEB_REPLAY)
+@@ -3121,21 +3121,20 @@ if (ENABLE_WEB_REPLAY)
      list(APPEND WebCore_SOURCES
          inspector/InspectorReplayAgent.cpp
          replay/CapturingInputCursor.cpp
@@ -319,7 +319,7 @@ index 8867651..b3d918b 100644
  endif ()
  
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 6c81929..059c54c 100644
+index 8e0c87b..de3ea55 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,41 @@
@@ -365,10 +365,10 @@ index 6c81929..059c54c 100644
          frontend creates an empty session and then switches to it.
  
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index 8d956e4..033f9b3 100644
+index a6fc27c..8d44e39 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -3588,22 +3588,20 @@
+@@ -3578,22 +3578,20 @@
  		97E4029013A696ED00913D67 /* IconController.h in Headers */ = {isa = PBXBuildFile; fileRef = 97E4028E13A696ED00913D67 /* IconController.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		97F8E665151D4A4B00D2D181 /* WorkerGlobalScopeNotifications.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 97F8E661151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.cpp */; };
  		97F8E666151D4A4E00D2D181 /* WorkerGlobalScopeNotifications.h in Headers */ = {isa = PBXBuildFile; fileRef = 97F8E662151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.h */; };
@@ -391,7 +391,7 @@ index 8d956e4..033f9b3 100644
  		99CC0B4E18BE9849006CEBCC /* CapturingInputCursor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B3918BE9849006CEBCC /* CapturingInputCursor.cpp */; };
  		99CC0B4F18BE9849006CEBCC /* CapturingInputCursor.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B3A18BE9849006CEBCC /* CapturingInputCursor.h */; };
  		99CC0B5018BE9849006CEBCC /* EventLoopInputDispatcher.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B3B18BE9849006CEBCC /* EventLoopInputDispatcher.cpp */; };
-@@ -10744,22 +10742,20 @@
+@@ -10729,22 +10727,20 @@
  		97F8E661151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WorkerGlobalScopeNotifications.cpp; sourceTree = "<group>"; };
  		97F8E662151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WorkerGlobalScopeNotifications.h; sourceTree = "<group>"; };
  		97F8E663151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.idl */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = WorkerGlobalScopeNotifications.idl; sourceTree = "<group>"; };
@@ -414,7 +414,7 @@ index 8d956e4..033f9b3 100644
  		99CC0B3A18BE9849006CEBCC /* CapturingInputCursor.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = CapturingInputCursor.h; sourceTree = "<group>"; };
  		99CC0B3B18BE9849006CEBCC /* EventLoopInputDispatcher.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = EventLoopInputDispatcher.cpp; sourceTree = "<group>"; };
  		99CC0B3C18BE9849006CEBCC /* EventLoopInputDispatcher.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = EventLoopInputDispatcher.h; sourceTree = "<group>"; };
-@@ -18357,22 +18353,20 @@
+@@ -18331,22 +18327,20 @@
  				99E45A1618A063BE0026D88F /* EventLoopInput.h */,
  				99CC0B3B18BE9849006CEBCC /* EventLoopInputDispatcher.cpp */,
  				99CC0B3C18BE9849006CEBCC /* EventLoopInputDispatcher.h */,
@@ -437,7 +437,7 @@ index 8d956e4..033f9b3 100644
  				C4D4F5291975C88B003EF5BC /* ReplayableTimers.cpp */,
  				C4D4F52A1975C88B003EF5BC /* ReplayableTimers.h */,
  				99CC0B4018BE9849006CEBCC /* ReplayingInputCursor.cpp */,
-@@ -25711,21 +25705,20 @@
+@@ -25688,21 +25682,20 @@
  				BCEA4887097D93020094C9E4 /* RenderThemeMac.h in Headers */,
  				93F1998C08245E59001E9ABC /* RenderTreeAsText.h in Headers */,
  				E44614520CD68A3500FADA75 /* RenderVideo.h in Headers */,
@@ -459,7 +459,7 @@ index 8d956e4..033f9b3 100644
  				514C76790CE923A1007EF3CD /* ResourceHandle.h in Headers */,
  				26FAE4CD1852E3A5004C8C46 /* ResourceHandleCFURLConnectionDelegate.h in Headers */,
  				26C15CF71857E15E00F15C03 /* ResourceHandleCFURLConnectionDelegateWithOperationQueue.h in Headers */,
-@@ -29169,21 +29162,20 @@
+@@ -29140,21 +29133,20 @@
  				E44614510CD68A3500FADA75 /* RenderVideo.cpp in Sources */,
  				BCEA4867097D93020094C9E4 /* RenderView.cpp in Sources */,
  				BE20507D18A458BF0080647E /* RenderVTTCue.cpp in Sources */,

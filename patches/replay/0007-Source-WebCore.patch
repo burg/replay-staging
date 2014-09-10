@@ -1,8 +1,8 @@
-From 43a4bb1b8e7ee3e5cf4e930334a5de5842f41189 Mon Sep 17 00:00:00 2001
+From 80834d81f14a3c8f643cc6f5234f626252477509 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 11:45:23 -0700
-Subject: [PATCH] Web Replay: capture and replay Reload, Navigate, and Stop
- commands https://bugs.webkit.org/show_bug.cgi?id=129447
+Subject: [PATCH] Source/WebCore: [WIP] Web Replay: capture and replay Reload,
+ Navigate, and Stop commands https://bugs.webkit.org/show_bug.cgi?id=129447
 
 Reviewed by NOBODY (OOPS!).
 
@@ -72,7 +72,8 @@ for the new navigation inputs handled by this patch.
 ResourceLoadPriority, ResourceRequest, ResourceRequestCachePolicy. Add
 new inputs LoadURLRequest, ReloadFrame, StopLoadingFrame.
 
-Source/WebKit2: Web Replay: capture and replay Reload, Navigate, and Stop commands
+Source/WebKit2:
+Web Replay: capture and replay Reload, Navigate, and Stop commands
 https://bugs.webkit.org/show_bug.cgi?id=129447
 
 Reviewed by NOBODY (OOPS!).
@@ -100,7 +101,7 @@ an enum with uint64_t-sized storage rather than int.
  12 files changed, 511 insertions(+), 9 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 4315e4d..0eb8548 100644
+index c21ed4e..b3480ef 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,83 @@
@@ -215,7 +216,7 @@ index 81e3f65..e665e7a 100644
  
  }
 diff --git a/Source/WebCore/loader/cache/CachedResourceLoader.cpp b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
-index 8e9c6c6..e07b494 100644
+index 21f4aa8..4c8901a 100644
 --- a/Source/WebCore/loader/cache/CachedResourceLoader.cpp
 +++ b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
 @@ -406,21 +406,21 @@ bool CachedResourceLoader::shouldContinueAfterNotifyingLoadedFromMemoryCache(con
@@ -951,7 +952,7 @@ index 45845af..bc8145b 100644
  
  } // namespace WebCore
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
-index a444b03..d76bbee 100644
+index 1dfa9be..6a63171 100644
 --- a/Source/WebCore/replay/WebInputs.json
 +++ b/Source/WebCore/replay/WebInputs.json
 @@ -31,20 +31,25 @@
@@ -1019,13 +1020,13 @@ index a444b03..d76bbee 100644
 +                "header": "platform/network/ResourceRequest.h"
 +            },
 +            {
-                 "name": "ScrollDirection", "mode": "SCALAR", "storage": "uint64_t",
+                 "name": "ScrollDirection", "mode": "SCALAR", "storage": "uint8_t",
                  "flags": ["ENUM"],
                  "values": ["ScrollUp", "ScrollDown", "ScrollLeft", "ScrollRight"],
                  "header": "platform/ScrollTypes.h"
              },
              {
-                 "name": "ScrollGranularity", "mode": "SCALAR", "storage": "uint64_t",
+                 "name": "ScrollGranularity", "mode": "SCALAR", "storage": "uint8_t",
                  "flags": ["ENUM"],
                  "values": [
                      "ScrollByLine",
@@ -1137,7 +1138,7 @@ index a444b03..d76bbee 100644
      ]
  }
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 94294ec..4901968 100644
+index 598f638..e4c8ebe 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,25 @@

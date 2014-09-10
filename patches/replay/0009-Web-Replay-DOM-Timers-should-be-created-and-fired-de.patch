@@ -1,4 +1,4 @@
-From fbf366f497a9c354071d90d972703eafe5750001 Mon Sep 17 00:00:00 2001
+From 0328b572d0fb21c71ec9b6ce4ec450cc27e58bca Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 16 Jul 2014 14:58:22 -0700
 Subject: [PATCH] Web Replay: DOM Timers should be created and fired
@@ -52,14 +52,14 @@ Move the singleShot parameter to DOMTimer::start since it isn't used here now.
 * replay/WebInputs.json: Add DOMTimerFired and DOMTimerCreated.
 ---
  Source/WebCore/ChangeLog                           |  52 ++++++++
- Source/WebCore/page/DOMTimer.cpp                   | 147 +++++++++++++++++++--
+ Source/WebCore/page/DOMTimer.cpp                   | 137 +++++++++++++++++++--
  Source/WebCore/page/DOMTimer.h                     |  20 ++-
  .../WebCore/replay/ReplayInputDispatchMethods.cpp  |  11 ++
  Source/WebCore/replay/WebInputs.json               |  18 +++
- 5 files changed, 229 insertions(+), 19 deletions(-)
+ 5 files changed, 224 insertions(+), 14 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 41e12e7..98f3029 100644
+index 9ccee1f..c47404b 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,62 @@
@@ -126,10 +126,10 @@ index 41e12e7..98f3029 100644
          the contents of the back-forward list at each main frame navigation.
          This can be done before the initial navigation that's kicked off when
 diff --git a/Source/WebCore/page/DOMTimer.cpp b/Source/WebCore/page/DOMTimer.cpp
-index 348ef48..2d29cce 100644
+index 0288130..66df860 100644
 --- a/Source/WebCore/page/DOMTimer.cpp
 +++ b/Source/WebCore/page/DOMTimer.cpp
-@@ -36,73 +36,190 @@
+@@ -36,71 +36,189 @@
  #include <wtf/StdLibExtras.h>
  
  #if PLATFORM(IOS)
@@ -152,13 +152,11 @@ index 348ef48..2d29cce 100644
  static const int maxTimerNestingLevel = 5;
  static const double oneMillisecond = 0.001;
  
- static int timerNestingLevel = 0;
-     
  static inline bool shouldForwardUserGesture(int interval, int nestingLevel)
  {
      return UserGestureIndicator::processingUserGesture()
          && interval <= maxIntervalForUserGestureForwarding
-         && nestingLevel == 1; // Gestures should not be forwarded to nested timers.
+         && !nestingLevel; // Gestures should not be forwarded to nested timers.
  }
  
 -DOMTimer::DOMTimer(ScriptExecutionContext* context, std::unique_ptr<ScheduledAction> action, int interval, bool singleShot)
@@ -168,7 +166,7 @@ index 348ef48..2d29cce 100644
 +    InstrumentedDOMTimer(ScriptExecutionContext*, std::unique_ptr<ScheduledAction>, int originalInterval);
 +    virtual ~InstrumentedDOMTimer() { }
 +protected:
-+    virtual void start(int timeout, bool singleShot) override;
++    virtual void start(bool singleShot) override;
 +    virtual void fired() override;
 +};
 +
@@ -177,7 +175,7 @@ index 348ef48..2d29cce 100644
 +    DeterministicDOMTimer(ScriptExecutionContext*, std::unique_ptr<ScheduledAction>, int originalInterval);
 +    virtual ~DeterministicDOMTimer() { }
 +protected:
-+    virtual void start(int timeout, bool singleShot) override;
++    virtual void start(bool singleShot) override;
 +};
 +
 +InstrumentedDOMTimer::InstrumentedDOMTimer(ScriptExecutionContext* context, std::unique_ptr<ScheduledAction> action, int originalInterval)
@@ -185,10 +183,10 @@ index 348ef48..2d29cce 100644
 +{
 +}
 +
-+void InstrumentedDOMTimer::start(int timeout, bool singleShot)
++void InstrumentedDOMTimer::start(bool singleShot)
 +{
 +    // Schedule the timer normally, then save the timeoutId assigned by the execution context.
-+    DOMTimer::start(timeout, singleShot);
++    DOMTimer::start(singleShot);
 +    if (!scriptExecutionContext()->isDocument())
 +        return;
 +
@@ -229,7 +227,7 @@ index 348ef48..2d29cce 100644
 +    m_shouldScheduleNormally = false;
 +}
 +
-+void DeterministicDOMTimer::start(int timeout, bool singleShot)
++void DeterministicDOMTimer::start(bool singleShot)
 +{
 +    if (!scriptExecutionContext()->isDocument())
 +        return;
@@ -241,7 +239,7 @@ index 348ef48..2d29cce 100644
 +    DOMTimerCreated* input = cursor.fetchInput<DOMTimerCreated>();
 +    // Error handling case: if fetch failed, schedule normally.
 +    if (!input) {
-+        DOMTimer::start(timeout, singleShot);
++        DOMTimer::start(singleShot);
 +        return;
 +    }
 +
@@ -257,29 +255,29 @@ index 348ef48..2d29cce 100644
      : SuspendableTimer(context)
 +    , m_timeoutId(0)
 +    , m_shouldScheduleNormally(true)
-     , m_nestingLevel(timerNestingLevel + 1)
+     , m_nestingLevel(context->timerNestingLevel())
      , m_action(WTF::move(action))
      , m_originalInterval(interval)
+     , m_currentTimerInterval(intervalClampedToMinimum())
      , m_shouldForwardUserGesture(shouldForwardUserGesture(interval, m_nestingLevel))
  {
 -    RefPtr<DOMTimer> reference = adoptRef(this);
 +}
  
-+void DOMTimer::start(int interval, bool singleShot)
++void DOMTimer::start(bool singleShot)
 +{
++    RefPtr<DOMTimer> reference = adoptRef(this);
      // Keep asking for the next id until we're given one that we don't already have.
      do {
 -        m_timeoutId = context->circularSequentialID();
 -    } while (!context->addTimeout(m_timeoutId, reference));
 +        m_timeoutId = scriptExecutionContext()->circularSequentialID();
-+    } while (!scriptExecutionContext()->addTimeout(m_timeoutId, this));
++    } while (!scriptExecutionContext()->addTimeout(m_timeoutId, reference));
  
--    double intervalMilliseconds = intervalClampedToMinimum(interval, context->minimumTimerInterval());
-+    double intervalMilliseconds = intervalClampedToMinimum(interval, scriptExecutionContext()->minimumTimerInterval());
      if (singleShot)
-         startOneShot(intervalMilliseconds);
+         startOneShot(m_currentTimerInterval);
      else
-         startRepeating(intervalMilliseconds);
+         startRepeating(m_currentTimerInterval);
  }
  
  int DOMTimer::install(ScriptExecutionContext* context, std::unique_ptr<ScheduledAction> action, int timeout, bool singleShot)
@@ -316,7 +314,7 @@ index 348ef48..2d29cce 100644
      }
  #endif
  
-+    timer->start(timeout, singleShot);
++    timer->start(singleShot);
      timer->suspendIfNeeded();
      InspectorInstrumentation::didInstallTimer(context, timer->m_timeoutId, timeout, singleShot);
  
@@ -327,9 +325,9 @@ index 348ef48..2d29cce 100644
  {
      // timeout IDs have to be positive, and 0 and -1 are unsafe to
      // even look up since they are the empty and deleted value
-@@ -132,27 +249,29 @@ void DOMTimer::fired()
- #endif
-     timerNestingLevel = m_nestingLevel;
+@@ -131,23 +249,22 @@ void DOMTimer::fired()
+     context->setTimerNestingLevel(std::min(m_nestingLevel + 1, maxTimerNestingLevel));
+ 
      ASSERT(!isSuspended());
      ASSERT(!context->activeDOMObjectsAreSuspended());
      UserGestureIndicator gestureIndicator(m_shouldForwardUserGesture ? DefinitelyProcessingUserGesture : PossiblyProcessingUserGesture);
@@ -340,19 +338,10 @@ index 348ef48..2d29cce 100644
  
 -    // Simple case for non-one-shot timers.
      if (isActive()) {
--        double minimumInterval = context->minimumTimerInterval();
--        if (repeatInterval() && repeatInterval() < minimumInterval) {
--            m_nestingLevel++;
--            if (m_nestingLevel >= maxTimerNestingLevel)
--                augmentRepeatInterval(minimumInterval - repeatInterval());
-+        if (m_shouldScheduleNormally) {
-+            // Simple case for non-one-shot timers.
-+            double minimumInterval = context->minimumTimerInterval();
-+            if (repeatInterval() && repeatInterval() < minimumInterval) {
-+                m_nestingLevel++;
-+                if (m_nestingLevel >= maxTimerNestingLevel)
-+                    augmentRepeatInterval(minimumInterval - repeatInterval());
-+            }
+-        if (m_nestingLevel < maxTimerNestingLevel) {
++        if (m_shouldScheduleNormally && m_nestingLevel < maxTimerNestingLevel) {
+             m_nestingLevel++;
+             updateTimerIntervalIfNecessary();
          }
  
          m_action->execute(context);
@@ -361,10 +350,7 @@ index 348ef48..2d29cce 100644
  
          return;
      }
- 
-     context->removeTimeout(m_timeoutId);
-@@ -194,20 +313,22 @@ void DOMTimer::fired()
- void DOMTimer::didStop()
+@@ -192,20 +309,24 @@ void DOMTimer::didStop()
  {
      // Need to release JS objects potentially protected by ScheduledAction
      // because they can form circular references back to the ScriptExecutionContext
@@ -372,25 +358,28 @@ index 348ef48..2d29cce 100644
      m_action = nullptr;
  }
  
- void DOMTimer::adjustMinimumTimerInterval(double oldMinimumTimerInterval)
+ void DOMTimer::updateTimerIntervalIfNecessary()
  {
+     ASSERT(m_nestingLevel <= maxTimerNestingLevel);
++
 +    if (!m_shouldScheduleNormally)
 +        return;
++
      if (m_nestingLevel < maxTimerNestingLevel)
          return;
  
-     double newMinimumInterval = scriptExecutionContext()->minimumTimerInterval();
-     double newClampedInterval = intervalClampedToMinimum(m_originalInterval, newMinimumInterval);
+     double previousInterval = m_currentTimerInterval;
+     m_currentTimerInterval = intervalClampedToMinimum();
+ 
+     if (previousInterval == m_currentTimerInterval)
+         return;
  
      if (repeatInterval()) {
-         augmentRepeatInterval(newClampedInterval - repeatInterval());
-         return;
-     }
 diff --git a/Source/WebCore/page/DOMTimer.h b/Source/WebCore/page/DOMTimer.h
-index 066e07b..c811b7f 100644
+index 3b15478..9df44c7 100644
 --- a/Source/WebCore/page/DOMTimer.h
 +++ b/Source/WebCore/page/DOMTimer.h
-@@ -27,45 +27,53 @@
+@@ -27,44 +27,52 @@
  #ifndef DOMTimer_h
  #define DOMTimer_h
  
@@ -413,13 +402,12 @@ index 066e07b..c811b7f 100644
          static int install(ScriptExecutionContext*, std::unique_ptr<ScheduledAction>, int timeout, bool singleShot);
          static void removeById(ScriptExecutionContext*, int timeoutId);
  
-         // Adjust to a change in the ScriptExecutionContext's minimum timer interval.
-         // This allows the minimum allowable interval time to be changed in response
-         // to events like moving a tab to the background.
-         void adjustMinimumTimerInterval(double oldMinimumTimerInterval);
+         // Notify that the interval may need updating (e.g. because the minimum interval
+         // setting for the context has changed).
+         void updateTimerIntervalIfNecessary();
 +    protected:
 +        DOMTimer(ScriptExecutionContext*, std::unique_ptr<ScheduledAction>, int interval);
-+        virtual void start(int interval, bool singleShot);
++        virtual void start(bool singleShot);
  
 +        // SuspendableTimer
 +        virtual void fired();
@@ -430,7 +418,7 @@ index 066e07b..c811b7f 100644
 -        DOMTimer(ScriptExecutionContext*, std::unique_ptr<ScheduledAction>, int interval, bool singleShot);
 +        friend class DOMTimerFired;
 +
-         double intervalClampedToMinimum(int timeout, double minimumTimerInterval) const;
+         double intervalClampedToMinimum() const;
  
          // SuspendableTimer
 -        virtual void fired() override;
@@ -443,13 +431,13 @@ index 066e07b..c811b7f 100644
          int m_nestingLevel;
          std::unique_ptr<ScheduledAction> m_action;
          int m_originalInterval;
+         double m_currentTimerInterval;
          bool m_shouldForwardUserGesture;
      };
  
  } // namespace WebCore
  
  #endif // DOMTimer_h
- 
 diff --git a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
 index d242aae..4c8d8ae 100644
 --- a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
@@ -501,7 +489,7 @@ index d242aae..4c8d8ae 100644
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
-index bcf3002..0c27dc8 100644
+index 2ac077a..8f8fd78 100644
 --- a/Source/WebCore/replay/WebInputs.json
 +++ b/Source/WebCore/replay/WebInputs.json
 @@ -235,20 +235,38 @@

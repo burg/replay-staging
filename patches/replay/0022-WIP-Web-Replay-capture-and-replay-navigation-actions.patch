@@ -1,4 +1,4 @@
-From 692ab938ad0f2eea9d0fffe17eca1a06c8d7858f Mon Sep 17 00:00:00 2001
+From 03b000d7a1b75f2591ec106e7860896d7ad99f13 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Sat, 23 Aug 2014 16:21:19 -0700
 Subject: [PATCH] [WIP] Web Replay: capture and replay navigation actions in
@@ -27,10 +27,10 @@ Subject: [PATCH] [WIP] Web Replay: capture and replay navigation actions in
  delete mode 100644 Source/WebCore/replay/UserInputBridge.h
 
 diff --git a/Source/WebCore/CMakeLists.txt b/Source/WebCore/CMakeLists.txt
-index bc6eb97..97f472f 100644
+index 730f783..1d49589 100644
 --- a/Source/WebCore/CMakeLists.txt
 +++ b/Source/WebCore/CMakeLists.txt
-@@ -2490,21 +2490,20 @@ set(WebCore_SOURCES
+@@ -2487,21 +2487,20 @@ set(WebCore_SOURCES
      rendering/svg/SVGTextLayoutAttributesBuilder.cpp
      rendering/svg/SVGTextLayoutEngine.cpp
      rendering/svg/SVGTextLayoutEngineBaseline.cpp
@@ -53,7 +53,7 @@ index bc6eb97..97f472f 100644
      storage/StorageNamespaceImpl.cpp
      storage/StorageStrategy.cpp
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index 4669ece..5936cb7 100644
+index 80a943e..0600270 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
 @@ -644,24 +644,20 @@ __ZN7WebCore15SQLiteStatement9bindInt64Eix
@@ -81,7 +81,7 @@ index 4669ece..5936cb7 100644
  __ZN7WebCore15setDOMExceptionEPN3JSC9ExecStateEi
  __ZN7WebCore15toDOMStringListEPN3JSC9ExecStateENS0_7JSValueE
  __ZN7WebCore15visitedLinkHashEPKtj
-@@ -3468,44 +3464,32 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
+@@ -3475,44 +3471,32 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
  
  #if ENABLE(VIDEO_TRACK)
  __ZN7WebCore9PageGroup18captionPreferencesEv
@@ -126,7 +126,7 @@ index 4669ece..5936cb7 100644
  __ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
  __ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE4typeEv
-@@ -3527,23 +3511,27 @@ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE4typeEv
+@@ -3534,23 +3518,27 @@ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE4typeEv
@@ -155,7 +155,7 @@ index 4669ece..5936cb7 100644
  __ZNK7WebCore20ResourceResponseBase18resourceLoadTimingEv
  #endif
 diff --git a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
-index c9f8315..d967eca 100644
+index 3b53fef..ddbb89e 100644
 --- a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
 +++ b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
 @@ -12330,21 +12330,20 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
@@ -180,7 +180,7 @@ index c9f8315..d967eca 100644
      <ClCompile Include="..\xml\XMLHttpRequestUpload.cpp" />
      <ClCompile Include="..\xml\XMLSerializer.cpp" />
      <ClCompile Include="..\xml\XMLTreeViewer.cpp" />
-@@ -20419,21 +20418,20 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -20395,21 +20394,20 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
      <ClInclude Include="..\rendering\svg\SVGTextLayoutAttributes.h" />
      <ClInclude Include="..\rendering\svg\SVGTextLayoutAttributesBuilder.h" />
      <ClInclude Include="..\rendering\svg\SVGTextLayoutEngine.h" />
@@ -203,7 +203,7 @@ index c9f8315..d967eca 100644
      <ClInclude Include="..\xml\XMLSerializer.h" />
      <ClInclude Include="..\xml\XMLTreeViewer.h" />
 diff --git a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
-index 6049e61..c0f332d 100644
+index 3aa56ed..07eb529 100644
 --- a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
 +++ b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
 @@ -2930,23 +2930,20 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
@@ -230,7 +230,7 @@ index 6049e61..c0f332d 100644
        <Filter>xml</Filter>
      </ClCompile>
      <ClCompile Include="..\xml\XMLHttpRequest.cpp">
-@@ -9989,23 +9986,20 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -9980,23 +9977,20 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
      </ClInclude>
      <ClInclude Include="..\rendering\svg\SVGTextQuery.h">
        <Filter>rendering\svg</Filter>
@@ -255,10 +255,10 @@ index 6049e61..c0f332d 100644
      </ClInclude>
      <ClInclude Include="..\xml\XMLHttpRequest.h">
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index c96226f..5ce7437 100644
+index cc580e3..a33c192 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -3588,22 +3588,20 @@
+@@ -3578,22 +3578,20 @@
  		97E4029013A696ED00913D67 /* IconController.h in Headers */ = {isa = PBXBuildFile; fileRef = 97E4028E13A696ED00913D67 /* IconController.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		97F8E665151D4A4B00D2D181 /* WorkerGlobalScopeNotifications.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 97F8E661151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.cpp */; };
  		97F8E666151D4A4E00D2D181 /* WorkerGlobalScopeNotifications.h in Headers */ = {isa = PBXBuildFile; fileRef = 97F8E662151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.h */; };
@@ -281,7 +281,7 @@ index c96226f..5ce7437 100644
  		99CC0B5118BE9849006CEBCC /* EventLoopInputDispatcher.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B3C18BE9849006CEBCC /* EventLoopInputDispatcher.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		99CC0B5218BE9849006CEBCC /* FunctorInputCursor.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B3D18BE9849006CEBCC /* FunctorInputCursor.h */; };
  		99CC0B5318BE9849006CEBCC /* ReplayController.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B3E18BE9849006CEBCC /* ReplayController.cpp */; };
-@@ -10741,22 +10739,20 @@
+@@ -10726,22 +10724,20 @@
  		97F8E661151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WorkerGlobalScopeNotifications.cpp; sourceTree = "<group>"; };
  		97F8E662151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WorkerGlobalScopeNotifications.h; sourceTree = "<group>"; };
  		97F8E663151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.idl */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = WorkerGlobalScopeNotifications.idl; sourceTree = "<group>"; };
@@ -304,7 +304,7 @@ index c96226f..5ce7437 100644
  		99CC0B3D18BE9849006CEBCC /* FunctorInputCursor.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FunctorInputCursor.h; sourceTree = "<group>"; };
  		99CC0B3E18BE9849006CEBCC /* ReplayController.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReplayController.cpp; sourceTree = "<group>"; };
  		99CC0B3F18BE9849006CEBCC /* ReplayController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ReplayController.h; sourceTree = "<group>"; };
-@@ -18361,22 +18357,20 @@
+@@ -18335,22 +18331,20 @@
  				99CC0B4618BE9849006CEBCC /* ReplaySessionSegment.cpp */,
  				99CC0B4718BE9849006CEBCC /* ReplaySessionSegment.h */,
  				C4D4F5271975C88B003EF5BC /* ReplayableTimer.cpp */,
@@ -327,7 +327,7 @@ index c96226f..5ce7437 100644
  			sourceTree = "<group>";
  		};
  		A148328B187F506800DA63A6 /* wak */ = {
-@@ -26407,21 +26401,20 @@
+@@ -26382,21 +26376,20 @@
  				F55B3DDE1251F12D003EF269 /* URLInputType.h in Headers */,
  				A72763BF16689BFB002FCACB /* UserActionElementSet.h in Headers */,
  				868160D618766A130021E79D /* UserActivity.h in Headers */,
@@ -349,7 +349,7 @@ index c96226f..5ce7437 100644
  				BCDF317C11F8D683003C5BF8 /* UserTypingGestureIndicator.h in Headers */,
  				7C74D43818823B1900E5ED57 /* UTextProvider.h in Headers */,
  				7C74D43418823A9300E5ED57 /* UTextProviderLatin1.h in Headers */,
-@@ -29720,21 +29713,20 @@
+@@ -29691,21 +29684,20 @@
  				A769E96A16689D0C005D4529 /* UserActionElementSet.cpp in Sources */,
  				868160D418766A0A0021E79D /* UserActivity.cpp in Sources */,
  				868160D518766A0E0021E79D /* UserActivityMac.mm in Sources */,
@@ -372,7 +372,7 @@ index c96226f..5ce7437 100644
  				F5A154271279534D00D0B0C0 /* ValidationMessage.cpp in Sources */,
  				FD3160AE12B026F700C1A359 /* VectorMath.cpp in Sources */,
 diff --git a/Source/WebCore/page/Page.cpp b/Source/WebCore/page/Page.cpp
-index 46fe8bd..4d8f952 100644
+index 508de05..a9b1ad2 100644
 --- a/Source/WebCore/page/Page.cpp
 +++ b/Source/WebCore/page/Page.cpp
 @@ -75,21 +75,20 @@
@@ -420,7 +420,7 @@ index 46fe8bd..4d8f952 100644
  #endif
      , m_settings(Settings::create(this))
 diff --git a/Source/WebCore/page/Page.h b/Source/WebCore/page/Page.h
-index aa5b564..9eb5df0 100644
+index 5b92753..1aa9cb2 100644
 --- a/Source/WebCore/page/Page.h
 +++ b/Source/WebCore/page/Page.h
 @@ -68,21 +68,20 @@ class Color;
@@ -440,7 +440,7 @@ index aa5b564..9eb5df0 100644
  class MainFrame;
  class MediaCanStartListener;
  class PageActivityAssertionToken;
- class PageConsole;
+ class PageConsoleClient;
  class PageDebuggable;
  class PageGroup;
  class PageThrottler;
@@ -807,10 +807,10 @@ index eefc8c8..0000000
 -
 -#endif // UserInputBridge_h
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
-index f8707fa..090faf6 100644
+index c285540..5c9af24 100644
 --- a/Source/WebCore/replay/WebInputs.json
 +++ b/Source/WebCore/replay/WebInputs.json
-@@ -186,37 +186,20 @@
+@@ -244,37 +244,20 @@
          },
          {
              "name": "FetchPluginData",
@@ -848,7 +848,7 @@ index f8707fa..090faf6 100644
              ]
          },
          {
-@@ -253,27 +236,13 @@
+@@ -311,27 +294,13 @@
          {
              "name": "ResourceLoaderDidReceiveData",
              "description": "A resource loader received some data.",
@@ -1149,17 +1149,17 @@ index c90e5b7..cc24b09 100644
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-index 4cf2f49..7d93246 100644
+index c118f3d..c360f60 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-@@ -141,21 +141,20 @@
- #include <WebCore/SchemeRegistry.h>
+@@ -142,21 +142,20 @@
  #include <WebCore/ScriptController.h>
  #include <WebCore/SerializedScriptValue.h>
  #include <WebCore/SessionID.h>
  #include <WebCore/Settings.h>
  #include <WebCore/ShadowRoot.h>
  #include <WebCore/SharedBuffer.h>
+ #include <WebCore/StyleProperties.h>
  #include <WebCore/SubframeLoader.h>
  #include <WebCore/SubstituteData.h>
  #include <WebCore/TextIterator.h>
@@ -1174,7 +1174,7 @@ index 4cf2f49..7d93246 100644
  #include <runtime/JSLock.h>
  #include <wtf/RunLoop.h>
  
-@@ -173,20 +172,21 @@
+@@ -174,20 +173,21 @@
  
  #if ENABLE(PROXIMITY_EVENTS)
  #include "WebDeviceProximityClient.h"
@@ -1196,7 +1196,7 @@ index 4cf2f49..7d93246 100644
  #endif
  
  #if PLATFORM(GTK)
-@@ -977,66 +977,98 @@ void WebPage::close()
+@@ -985,66 +985,98 @@ void WebPage::close()
      bool isRunningModal = m_isRunningModal;
      m_isRunningModal = false;
  
@@ -1301,7 +1301,7 @@ index 4cf2f49..7d93246 100644
      RefPtr<API::Object> userData;
      InjectedBundleUserMessageDecoder userMessageDecoder(userData);
      if (!decoder.decode(userMessageDecoder))
-@@ -1090,55 +1122,89 @@ void WebPage::loadPlainTextString(const String& string, IPC::MessageDecoder& dec
+@@ -1098,55 +1130,89 @@ void WebPage::loadPlainTextString(const String& string, IPC::MessageDecoder& dec
  {
      loadString(0, string, ASCIILiteral("text/plain"), blankURL(), URL(), decoder);
  }

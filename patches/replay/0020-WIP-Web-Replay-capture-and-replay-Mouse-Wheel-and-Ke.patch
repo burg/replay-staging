@@ -1,4 +1,4 @@
-From ae81f9a2a7740ba993731c318b083ea1902f08c7 Mon Sep 17 00:00:00 2001
+From 78fa2365d114eaa612460331b15a8376b7cb512a Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Fri, 22 Aug 2014 08:46:08 -0700
 Subject: [PATCH] [WIP] Web Replay: capture and replay Mouse, Wheel, and
@@ -22,7 +22,7 @@ Subject: [PATCH] [WIP] Web Replay: capture and replay Mouse, Wheel, and
  14 files changed, 343 insertions(+), 376 deletions(-)
 
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index ca56388..bfb8d56 100644
+index cbb8c80..54ed786 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
 @@ -647,25 +647,22 @@ __ZN7WebCore15ScrollAlignment17alignCenterAlwaysE
@@ -51,7 +51,7 @@ index ca56388..bfb8d56 100644
  __ZN7WebCore15setDOMExceptionEPN3JSC9ExecStateEi
  __ZN7WebCore15toDOMStringListEPN3JSC9ExecStateENS0_7JSValueE
  __ZN7WebCore15visitedLinkHashEPKtj
-@@ -2980,21 +2977,20 @@ __ZN7WebCore13ContentFilter43handleUnblockRequestAndDispatchIfSuccessfulERKNS_15
+@@ -2978,21 +2975,20 @@ __ZN7WebCore13ContentFilter43handleUnblockRequestAndDispatchIfSuccessfulERKNS_15
  #endif
  
  #if ENABLE(CONTEXT_MENUS)
@@ -73,7 +73,7 @@ index ca56388..bfb8d56 100644
  __ZNK7WebCore15ContextMenuItem6actionEv
  __ZNK7WebCore15ContextMenuItem7checkedEv
  __ZNK7WebCore15ContextMenuItem7enabledEv
-@@ -3485,38 +3481,32 @@ __ZN3JSC11InputTraitsIN7WebCore10ScrollPageEE6decodeERNS_12EncodedValueERNSt3__1
+@@ -3492,38 +3488,32 @@ __ZN3JSC11InputTraitsIN7WebCore10ScrollPageEE6decodeERNS_12EncodedValueERNSt3__1
  __ZN3JSC11InputTraitsIN7WebCore10ScrollPageEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore11ReloadFrameEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore11ReloadFrameEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -112,7 +112,7 @@ index ca56388..bfb8d56 100644
  __ZN3JSC11InputTraitsIN7WebCore17InitializeHistoryEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
  __ZN3JSC11InputTraitsIN7WebCore17InitializeHistoryEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore17LogicalScrollPageEE4typeEv
-@@ -3542,20 +3532,25 @@ __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6decodeERNS_12Encode
+@@ -3549,20 +3539,25 @@ __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6decodeERNS_12Encode
  __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -297,7 +297,7 @@ index 47b954f..3467194 100644
      WEBCORE_EXPORT void stopLoadingFrame(Frame*, InputSource source = InputSource::User);
      WEBCORE_EXPORT bool tryClosePage(InputSource source = InputSource::User);
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
-index 734f14a..226ae56 100644
+index 8409e81..d123812 100644
 --- a/Source/WebCore/replay/WebInputs.json
 +++ b/Source/WebCore/replay/WebInputs.json
 @@ -174,46 +174,20 @@
@@ -1389,10 +1389,10 @@ index f5d6ae4..00668bb 100644
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-index f7cbcb4..e2518d3 100644
+index e5df37c..3bc8afa 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-@@ -1777,23 +1777,23 @@ WebContextMenu* WebPage::contextMenu()
+@@ -1785,23 +1785,23 @@ WebContextMenu* WebPage::contextMenu()
          m_contextMenu = WebContextMenu::create(this);
      return m_contextMenu.get();
  }
@@ -1418,7 +1418,7 @@ index f7cbcb4..e2518d3 100644
  static const WebEvent* g_currentEvent = 0;
  
  // FIXME: WebPage::currentEvent is used by the plug-in code to avoid having to convert from DOM events back to
-@@ -1829,56 +1829,56 @@ static bool isContextClick(const PlatformMouseEvent& event)
+@@ -1837,56 +1837,56 @@ static bool isContextClick(const PlatformMouseEvent& event)
  
  #if PLATFORM(COCOA)
      // FIXME: this really should be about OSX-style UI, not about the Mac port
@@ -1479,7 +1479,7 @@ index f7cbcb4..e2518d3 100644
              if (onlyUpdateScrollbars)
                  return frame.eventHandler().passMouseMovedEventToScrollbars(platformMouseEvent);
              return frame.eventHandler().handleMouseMoveEvent(platformMouseEvent);
-@@ -1887,21 +1887,21 @@ static bool disambiguateMouseEvent(const WebMouseEvent& mouseEvent, WebPage* pag
+@@ -1895,21 +1895,21 @@ static bool disambiguateMouseEvent(const WebMouseEvent& mouseEvent, WebPage* pag
              return false;
      }
  }
@@ -1502,7 +1502,7 @@ index f7cbcb4..e2518d3 100644
  #if ENABLE(CONTEXT_MENUS)
      // Don't try to handle any pending mouse events if a context menu is showing.
      if (m_isShowingContextMenu)
-@@ -1923,21 +1923,21 @@ bool WebPage::handleMouseEvent(const WebMouseEvent& mouseEvent, ActionSource sou
+@@ -1931,21 +1931,21 @@ bool WebPage::handleMouseEvent(const WebMouseEvent& mouseEvent, ActionSource sou
          if (cursor.isCapturing())
              cursor.appendInput<HandleMouseEvent>(std::make_unique<WebMouseEvent>(mouseEvent));
          EventLoopInputExtent extent(cursor);
@@ -1525,7 +1525,7 @@ index f7cbcb4..e2518d3 100644
      bool handled = handleMouseEvent(mouseEvent, ActionSource::User);
      send(Messages::WebPageProxy::DidReceiveEvent(static_cast<uint32_t>(mouseEvent.type()), handled));
  }
-@@ -1954,95 +1954,136 @@ void WebPage::mouseEventSyncForTesting(const WebMouseEvent& mouseEvent, bool& ha
+@@ -1962,95 +1962,136 @@ void WebPage::mouseEventSyncForTesting(const WebMouseEvent& mouseEvent, bool& ha
  
      if (!handled) {
          CurrentEvent currentEvent(mouseEvent);
