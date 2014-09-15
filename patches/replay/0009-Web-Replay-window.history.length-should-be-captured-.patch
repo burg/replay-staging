@@ -1,4 +1,4 @@
-From a46e2d66b1d873232d09deb6b47b8c33dcf571ea Mon Sep 17 00:00:00 2001
+From 9fea83edf2e5fcb60b44cacc03260cc04a2cd632 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 15:34:16 -0700
 Subject: [PATCH] Web Replay: window.history.length should be captured at main
@@ -85,7 +85,7 @@ LayoutTests:
  create mode 100644 LayoutTests/inspector/replay/history-length-single-segment.html
 
 diff --git a/LayoutTests/ChangeLog b/LayoutTests/ChangeLog
-index cc6e491..d4700f4 100644
+index ffd09a1..eb867d6 100644
 --- a/LayoutTests/ChangeLog
 +++ b/LayoutTests/ChangeLog
 @@ -1,10 +1,20 @@
@@ -99,16 +99,16 @@ index cc6e491..d4700f4 100644
 +        * inspector/replay/history-length-single-segment-expected.txt: Added.
 +        * inspector/replay/history-length-single-segment.html: Added.
 +
- 2014-09-03  Youenn Fablet  <youenn.fablet@crf.canon.fr>
+ 2014-09-11  Chris Fleizach  <cfleizach@apple.com>
  
-         XMLHttpRequest always defaults Content-Type to application/xml, while it should depend on data type
-         https://bugs.webkit.org/show_bug.cgi?id=11049
+         AX: Size of web view in Safari as reported by AX changes when adding/removing bars is wrong
+         https://bugs.webkit.org/show_bug.cgi?id=136756
  
-         Reviewed by Darin Adler.
+         Reviewed by Beth Dakin.
  
-         * http/tests/xmlhttprequest/methods-lower-case-expected.txt: Rebaseline (application/xml -> text/plain;charset=UTF-8).
-         * http/tests/xmlhttprequest/post-content-type-document.html: New test to cover default mime type for XML and HTML document data types.
-         * http/tests/xmlhttprequest/post-content-type-document-expected.txt: Ditto.
+         * platform/mac-wk2/accessibility/content-inset-scrollview-frame-expected.txt:
+         * platform/mac-wk2/accessibility/content-inset-scrollview-frame.html:
+ 
 diff --git a/LayoutTests/inspector/replay/history-length-single-segment-expected.txt b/LayoutTests/inspector/replay/history-length-single-segment-expected.txt
 new file mode 100644
 index 0000000..b797ffd
@@ -165,7 +165,7 @@ index 0000000..a88d9c1
 +</body>
 +</html>
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index b3480ef..9ccee1f 100644
+index 17cb315..87e885d 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,64 @@
@@ -543,7 +543,7 @@ index cd67cf0..d242aae 100644
      if (m_scrollbarTargeted)
          controller.page().userInputBridge().handleMouseMoveOnScrollbarEvent(platformEvent(), InputSource::Synthetic);
 diff --git a/Source/WebCore/replay/SerializationMethods.cpp b/Source/WebCore/replay/SerializationMethods.cpp
-index e037b16..f2100c7 100644
+index 2e31995..5f59b39 100644
 --- a/Source/WebCore/replay/SerializationMethods.cpp
 +++ b/Source/WebCore/replay/SerializationMethods.cpp
 @@ -30,58 +30,62 @@
@@ -718,7 +718,7 @@ index e037b16..f2100c7 100644
          if (!InputTraits<name>::decode(encodedValue, decodedInput)) \
              return false; \
          \
-@@ -908,20 +1000,31 @@ bool EncodingTraits<SubstituteData>::decodeValue(EncodedValue& encodedData, Subs
+@@ -906,20 +998,31 @@ bool EncodingTraits<SubstituteData>::decodeValue(EncodedValue& encodedData, Subs
      DECODE_TYPE_WITH_KEY(encodedData, String, mimeType);
      DECODE_TYPE_WITH_KEY(encodedData, String, textEncoding);
      DECODE_TYPE_WITH_KEY(encodedData, URL, failingURL);
@@ -897,7 +897,7 @@ index 6a63171..2ac077a 100644
              ]
          },
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index e4c8ebe..f8c6de2 100644
+index 362249c..a913c48 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,21 @@

@@ -1,8 +1,8 @@
-From 1408a6dd5b71b042a5f5c494dc2adc8b54aeb220 Mon Sep 17 00:00:00 2001
+From bb65ccfb6293ec27d5645489340294d2f8dda12c Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Fri, 22 Aug 2014 16:11:09 -0700
-Subject: [PATCH] [WIP] Web Replay: capture and replay synchronous scrolling
- from WebPage
+Subject: [PATCH] Web Replay: capture and replay synchronous scrolling from
+ WebPage
 
 ---
  Source/WebCore/WebCore.exp.in                      |  7 -----
@@ -18,10 +18,10 @@ Subject: [PATCH] [WIP] Web Replay: capture and replay synchronous scrolling
  10 files changed, 56 insertions(+), 88 deletions(-)
 
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index 54ed786..80a943e 100644
+index 6fefe92..01f41ff 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -648,21 +648,20 @@ __ZN7WebCore15ScrollAlignment19alignToEdgeIfNeededE
+@@ -645,21 +645,20 @@ __ZN7WebCore15ScrollAlignment19alignToEdgeIfNeededE
  __ZN7WebCore15StorageStrategy21localStorageNamespaceEPNS_9PageGroupE
  __ZN7WebCore15StorageStrategy23sessionStorageNamespaceEPNS_4PageE
  __ZN7WebCore15StorageStrategy30transientLocalStorageNamespaceEPNS_9PageGroupEPNS_14SecurityOriginE
@@ -43,7 +43,7 @@ index 54ed786..80a943e 100644
  __ZN7WebCore15setDOMExceptionEPN3JSC9ExecStateEi
  __ZN7WebCore15toDOMStringListEPN3JSC9ExecStateENS0_7JSValueE
  __ZN7WebCore15visitedLinkHashEPKtj
-@@ -3476,23 +3475,20 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
+@@ -3440,23 +3439,20 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
  
  #if ENABLE(VIDEO_TRACK)
  __ZN7WebCore9PageGroup18captionPreferencesEv
@@ -67,7 +67,7 @@ index 54ed786..80a943e 100644
  __ZN3JSC11InputTraitsIN7WebCore13DOMTimerFiredEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
  __ZN3JSC11InputTraitsIN7WebCore13DOMTimerFiredEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore14LoadURLRequestEE4typeEv
-@@ -3509,23 +3505,20 @@ __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6decodeERNS_12EncodedValueERNS
+@@ -3473,23 +3469,20 @@ __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6decodeERNS_12EncodedValueERNS
  __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -346,7 +346,7 @@ index 00668bb..c90e5b7 100644
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-index 3bc8afa..c118f3d 100644
+index 59fb9fa..60c7c7b 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 @@ -2171,33 +2171,45 @@ void WebPage::touchEvent(const WebTouchEvent& touchEvent)

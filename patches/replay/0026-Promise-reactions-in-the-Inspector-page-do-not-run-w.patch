@@ -1,4 +1,4 @@
-From 7659add448224e0d8507dc43d53d1c7c59324076 Mon Sep 17 00:00:00 2001
+From 863e766d9a393c9debbc4c5927217d29ccf5fc65 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 28 Aug 2014 10:04:19 -0700
 Subject: [PATCH] Promise reactions in the Inspector page do not run when the
@@ -20,8 +20,6 @@ to the RSVP.Promise constructor now (but can revert to the native Promise constr
 * UserInterface/Controllers/ReplayManager.js:
 (WebInspector.ReplayManager.prototype.getSession.get var):
 (WebInspector.ReplayManager.prototype.getSegment.get var):
-(WebInspector.ReplayManager.prototype.createSession.return):
-(WebInspector.ReplayManager.prototype.createSession):
 (WebInspector.ReplayManager.prototype._suppressBreakpointsAndResumeIfNeeded):
 (WebInspector.ReplayManager.prototype.startCapturing.result): Deleted.
 (WebInspector.ReplayManager.prototype.segmentUnloaded): Deleted.
@@ -36,18 +34,18 @@ to the RSVP.Promise constructor now (but can revert to the native Promise constr
  .../UserInterface/Base/DOMUtilities.js             |    3 +
  Source/WebInspectorUI/UserInterface/Base/Test.js   |    2 +-
  .../UserInterface/Controllers/DebuggerManager.js   |   30 +-
- .../UserInterface/Controllers/ReplayManager.js     |   14 +-
+ .../UserInterface/Controllers/ReplayManager.js     |   10 +-
  .../UserInterface/External/RSVP/LICENSE            |   19 +
  .../UserInterface/External/RSVP/rsvp.js            | 1610 ++++++++++++++++++++
  Source/WebInspectorUI/UserInterface/Main.html      |    2 +
  .../UserInterface/Models/ReplaySession.js          |    2 +-
  .../UserInterface/Protocol/InspectorBackend.js     |    2 +-
- 10 files changed, 1691 insertions(+), 25 deletions(-)
+ 10 files changed, 1689 insertions(+), 23 deletions(-)
  create mode 100644 Source/WebInspectorUI/UserInterface/External/RSVP/LICENSE
  create mode 100644 Source/WebInspectorUI/UserInterface/External/RSVP/rsvp.js
 
 diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
-index 214eec9..b6fe86d 100644
+index 34588d3..e874686 100644
 --- a/Source/WebInspectorUI/ChangeLog
 +++ b/Source/WebInspectorUI/ChangeLog
 @@ -1,10 +1,42 @@
@@ -83,18 +81,18 @@ index 214eec9..b6fe86d 100644
 +        * UserInterface/Protocol/InspectorBackend.js:
 +        (InspectorBackend.Command.prototype.promise):
 +
- 2014-08-11  Brian J. Burg  <burg@cs.washington.edu>
+ 2014-09-11  Joseph Pecoraro  <pecoraro@apple.com>
  
-         Web Inspector: add eject current recording button to the replay dashboard
-         https://bugs.webkit.org/show_bug.cgi?id=135225
+         Web Inspector: Fix assert in QuickConsole - main frame execution context path component
+         https://bugs.webkit.org/show_bug.cgi?id=136748
  
-         Reviewed by NOBODY (OOPS!).
+         Reviewed by Timothy Hatcher.
  
-         Add a new eject button item to the replay dashboard's embedded navigation bar.
-         The eject button's visibility is mutually exclusive with that of the record button.
+         This can get called for the MainFrame on page navigations.
+         In such cases we can return a better result from this method.
  
 diff --git a/Source/WebInspectorUI/UserInterface/Base/DOMUtilities.js b/Source/WebInspectorUI/UserInterface/Base/DOMUtilities.js
-index 2dba6134..b0c15e4 100644
+index dcaff4e..17ce166 100644
 --- a/Source/WebInspectorUI/UserInterface/Base/DOMUtilities.js
 +++ b/Source/WebInspectorUI/UserInterface/Base/DOMUtilities.js
 @@ -22,20 +22,23 @@
@@ -122,10 +120,10 @@ index 2dba6134..b0c15e4 100644
              title += "[id=\"" + idAttribute + "\"]";
          } else
 diff --git a/Source/WebInspectorUI/UserInterface/Base/Test.js b/Source/WebInspectorUI/UserInterface/Base/Test.js
-index ab5af10..e3b537a 100644
+index 742075a..6abec89 100644
 --- a/Source/WebInspectorUI/UserInterface/Base/Test.js
 +++ b/Source/WebInspectorUI/UserInterface/Base/Test.js
-@@ -206,21 +206,21 @@ InspectorTest.testPageDidLoad = function()
+@@ -209,21 +209,21 @@ InspectorTest.testPageDidLoad = function()
      this.eventDispatcher.dispatchEvent(InspectorTest.EventDispatcher.Event.TestPageDidLoad);
  }
  
@@ -138,7 +136,7 @@ index ab5af10..e3b537a 100644
  
 -            return Promise.resolve(null);
 +            return WebInspector.Promise.resolve(null);
-         });
+         }.bind(this));
  }
  
  InspectorTest.reportUncaughtException = function(message, url, lineNumber)
@@ -289,7 +287,7 @@ index 1732d33..021042b 100644
      {
          return this._allUncaughtExceptionsBreakpoint;
 diff --git a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
-index 364a6b4..0316c7a 100644
+index 46c0505..f1d9a87 100644
 --- a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
 +++ b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
 @@ -169,36 +169,36 @@ WebInspector.ReplayManager.prototype = {
@@ -331,42 +329,7 @@ index 364a6b4..0316c7a 100644
      // Returns a promise that resolves when the switch completes.
      switchSession: function(sessionId) // --> ()
      {
-@@ -231,32 +231,32 @@ WebInspector.ReplayManager.prototype = {
- 
-         return result;
-     },
- 
-     // Create a new, empty session.
-     // Returns a promise that resolves when the session is loaded.
-     createSession: function() // --> (sessionId)
-     {
-         var listener = new WebInspector.EventListener(this, true);
- 
--        var managerResult = new Promise(function(resolve, reject) {
-+        var managerResult = new WebInspector.Promise(function(resolve, reject) {
-             listener.connect(WebInspector.replayManager, WebInspector.ReplayManager.Event.SessionAdded, resolve);
-         });
- 
-         var protocolResult = ReplayAgent.createSession()
-             .catch(function(error) {
-                 listener.disconnect();
-                 console.error("ReplayManager.createSession failed: ", error);
-                 throw error;
-             });
- 
--        return Promise.all([this.waitUntilInitialized(), protocolResult, managerResult])
-+        return WebInspector.Promise.all([this.waitUntilInitialized(), protocolResult, managerResult])
-             .then(function(results) {
-                 var event = results.lastValue;
-                 return event.data.sessionId;
-             });
-     },
- 
-     // Start capturing into the current session as soon as possible.
-     // Returns a promise that resolves when capturing begins.
-     startCapturing: function() // --> ()
-     {
-@@ -571,21 +571,21 @@ WebInspector.ReplayManager.prototype = {
+@@ -538,21 +538,21 @@ WebInspector.ReplayManager.prototype = {
              return this.waitUntilInitialized().then(this.segmentCreated.bind(this, segmentId));
  
          console.assert(!this._segments.has(segmentId), "Tried to add duplicate segment identifier:", segmentId);
@@ -389,7 +352,7 @@ index 364a6b4..0316c7a 100644
              return this.waitUntilInitialized().then(this.segmentCompleted.bind(this, segmentId));
  
          var placeholderSegment = this._segments.take(segmentId);
-@@ -610,21 +610,21 @@ WebInspector.ReplayManager.prototype = {
+@@ -577,21 +577,21 @@ WebInspector.ReplayManager.prototype = {
          console.assert(this._segments.has(segmentId), "Unknown segment identifier:", segmentId);
  
          if (!this._segmentPromises.has(segmentId))
@@ -412,7 +375,7 @@ index 364a6b4..0316c7a 100644
  
      segmentLoaded: function(segmentId)
      {
-@@ -698,19 +698,19 @@ WebInspector.ReplayManager.prototype = {
+@@ -665,19 +665,19 @@ WebInspector.ReplayManager.prototype = {
  
          console.assert(isAllowed, "Invalid segment state change: ", this._segmentState, " to ", newState);
          if (isAllowed)
@@ -2075,10 +2038,10 @@ index 0000000..0d1e456
 +    }
 +}).call(this);
 diff --git a/Source/WebInspectorUI/UserInterface/Main.html b/Source/WebInspectorUI/UserInterface/Main.html
-index 698c687..d146f63 100644
+index 9db29e4..0be2e51 100644
 --- a/Source/WebInspectorUI/UserInterface/Main.html
 +++ b/Source/WebInspectorUI/UserInterface/Main.html
-@@ -135,20 +135,22 @@
+@@ -134,20 +134,22 @@
      <link rel="stylesheet" href="Views/TimelineView.css">
      <link rel="stylesheet" href="Views/Toolbar.css">
      <link rel="stylesheet" href="Views/TreeElementStatusButton.css">
@@ -2129,7 +2092,7 @@ index c11a3ed..2563603 100644
      }
  };
 diff --git a/Source/WebInspectorUI/UserInterface/Protocol/InspectorBackend.js b/Source/WebInspectorUI/UserInterface/Protocol/InspectorBackend.js
-index fe4e93e..347201a 100644
+index d16ab43..f258295 100644
 --- a/Source/WebInspectorUI/UserInterface/Protocol/InspectorBackend.js
 +++ b/Source/WebInspectorUI/UserInterface/Protocol/InspectorBackend.js
 @@ -381,21 +381,21 @@ InspectorBackend.Command.prototype = {

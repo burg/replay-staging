@@ -1,4 +1,4 @@
-From 7ca8cd0bdf3b4daaeeca1cdf8f993ee3f38d4432 Mon Sep 17 00:00:00 2001
+From 579778fcbe3d0d4005c0d4484aaf0d10c92c5c0f Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 27 Aug 2014 15:49:33 -0700
 Subject: [PATCH] Web Replay: capture and replay changes to the page's
@@ -41,7 +41,7 @@ drawing area calls.
  8 files changed, 98 insertions(+), 2 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index ce67fa7..b9ebf6c 100644
+index 8df21a4..718be6e 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,24 @@
@@ -70,10 +70,10 @@ index ce67fa7..b9ebf6c 100644
          Covered by existing generator tests.
  
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index fb96894..48289d3 100644
+index 113623c..45b36f5 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -3528,20 +3528,22 @@ __ZN3JSC14EncodingTraitsIN7WebCore15KeypressCommandEE11encodeValueERKS2_
+@@ -3492,20 +3492,22 @@ __ZN3JSC14EncodingTraitsIN7WebCore15KeypressCommandEE11encodeValueERKS2_
  __ZN3JSC14EncodingTraitsIN7WebCore15ScrollDirectionEE11decodeValueERNS_12EncodedValueERS2_
  __ZN3JSC14EncodingTraitsIN7WebCore15ScrollDirectionEE11encodeValueERKS2_
  __ZN3JSC14EncodingTraitsIN7WebCore16FrameLoadRequestEE11decodeValueERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -136,7 +136,7 @@ index 2b005d2..e975a1a 100644
              "queue": "EVENT_LOOP",
              "members": [
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 63c7a20..4074613 100644
+index 65c1ab9..7708484 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,32 @@
@@ -266,10 +266,10 @@ index cc24b09..8b0c2f3 100644
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-index c360f60..b176d70 100644
+index ad0bf50..4d4a361 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-@@ -2416,35 +2416,53 @@ void WebPage::updateIsInWindow(bool isInitialState)
+@@ -2415,35 +2415,53 @@ void WebPage::updateIsInWindow(bool isInitialState)
          if (m_mayStartMediaWhenInWindow)
              m_setCanStartMediaTimer.startOneShot(0);
  

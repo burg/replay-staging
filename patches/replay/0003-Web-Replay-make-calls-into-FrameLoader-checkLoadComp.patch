@@ -1,4 +1,4 @@
-From 02657eb7d5da275c6605bf05a0efad209b8fc35f Mon Sep 17 00:00:00 2001
+From 26816a46df32b75ad5a5db6ee3d9cb2e4d39b739 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 14:34:56 -0700
 Subject: [PATCH] Web Replay: make calls into FrameLoader::checkLoadComplete()
@@ -79,36 +79,36 @@ Source/WebKit2:
  Source/WebCore/CMakeLists.txt                      |   1 +
  Source/WebCore/ChangeLog                           |  70 ++++++++++++
  Source/WebCore/WebCore.vcxproj/WebCore.vcxproj     |   2 +
- .../WebCore.vcxproj/WebCore.vcxproj.filters        |   6 +
+ .../WebCore.vcxproj/WebCore.vcxproj.filters        |   6 ++
  .../WebCore.vcxproj/copyForwardingHeaders.cmd      |   1 +
  Source/WebCore/WebCore.xcodeproj/project.pbxproj   |  20 +++-
  Source/WebCore/css/CSSFontSelector.cpp             |   4 +-
  Source/WebCore/css/CSSFontSelector.h               |   6 +-
  Source/WebCore/dom/Document.cpp                    |   6 +-
- Source/WebCore/dom/Document.h                      |  12 +-
+ Source/WebCore/dom/Document.h                      |  12 ++-
  Source/WebCore/loader/FrameLoader.cpp              |   4 +-
  Source/WebCore/loader/FrameLoader.h                |   6 +-
  .../WebCore/replay/ReplayInputDispatchMethods.cpp  |  11 ++
  Source/WebCore/replay/ReplayableTimer.cpp          | 107 ++++++++++++++++++
- Source/WebCore/replay/ReplayableTimer.h            | 124 +++++++++++++++++++++
- Source/WebCore/replay/ReplayableTimers.cpp         |  79 +++++++++++++
- Source/WebCore/replay/ReplayableTimers.h           |  55 +++++++++
+ Source/WebCore/replay/ReplayableTimer.h            | 120 +++++++++++++++++++++
+ Source/WebCore/replay/ReplayableTimers.cpp         |  79 ++++++++++++++
+ Source/WebCore/replay/ReplayableTimers.h           |  55 ++++++++++
  Source/WebCore/replay/WebInputs.json               |   9 ++
  Source/WebKit/CMakeLists.txt                       |   1 +
  Source/WebKit/ChangeLog                            |   9 ++
  Source/WebKit2/CMakeLists.txt                      |   1 +
  Source/WebKit2/ChangeLog                           |   9 ++
- 22 files changed, 527 insertions(+), 16 deletions(-)
+ 22 files changed, 523 insertions(+), 16 deletions(-)
  create mode 100644 Source/WebCore/replay/ReplayableTimer.cpp
  create mode 100644 Source/WebCore/replay/ReplayableTimer.h
  create mode 100644 Source/WebCore/replay/ReplayableTimers.cpp
  create mode 100644 Source/WebCore/replay/ReplayableTimers.h
 
 diff --git a/Source/WebCore/CMakeLists.txt b/Source/WebCore/CMakeLists.txt
-index 595d7d5..5c2f26e 100644
+index b46cec3..097af58 100644
 --- a/Source/WebCore/CMakeLists.txt
 +++ b/Source/WebCore/CMakeLists.txt
-@@ -2486,20 +2486,21 @@ set(WebCore_SOURCES
+@@ -2485,20 +2485,21 @@ set(WebCore_SOURCES
      rendering/svg/SVGTextLayoutAttributes.cpp
      rendering/svg/SVGTextLayoutAttributesBuilder.cpp
      rendering/svg/SVGTextLayoutEngine.cpp
@@ -131,7 +131,7 @@ index 595d7d5..5c2f26e 100644
      storage/StorageNamespace.cpp
      storage/StorageNamespaceImpl.cpp
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 84254e2..85e7ea3 100644
+index 422f220..5fe4f66 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,80 @@
@@ -216,10 +216,10 @@ index 84254e2..85e7ea3 100644
          executions, so we should support determinism checks during replay too.
  
 diff --git a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
-index 467eec5..3b53fef 100644
+index f367f5f..b28a039 100644
 --- a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
 +++ b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
-@@ -12329,20 +12329,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -12330,20 +12330,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug_WinCairo|x64'">true</ExcludedFromBuild>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|Win32'">true</ExcludedFromBuild>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|x64'">true</ExcludedFromBuild>
@@ -241,7 +241,7 @@ index 467eec5..3b53fef 100644
      <ClCompile Include="..\xml\XMLHttpRequestProgressEventThrottle.cpp" />
      <ClCompile Include="..\xml\XMLHttpRequestUpload.cpp" />
      <ClCompile Include="..\xml\XMLSerializer.cpp" />
-@@ -20393,20 +20394,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -20396,20 +20397,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
      <ClInclude Include="..\rendering\svg\SVGTextFragment.h" />
      <ClInclude Include="..\rendering\svg\SVGTextLayoutAttributes.h" />
      <ClInclude Include="..\rendering\svg\SVGTextLayoutAttributesBuilder.h" />
@@ -342,10 +342,10 @@ index fbf69f1..3fe4742 100644
  xcopy /y /d "%ProjectDir%..\storage\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
  xcopy /y /d "%ProjectDir%..\style\*.h" "%CONFIGURATIONBUILDDIR%\include\WebCore"
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index d84ce4a..e587ac3 100644
+index 959a242..b8091e1 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -5500,20 +5500,24 @@
+@@ -5497,20 +5497,24 @@
  		C375D7FD16639519006184AB /* TypeAhead.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C375D7FB16639519006184AB /* TypeAhead.cpp */; };
  		C375D7FE16639519006184AB /* TypeAhead.h in Headers */ = {isa = PBXBuildFile; fileRef = C375D7FC16639519006184AB /* TypeAhead.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		C37CDEBD149EF2030042090D /* ColorChooserClient.h in Headers */ = {isa = PBXBuildFile; fileRef = C37CDEBC149EF2030042090D /* ColorChooserClient.h */; settings = {ATTRIBUTES = (Private, ); }; };
@@ -370,7 +370,7 @@ index d84ce4a..e587ac3 100644
  		C5102ED00FD9EF8C00FAFF04 /* StorageAreaSync.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C5102ECE0FD9EF8C00FAFF04 /* StorageAreaSync.cpp */; };
  		C5137CF211A58378004ADB99 /* JSDOMStringList.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */; };
  		C5137CF311A58378004ADB99 /* JSDOMStringList.h in Headers */ = {isa = PBXBuildFile; fileRef = C5137CF111A58378004ADB99 /* JSDOMStringList.h */; };
-@@ -12899,20 +12903,24 @@
+@@ -12895,20 +12899,24 @@
  		C375D7FC16639519006184AB /* TypeAhead.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TypeAhead.h; sourceTree = "<group>"; };
  		C37CDEBC149EF2030042090D /* ColorChooserClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ColorChooserClient.h; sourceTree = "<group>"; };
  		C3CF17A015B0063F00276D39 /* IdTargetObserver.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = IdTargetObserver.cpp; sourceTree = "<group>"; };
@@ -395,7 +395,7 @@ index d84ce4a..e587ac3 100644
  		C5102ECE0FD9EF8C00FAFF04 /* StorageAreaSync.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = StorageAreaSync.cpp; sourceTree = "<group>"; };
  		C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = JSDOMStringList.cpp; sourceTree = "<group>"; };
  		C5137CF111A58378004ADB99 /* JSDOMStringList.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSDOMStringList.h; sourceTree = "<group>"; };
-@@ -18314,30 +18322,34 @@
+@@ -18311,30 +18319,34 @@
  				99CC0B3A18BE9849006CEBCC /* CapturingInputCursor.h */,
  				C400D10818F1C8F60090D863 /* EventLoopInput.cpp */,
  				99E45A1618A063BE0026D88F /* EventLoopInput.h */,
@@ -432,7 +432,7 @@ index d84ce4a..e587ac3 100644
  			);
  			path = replay;
  			sourceTree = "<group>";
-@@ -24036,20 +24048,21 @@
+@@ -24023,20 +24035,21 @@
  				316FE0800E6CCC2800BF6088 /* DOMWebKitCSSKeyframesRule.h in Headers */,
  				316FE0820E6CCC2800BF6088 /* DOMWebKitCSSKeyframesRuleInternal.h in Headers */,
  				498391500F1E76B400C23782 /* DOMWebKitCSSMatrix.h in Headers */,
@@ -454,7 +454,7 @@ index d84ce4a..e587ac3 100644
  				FC9A0F75164094CF003D6B8D /* DOMWindowCSS.h in Headers */,
  				51FA2D78152132B300C1BA0B /* DOMWindowExtension.h in Headers */,
  				51D719B7181106E00016DC51 /* DOMWindowIndexedDatabase.h in Headers */,
-@@ -26501,20 +26514,21 @@
+@@ -26489,20 +26502,21 @@
  				31288E730E3005D6003619AE /* WebKitCSSKeyframeRule.h in Headers */,
  				31288E750E3005D6003619AE /* WebKitCSSKeyframesRule.h in Headers */,
  				498391590F1E776900C23782 /* WebKitCSSMatrix.h in Headers */,
@@ -476,7 +476,7 @@ index d84ce4a..e587ac3 100644
  				97AABD1E14FA09D5007457AE /* WebSocketChannel.h in Headers */,
  				97AABD1F14FA09D5007457AE /* WebSocketChannelClient.h in Headers */,
  				4A38BF5114FE1C0900612512 /* WebSocketDeflateFramer.h in Headers */,
-@@ -28030,20 +28044,21 @@
+@@ -28018,20 +28032,21 @@
  				073AB4B717F92ECF006E0D6F /* JSCapabilityRange.cpp in Sources */,
  				93F9B7A00BA6032600854064 /* JSCDATASection.cpp in Sources */,
  				93BA59B20F2AA5FE008E8E99 /* JSCDATASectionCustom.cpp in Sources */,
@@ -498,7 +498,7 @@ index d84ce4a..e587ac3 100644
  				FDA15EBD12B03F0B003A583A /* JSConvolverNode.cpp in Sources */,
  				FE6FD48D0F676E9300092873 /* JSCoordinates.cpp in Sources */,
  				930705D809E0C9B700B17FE4 /* JSCounter.cpp in Sources */,
-@@ -28795,20 +28810,21 @@
+@@ -28783,20 +28798,21 @@
  				078E093317D16B0600420AA1 /* MediaStreamCenter.cpp in Sources */,
  				078E093117D1684200420AA1 /* MediaStreamCenterMac.cpp in Sources */,
  				078E090017D14CEE00420AA1 /* MediaStreamEvent.cpp in Sources */,
@@ -511,7 +511,7 @@ index d84ce4a..e587ac3 100644
  				07FFDE68181AED420072D409 /* MediaStreamTrackPrivate.cpp in Sources */,
 +				C4D4F52D1975C88B003EF5BC /* ReplayableTimers.cpp in Sources */,
  				076306D217E1478D005A7C4E /* MediaStreamTrackSourcesRequest.cpp in Sources */,
- 				CD641EBF1819B36000EE4C41 /* MediaTimeMac.cpp in Sources */,
+ 				CD641EBF1819B36000EE4C41 /* MediaTimeAVFoundation.cpp in Sources */,
  				0705853A17FE0770005F2BCB /* MediaTrackConstraint.cpp in Sources */,
  				0705852317FDC140005F2BCB /* MediaTrackConstraints.cpp in Sources */,
  				0705853817FE044F005F2BCB /* MediaTrackConstraintSet.cpp in Sources */,
@@ -521,7 +521,7 @@ index d84ce4a..e587ac3 100644
  				E1ADECCF0E76AD8B004A1A5E /* MessageChannel.cpp in Sources */,
  				75793E830D0CE0B3007FC0AC /* MessageEvent.cpp in Sources */,
 diff --git a/Source/WebCore/css/CSSFontSelector.cpp b/Source/WebCore/css/CSSFontSelector.cpp
-index 4648897..bbfe5aa 100644
+index 0ad9823..0c1bc9b 100644
 --- a/Source/WebCore/css/CSSFontSelector.cpp
 +++ b/Source/WebCore/css/CSSFontSelector.cpp
 @@ -577,24 +577,24 @@ void CSSFontSelector::clearDocument()
@@ -611,10 +611,10 @@ index e1e5a05..698b409 100644
  
  #endif // CSSFontSelector_h
 diff --git a/Source/WebCore/dom/Document.cpp b/Source/WebCore/dom/Document.cpp
-index cd2ef05..04133e9 100644
+index ef0cdff..d6d4fcb 100644
 --- a/Source/WebCore/dom/Document.cpp
 +++ b/Source/WebCore/dom/Document.cpp
-@@ -214,20 +214,21 @@
+@@ -215,20 +215,21 @@
  
  #if ENABLE(CSP_NEXT)
  #include "DOMSecurityPolicy.h"
@@ -636,7 +636,7 @@ index cd2ef05..04133e9 100644
  
  namespace WebCore {
  
-@@ -503,20 +504,21 @@ Document::Document(Frame* frame, const URL& url, unsigned documentClasses, unsig
+@@ -504,20 +505,21 @@ Document::Document(Frame* frame, const URL& url, unsigned documentClasses, unsig
      , m_visualUpdatesSuppressionTimer(this, &Document::visualUpdatesSuppressionTimerFired)
      , m_sharedObjectPoolClearTimer(this, &Document::sharedObjectPoolClearTimerFired)
  #ifndef NDEBUG
@@ -658,7 +658,7 @@ index cd2ef05..04133e9 100644
  {
      allDocuments().add(this);
  
-@@ -5573,24 +5575,24 @@ Element* Document::pointerLockElement() const
+@@ -5594,24 +5596,24 @@ Element* Document::pointerLockElement() const
      return nullptr;
  }
  #endif
@@ -686,7 +686,7 @@ index cd2ef05..04133e9 100644
      if (!m_scriptedAnimationController) {
  #if USE(REQUEST_ANIMATION_FRAME_DISPLAY_MONITOR)
 diff --git a/Source/WebCore/dom/Document.h b/Source/WebCore/dom/Document.h
-index 8b6e192..79a7c95 100644
+index 821dd8f..6819503 100644
 --- a/Source/WebCore/dom/Document.h
 +++ b/Source/WebCore/dom/Document.h
 @@ -34,20 +34,21 @@
@@ -759,7 +759,7 @@ index 8b6e192..79a7c95 100644
      DOMSecurityPolicy* securityPolicy();
  #endif
  
-@@ -1323,21 +1330,21 @@ private:
+@@ -1328,21 +1335,21 @@ private:
      virtual double timerAlignmentInterval() const override;
  
      void updateTitle(const StringWithDirection&);
@@ -782,7 +782,7 @@ index 8b6e192..79a7c95 100644
  
      PassRefPtr<HTMLCollection> ensureCachedCollection(CollectionType);
  
-@@ -1569,21 +1576,21 @@ private:
+@@ -1574,21 +1581,21 @@ private:
      RenderFullScreen* m_fullScreenRenderer;
      Timer<Document> m_fullScreenChangeDelayTimer;
      Deque<RefPtr<Node>> m_fullScreenChangeEventTargetQueue;
@@ -805,7 +805,7 @@ index 8b6e192..79a7c95 100644
  
  #if ENABLE(WEB_TIMING)
      DocumentTiming m_documentTiming;
-@@ -1679,20 +1686,21 @@ private:
+@@ -1684,20 +1691,21 @@ private:
      RefPtr<Document> m_templateDocument;
      Document* m_templateDocumentHost; // Manually managed weakref (backpointer from m_templateDocument).
  #endif
@@ -828,7 +828,7 @@ index 8b6e192..79a7c95 100644
      bool m_hasPreparedForDestruction;
  
 diff --git a/Source/WebCore/loader/FrameLoader.cpp b/Source/WebCore/loader/FrameLoader.cpp
-index 77e8e0a..f5a5344 100644
+index 450624b..538de6f 100644
 --- a/Source/WebCore/loader/FrameLoader.cpp
 +++ b/Source/WebCore/loader/FrameLoader.cpp
 @@ -843,41 +843,41 @@ void FrameLoader::checkCompleted()
@@ -876,7 +876,7 @@ index 77e8e0a..f5a5344 100644
  void FrameLoader::scheduleCheckLoadComplete()
  {
 diff --git a/Source/WebCore/loader/FrameLoader.h b/Source/WebCore/loader/FrameLoader.h
-index f6c11f5..19d1d23 100644
+index 7925e4d..02a36a9 100644
 --- a/Source/WebCore/loader/FrameLoader.h
 +++ b/Source/WebCore/loader/FrameLoader.h
 @@ -31,24 +31,24 @@
@@ -905,7 +905,7 @@ index f6c11f5..19d1d23 100644
  class CachedPage;
  class CachedResource;
  class Chrome;
-@@ -293,21 +293,21 @@ public:
+@@ -292,21 +292,21 @@ public:
      void forcePageTransitionIfNeeded();
  
  private:
@@ -928,7 +928,7 @@ index f6c11f5..19d1d23 100644
      void setFirstPartyForCookies(const URL&);
      
      void addExtraFieldsToRequest(ResourceRequest&, FrameLoadType, bool isMainResource);
-@@ -417,21 +417,21 @@ private:
+@@ -416,21 +416,21 @@ private:
      bool m_wasUnloadEventEmitted;
      PageDismissalType m_pageDismissalEventBeingDispatched;
      bool m_isComplete;
@@ -1122,10 +1122,10 @@ index 0000000..3049aed
 +#endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebCore/replay/ReplayableTimer.h b/Source/WebCore/replay/ReplayableTimer.h
 new file mode 100644
-index 0000000..6c9ecfb
+index 0000000..e1c3e45
 --- /dev/null
 +++ b/Source/WebCore/replay/ReplayableTimer.h
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,120 @@
 +/*
 + * Copyright (C) 2006 Apple Computer, Inc.  All rights reserved.
 + * Copyright (C) 2013, 2014 University of Washington. All rights reserved.
@@ -1157,10 +1157,6 @@ index 0000000..6c9ecfb
 +
 +#include "Timer.h"
 +#include <wtf/Noncopyable.h>
-+
-+#if ENABLE(WEB_REPLAY)
-+#include <replay/InputCursor.h>
-+#endif
 +
 +namespace WebCore {
 +
@@ -1457,7 +1453,7 @@ index e8d692e..f60bc77 100644
      "${JAVASCRIPTCORE_DIR}/API"
      "${JAVASCRIPTCORE_DIR}/assembler"
 diff --git a/Source/WebKit/ChangeLog b/Source/WebKit/ChangeLog
-index 2ae90b8..e0d8bc4 100644
+index 8fefb05..e8df269 100644
 --- a/Source/WebKit/ChangeLog
 +++ b/Source/WebKit/ChangeLog
 @@ -1,10 +1,19 @@
@@ -1470,16 +1466,16 @@ index 2ae90b8..e0d8bc4 100644
 +
 +        * CMakeLists.txt: Add replay/ directory to header include paths.
 +
- 2014-08-29  Csaba Osztrogonác  <ossy@webkit.org>
+ 2014-09-06  Darin Adler  <darin@apple.com>
  
-         Unreviwed, remove empty directories.
+         Make updates suggested by new version of Xcode
+         https://bugs.webkit.org/show_bug.cgi?id=136603
  
-         * efl: Removed.
-         * efl/DefaultTheme: Removed.
-         * efl/DefaultTheme/widget: Removed.
-         * efl/WebCoreSupport: Removed.
-         * efl/ewk: Removed.
-         * efl/tests: Removed.
+         Reviewed by Mark Rowe.
+ 
+         * WebKit.xcodeproj/project.pbxproj: Updated LastUpgradeCheck.
+ 
+ 2014-09-04  Pratik Solanki  <psolanki@apple.com>
 diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
 index 4f3923d..c827d84 100644
 --- a/Source/WebKit2/CMakeLists.txt
@@ -1507,7 +1503,7 @@ index 4f3923d..c827d84 100644
      "${JAVASCRIPTCORE_DIR}/assembler"
      "${JAVASCRIPTCORE_DIR}/bytecode"
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index d6ecd68..66e1de7 100644
+index be1a29c..14bcfaa 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,19 @@
@@ -1520,16 +1516,16 @@ index d6ecd68..66e1de7 100644
 +
 +        * CMakeLists.txt: Add replay/ directory to header include paths.
 +
- 2014-09-04  Carlos Garcia Campos  <cgarcia@igalia.com>
+ 2014-09-11  Bear Travis  <betravis@adobe.com>
  
-         Initialize m_usesNetworkProcess earlier in WebProcess::initializeWebProcess()
-         https://bugs.webkit.org/show_bug.cgi?id=136478
+         [CSS Font Loading] Enable CSS Font Loading on Mac
+         https://bugs.webkit.org/show_bug.cgi?id=135473
  
-         Reviewed by Alexey Proskuryakov.
+         Reviewed by Antti Koivisto.
  
-         The soup network backend uses WebProcess::usesNetworkProcess()
-         from WebProcess::platformSetCacheModel() and
-         WebProcess::platformInitializeWebProcess(), both called before the
+         Enable CSS Font Loading in FeatureDefines.
+ 
+         * Configurations/FeatureDefines.xcconfig:
 -- 
 2.0.1
 

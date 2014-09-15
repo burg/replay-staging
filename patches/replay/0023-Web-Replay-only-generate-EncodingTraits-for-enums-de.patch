@@ -1,4 +1,4 @@
-From 6901bd7c68460a217a7a2c231f25ff73ca59d46d Mon Sep 17 00:00:00 2001
+From 7d0d4d42a1a616ae9140d9ff54bdae660bcf7a3e Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 27 Aug 2014 14:45:59 -0700
 Subject: [PATCH] Web Replay: only generate EncodingTraits for enums defined in
@@ -40,7 +40,7 @@ Covered by existing generator tests.
  7 files changed, 90 insertions(+), 24 deletions(-)
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index d1e8719..f676c4f 100644
+index e4244a7..0e860b1 100644
 --- a/Source/JavaScriptCore/ChangeLog
 +++ b/Source/JavaScriptCore/ChangeLog
 @@ -1,10 +1,29 @@
@@ -373,7 +373,7 @@ index f72513a..ea9acee 100644
  
      return true;
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 4b0eb64..ce67fa7 100644
+index 9e727c5..8df21a4 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,25 @@
@@ -403,10 +403,10 @@ index 4b0eb64..ce67fa7 100644
          the big function with cases to encode each input based on its type tag.
  
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index 0600270..fb96894 100644
+index 4a49430..113623c 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -3518,22 +3518,26 @@ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE4typeEv
+@@ -3482,22 +3482,26 @@ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE4typeEv

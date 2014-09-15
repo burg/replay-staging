@@ -1,8 +1,8 @@
-From 78fa2365d114eaa612460331b15a8376b7cb512a Mon Sep 17 00:00:00 2001
+From 48fdaa7d6ca48a1ffed5bd929c64e9611915d7c3 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Fri, 22 Aug 2014 08:46:08 -0700
-Subject: [PATCH] [WIP] Web Replay: capture and replay Mouse, Wheel, and
- Keyboard events in WebKit2.
+Subject: [PATCH] Web Replay: capture and replay Mouse, Wheel, and Keyboard
+ events in WebKit2.
 
 ---
  Source/WebCore/WebCore.exp.in                      |  15 +-
@@ -22,10 +22,10 @@ Subject: [PATCH] [WIP] Web Replay: capture and replay Mouse, Wheel, and
  14 files changed, 343 insertions(+), 376 deletions(-)
 
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index cbb8c80..54ed786 100644
+index aba6a30..6fefe92 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -647,25 +647,22 @@ __ZN7WebCore15ScrollAlignment17alignCenterAlwaysE
+@@ -644,25 +644,22 @@ __ZN7WebCore15ScrollAlignment17alignCenterAlwaysE
  __ZN7WebCore15ScrollAlignment19alignToEdgeIfNeededE
  __ZN7WebCore15StorageStrategy21localStorageNamespaceEPNS_9PageGroupE
  __ZN7WebCore15StorageStrategy23sessionStorageNamespaceEPNS_4PageE
@@ -51,7 +51,7 @@ index cbb8c80..54ed786 100644
  __ZN7WebCore15setDOMExceptionEPN3JSC9ExecStateEi
  __ZN7WebCore15toDOMStringListEPN3JSC9ExecStateENS0_7JSValueE
  __ZN7WebCore15visitedLinkHashEPKtj
-@@ -2978,21 +2975,20 @@ __ZN7WebCore13ContentFilter43handleUnblockRequestAndDispatchIfSuccessfulERKNS_15
+@@ -2956,21 +2953,20 @@ __ZN7WebCore13ContentFilter43handleUnblockRequestAndDispatchIfSuccessfulERKNS_15
  #endif
  
  #if ENABLE(CONTEXT_MENUS)
@@ -73,7 +73,7 @@ index cbb8c80..54ed786 100644
  __ZNK7WebCore15ContextMenuItem6actionEv
  __ZNK7WebCore15ContextMenuItem7checkedEv
  __ZNK7WebCore15ContextMenuItem7enabledEv
-@@ -3492,38 +3488,32 @@ __ZN3JSC11InputTraitsIN7WebCore10ScrollPageEE6decodeERNS_12EncodedValueERNSt3__1
+@@ -3456,38 +3452,32 @@ __ZN3JSC11InputTraitsIN7WebCore10ScrollPageEE6decodeERNS_12EncodedValueERNSt3__1
  __ZN3JSC11InputTraitsIN7WebCore10ScrollPageEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore11ReloadFrameEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore11ReloadFrameEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -112,7 +112,7 @@ index cbb8c80..54ed786 100644
  __ZN3JSC11InputTraitsIN7WebCore17InitializeHistoryEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
  __ZN3JSC11InputTraitsIN7WebCore17InitializeHistoryEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore17LogicalScrollPageEE4typeEv
-@@ -3549,20 +3539,25 @@ __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6decodeERNS_12Encode
+@@ -3513,20 +3503,25 @@ __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6decodeERNS_12Encode
  __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -433,7 +433,7 @@ index 8409e81..d123812 100644
          },
          {
 diff --git a/Source/WebCore/replay/WebReplayInputCoders.cpp b/Source/WebCore/replay/WebReplayInputCoders.cpp
-index f5680be..6046197 100644
+index f0f7efd..593f721 100644
 --- a/Source/WebCore/replay/WebReplayInputCoders.cpp
 +++ b/Source/WebCore/replay/WebReplayInputCoders.cpp
 @@ -24,74 +24,69 @@
@@ -1389,7 +1389,7 @@ index f5d6ae4..00668bb 100644
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-index e5df37c..3bc8afa 100644
+index 53ee1a1..59fb9fa 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 @@ -1785,23 +1785,23 @@ WebContextMenu* WebPage::contextMenu()

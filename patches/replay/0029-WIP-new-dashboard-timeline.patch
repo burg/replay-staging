@@ -1,4 +1,4 @@
-From de1497e785d4950434993ea5cb6817396fd7e220 Mon Sep 17 00:00:00 2001
+From 3fbf9618e70a0f47d50632d0d03bdbda051de196 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 31 Jul 2014 09:54:28 -0700
 Subject: [PATCH] WIP - new dashboard timeline
@@ -16,7 +16,7 @@ Subject: [PATCH] WIP - new dashboard timeline
  create mode 100644 Source/WebInspectorUI/UserInterface/Views/SimpleNetworkTimelineOverviewGraph.js
 
 diff --git a/Source/WebInspectorUI/UserInterface/Main.html b/Source/WebInspectorUI/UserInterface/Main.html
-index d894aa1..698c687 100644
+index 0be2e51..b86a276 100644
 --- a/Source/WebInspectorUI/UserInterface/Main.html
 +++ b/Source/WebInspectorUI/UserInterface/Main.html
 @@ -49,20 +49,21 @@
@@ -41,7 +41,7 @@ index d894aa1..698c687 100644
      <link rel="stylesheet" href="Views/DefaultDashboardView.css">
      <link rel="stylesheet" href="Views/DataGrid.css">
      <link rel="stylesheet" href="Views/DatabaseContentView.css">
-@@ -341,20 +342,21 @@
+@@ -344,20 +345,21 @@
      <script src="Views/DOMNodeDetailsSidebarPanel.js"></script>
      <script src="Views/DOMStorageContentView.js"></script>
      <script src="Views/DOMStorageTreeElement.js"></script>
@@ -63,7 +63,7 @@ index d894aa1..698c687 100644
      <script src="Views/DashboardView.js"></script>
      <script src="Views/DebuggerDashboardView.js"></script>
      <script src="Views/DefaultDashboardView.js"></script>
-@@ -425,20 +427,21 @@
+@@ -428,20 +430,21 @@
      <script src="Views/ScopeVariableTreeElement.js"></script>
      <script src="Views/ScriptContentView.js"></script>
      <script src="Views/ScriptTimelineDataGrid.js"></script>
@@ -621,10 +621,10 @@ index d76f0e8..f517164 100644
 +    margin-left: 4px;
 +}
 diff --git a/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js
-index a66d909..a482220 100644
+index 956da3e..5cbe52f 100644
 --- a/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js
 +++ b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js
-@@ -40,22 +40,35 @@ WebInspector.ReplayDashboardView = function(representedObject)
+@@ -38,22 +38,35 @@ WebInspector.ReplayDashboardView = function(representedObject)
      this._replayButtonItem = new WebInspector.ToggleButtonNavigationItem("replay-dashboard-replay", WebInspector.UIString("Start Playback"), WebInspector.UIString("Pause Playback"), "Images/ReplayPlayButton.svg", "Images/ReplayPauseButton.svg", 16, 16);
      this._replayButtonItem.addEventListener(WebInspector.ButtonNavigationItem.Event.Clicked, this._replayButtonItemClicked, this);
      this._replayButtonItem.hidden = true;
@@ -662,7 +662,7 @@ index a66d909..a482220 100644
      WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.ActiveSessionChanged, this._activeSessionChanged, this);
  
      // Manually initialize style classes by querying current replay state.
-@@ -64,23 +77,20 @@ WebInspector.ReplayDashboardView = function(representedObject)
+@@ -62,23 +75,20 @@ WebInspector.ReplayDashboardView = function(representedObject)
      else if (WebInspector.replayManager.sessionState === WebInspector.ReplayManager.SessionState.Inactive)
          this._activeSessionChanged();
      // ReplayManager.sessionState must be Replaying.
@@ -686,7 +686,7 @@ index a66d909..a482220 100644
  
      // Private
  
-@@ -121,28 +131,32 @@ WebInspector.ReplayDashboardView.prototype = {
+@@ -119,28 +129,32 @@ WebInspector.ReplayDashboardView.prototype = {
              console.error("Failed to eject current recording: ", error);
          });
      },
@@ -719,7 +719,7 @@ index a66d909..a482220 100644
      _playbackPaused: function()
      {
          this._replayButtonItem.toggled = false;
-@@ -161,12 +175,107 @@ WebInspector.ReplayDashboardView.prototype = {
+@@ -159,12 +173,107 @@ WebInspector.ReplayDashboardView.prototype = {
                  if (!session.segments.length) {
                      view._captureButtonItem.hidden = false;
                      view._replayButtonItem.hidden = true;

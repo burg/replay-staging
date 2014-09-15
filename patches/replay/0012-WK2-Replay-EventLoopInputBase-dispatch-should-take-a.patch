@@ -1,4 +1,4 @@
-From b9da999b3991ba4138bc981c15d01f3ef55ffa2d Mon Sep 17 00:00:00 2001
+From 7d817db43924ec4c99368e788cf5bb80fb5b1367 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 19 Aug 2014 15:54:36 -0700
 Subject: [PATCH] WK2 Replay: EventLoopInputBase::dispatch should take a Page&

@@ -1,0 +1,361 @@
+From 9a24b1d414d014d2dfc5682aa9132d9dc2103a9b Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Sun, 14 Sep 2014 15:02:58 -0700
+Subject: [PATCH] Web Inspector: InjectedScripts should not be profiled or
+ displayed in Timeline https://bugs.webkit.org/show_bug.cgi?id=136806
+
+Reviewed by NOBODY (OOPS!).
+
+Source/JavaScriptCore:
+
+It doesn't make sense to show profile nodes for injected scripts when profiling user content.
+For now, omit nodes by suspending profiling before and after executing injected scripts.
+
+* profiler/LegacyProfiler.cpp:
+(JSC::LegacyProfiler::suspendProfiling): Added.
+(JSC::LegacyProfiler::unsuspendProfiling): Added.
+* profiler/LegacyProfiler.h:
+* profiler/ProfileGenerator.cpp: Add isSuspended() flag, remove unused typedef.
+(JSC::ProfileGenerator::ProfileGenerator):
+(JSC::ProfileGenerator::willExecute):
+(JSC::ProfileGenerator::didExecute):
+* profiler/ProfileGenerator.h:
+(JSC::ProfileGenerator::setIsSuspended): Added.
+
+Source/WebCore:
+
+Instead of creating timeline records for injected scripts, suspend profiling
+of the current page before and after calling injected script functions.
+
+* inspector/InspectorController.cpp:
+(WebCore::InspectorController::willCallInjectedScriptFunction):
+(WebCore::InspectorController::didCallInjectedScriptFunction):
+---
+ Source/JavaScriptCore/ChangeLog                     | 21 +++++++++++++++++++++
+ Source/JavaScriptCore/profiler/LegacyProfiler.cpp   | 16 ++++++++++++++++
+ Source/JavaScriptCore/profiler/LegacyProfiler.h     |  4 ++++
+ Source/JavaScriptCore/profiler/ProfileGenerator.cpp |  7 +++++++
+ Source/JavaScriptCore/profiler/ProfileGenerator.h   |  5 +++--
+ Source/WebCore/ChangeLog                            | 14 ++++++++++++++
+ Source/WebCore/inspector/InspectorController.cpp    | 12 ++++--------
+ 7 files changed, 69 insertions(+), 10 deletions(-)
+
+diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
+index 99bc5da..dce478f 100644
+--- a/Source/JavaScriptCore/ChangeLog
++++ b/Source/JavaScriptCore/ChangeLog
+@@ -1,12 +1,33 @@
+ 2014-09-14  Brian J. Burg  <burg@cs.washington.edu>
+ 
++        Web Inspector: InjectedScripts should not be profiled or displayed in Timeline
++        https://bugs.webkit.org/show_bug.cgi?id=136806
++
++        Reviewed by NOBODY (OOPS!).
++
++        It doesn't make sense to show profile nodes for injected scripts when profiling user content.
++        For now, omit nodes by suspending profiling before and after executing injected scripts.
++
++        * profiler/LegacyProfiler.cpp:
++        (JSC::LegacyProfiler::suspendProfiling): Added.
++        (JSC::LegacyProfiler::unsuspendProfiling): Added.
++        * profiler/LegacyProfiler.h:
++        * profiler/ProfileGenerator.cpp: Add isSuspended() flag, remove unused typedef.
++        (JSC::ProfileGenerator::ProfileGenerator):
++        (JSC::ProfileGenerator::willExecute):
++        (JSC::ProfileGenerator::didExecute):
++        * profiler/ProfileGenerator.h:
++        (JSC::ProfileGenerator::setIsSuspended): Added.
++
++2014-09-14  Brian J. Burg  <burg@cs.washington.edu>
++
+         Web Inspector: subtract elapsed time while debugger is paused from profile nodes
+         https://bugs.webkit.org/show_bug.cgi?id=136796
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Rather than accruing no time to any profile node created while the debugger is paused,
+         we can instead count a node's elapsed time and exclude time elapsed while paused.
+ 
+         Time for a node may elapse in a non-contiguous fashion depending on the interleaving of
+         didPause, didContinue, willExecute, and didExecute. A node's start time is set to the
+diff --git a/Source/JavaScriptCore/profiler/LegacyProfiler.cpp b/Source/JavaScriptCore/profiler/LegacyProfiler.cpp
+index c00c925..be2a935 100644
+--- a/Source/JavaScriptCore/profiler/LegacyProfiler.cpp
++++ b/Source/JavaScriptCore/profiler/LegacyProfiler.cpp
+@@ -116,20 +116,36 @@ void LegacyProfiler::stopProfiling(JSGlobalObject* origin)
+ }
+ 
+ static inline void callFunctionForProfilesWithGroup(std::function<void(ProfileGenerator*)> callback, const Vector<RefPtr<ProfileGenerator>>& profiles, unsigned targetProfileGroup)
+ {
+     for (const RefPtr<ProfileGenerator>& profile : profiles) {
+         if (profile->profileGroup() == targetProfileGroup || !profile->origin())
+             callback(profile.get());
+     }
+ }
+ 
++void LegacyProfiler::suspendProfiling(JSC::ExecState* exec)
++{
++    if (!exec)
++        return;
++
++    callFunctionForProfilesWithGroup(std::bind(&ProfileGenerator::setIsSuspended, std::placeholders::_1, true), m_currentProfiles, exec->lexicalGlobalObject()->profileGroup());
++}
++
++void LegacyProfiler::unsuspendProfiling(JSC::ExecState* exec)
++{
++    if (!exec)
++        return;
++
++    callFunctionForProfilesWithGroup(std::bind(&ProfileGenerator::setIsSuspended, std::placeholders::_1, false), m_currentProfiles, exec->lexicalGlobalObject()->profileGroup());
++}
++
+ void LegacyProfiler::willExecute(ExecState* callerCallFrame, JSValue function)
+ {
+     ASSERT(!m_currentProfiles.isEmpty());
+ 
+     CallIdentifier callIdentifier = createCallIdentifier(callerCallFrame, function, StringImpl::empty(), 0, 0);
+ 
+     callFunctionForProfilesWithGroup(std::bind(&ProfileGenerator::willExecute, std::placeholders::_1, callerCallFrame, callIdentifier), m_currentProfiles, callerCallFrame->lexicalGlobalObject()->profileGroup());
+ }
+ 
+ void LegacyProfiler::willExecute(ExecState* callerCallFrame, const String& sourceURL, unsigned startingLineNumber, unsigned startingColumnNumber)
+diff --git a/Source/JavaScriptCore/profiler/LegacyProfiler.h b/Source/JavaScriptCore/profiler/LegacyProfiler.h
+index 7e79cbc..1d6cb26 100644
+--- a/Source/JavaScriptCore/profiler/LegacyProfiler.h
++++ b/Source/JavaScriptCore/profiler/LegacyProfiler.h
+@@ -48,20 +48,24 @@ struct CallIdentifier;
+ class LegacyProfiler {
+     WTF_MAKE_FAST_ALLOCATED;
+ public:
+     JS_EXPORT_PRIVATE static LegacyProfiler* profiler(); 
+     static CallIdentifier createCallIdentifier(ExecState*, JSValue, const WTF::String& sourceURL, unsigned defaultLineNumber, unsigned defaultColumnNumber);
+ 
+     JS_EXPORT_PRIVATE void startProfiling(ExecState*, const WTF::String& title);
+     JS_EXPORT_PRIVATE PassRefPtr<Profile> stopProfiling(ExecState*, const WTF::String& title);
+     void stopProfiling(JSGlobalObject*);
+ 
++    // Used to ignore profile node subtrees rooted at InjectedScript calls.
++    JS_EXPORT_PRIVATE void suspendProfiling(ExecState*);
++    JS_EXPORT_PRIVATE void unsuspendProfiling(ExecState*);
++
+     void willExecute(ExecState* callerCallFrame, JSValue function);
+     void willExecute(ExecState* callerCallFrame, const WTF::String& sourceURL, unsigned startingLineNumber, unsigned startingColumnNumber);
+     void didExecute(ExecState* callerCallFrame, JSValue function);
+     void didExecute(ExecState* callerCallFrame, const WTF::String& sourceURL, unsigned startingLineNumber, unsigned startingColumnNumber);
+ 
+     void exceptionUnwind(ExecState* handlerCallFrame);
+ 
+     void didPause(PassRefPtr<DebuggerCallFrame>);
+     void didContinue(PassRefPtr<DebuggerCallFrame>);
+ 
+diff --git a/Source/JavaScriptCore/profiler/ProfileGenerator.cpp b/Source/JavaScriptCore/profiler/ProfileGenerator.cpp
+index 7e43446..32e8926 100644
+--- a/Source/JavaScriptCore/profiler/ProfileGenerator.cpp
++++ b/Source/JavaScriptCore/profiler/ProfileGenerator.cpp
+@@ -43,20 +43,21 @@ namespace JSC {
+ PassRefPtr<ProfileGenerator> ProfileGenerator::create(ExecState* exec, const String& title, unsigned uid)
+ {
+     return adoptRef(new ProfileGenerator(exec, title, uid));
+ }
+ 
+ ProfileGenerator::ProfileGenerator(ExecState* exec, const String& title, unsigned uid)
+     : m_origin(exec ? exec->lexicalGlobalObject() : nullptr)
+     , m_profileGroup(exec ? exec->lexicalGlobalObject()->profileGroup() : 0)
+     , m_debuggerPausedTimestamp(NAN)
+     , m_foundConsoleStartParent(false)
++    , m_suspended(false)
+ {
+     if (Debugger* debugger = exec->lexicalGlobalObject()->debugger())
+         m_debuggerPausedTimestamp = debugger->isPaused() ? currentTime() : NAN;
+ 
+     m_profile = Profile::create(title, uid);
+     m_currentNode = m_rootNode = m_profile->rootNode();
+     if (exec)
+         addParentForConsoleStart(exec);
+ }
+ 
+@@ -155,20 +156,23 @@ void ProfileGenerator::willExecute(ExecState* callerCallFrame, const CallIdentif
+ {
+     if (JAVASCRIPTCORE_PROFILE_WILL_EXECUTE_ENABLED()) {
+         CString name = callIdentifier.functionName().utf8();
+         CString url = callIdentifier.url().utf8();
+         JAVASCRIPTCORE_PROFILE_WILL_EXECUTE(m_profileGroup, const_cast<char*>(name.data()), const_cast<char*>(url.data()), callIdentifier.lineNumber(), callIdentifier.columnNumber());
+     }
+ 
+     if (!m_origin)
+         return;
+ 
++    if (m_suspended)
++        return;
++
+     RefPtr<ProfileNode> calleeNode = nullptr;
+ 
+     // Find or create a node for the callee call frame.
+     for (const RefPtr<ProfileNode>& child : m_currentNode->children()) {
+         if (child->callIdentifier() == callIdentifier)
+             calleeNode = child;
+     }
+ 
+     if (!calleeNode) {
+         calleeNode = ProfileNode::create(callerCallFrame, callIdentifier, m_currentNode.get());
+@@ -183,20 +187,23 @@ void ProfileGenerator::didExecute(ExecState* callerCallFrame, const CallIdentifi
+ {
+     if (JAVASCRIPTCORE_PROFILE_DID_EXECUTE_ENABLED()) {
+         CString name = callIdentifier.functionName().utf8();
+         CString url = callIdentifier.url().utf8();
+         JAVASCRIPTCORE_PROFILE_DID_EXECUTE(m_profileGroup, const_cast<char*>(name.data()), const_cast<char*>(url.data()), callIdentifier.lineNumber(), callIdentifier.columnNumber());
+     }
+ 
+     if (!m_origin)
+         return;
+ 
++    if (m_suspended)
++        return;
++
+     // Make a new node if the caller node has never seen this callee call frame before.
+     // This can happen if |console.profile()| is called several frames deep in the call stack.
+     ASSERT(m_currentNode);
+     if (m_currentNode->callIdentifier() != callIdentifier) {
+         RefPtr<ProfileNode> calleeNode = ProfileNode::create(callerCallFrame, callIdentifier, m_currentNode.get());
+         beginCallEntry(calleeNode.get(), m_currentNode->lastCall().startTime());
+         endCallEntry(calleeNode.get());
+         m_currentNode->spliceNode(calleeNode.release());
+         return;
+     }
+diff --git a/Source/JavaScriptCore/profiler/ProfileGenerator.h b/Source/JavaScriptCore/profiler/ProfileGenerator.h
+index 7c970d6..9f51a3d 100644
+--- a/Source/JavaScriptCore/profiler/ProfileGenerator.h
++++ b/Source/JavaScriptCore/profiler/ProfileGenerator.h
+@@ -50,37 +50,38 @@ namespace JSC {
+         JSGlobalObject* origin() const { return m_origin; }
+         unsigned profileGroup() const { return m_profileGroup; }
+ 
+         void willExecute(ExecState* callerCallFrame, const CallIdentifier&);
+         void didExecute(ExecState* callerCallFrame, const CallIdentifier&);
+         void exceptionUnwind(ExecState* handlerCallFrame, const CallIdentifier&);
+ 
+         void didPause(PassRefPtr<DebuggerCallFrame>, const CallIdentifier&);
+         void didContinue(PassRefPtr<DebuggerCallFrame>, const CallIdentifier&);
+ 
+-        void stopProfiling();
++        void setIsSuspended(bool suspended) { ASSERT(m_suspended != suspended); m_suspended = suspended; }
+ 
+-        typedef void (ProfileGenerator::*ProfileFunction)(ExecState* callerOrHandlerCallFrame, const CallIdentifier& callIdentifier);
++        void stopProfiling();
+ 
+     private:
+         ProfileGenerator(ExecState*, const WTF::String& title, unsigned uid);
+         void addParentForConsoleStart(ExecState*);
+ 
+         void removeProfileStart();
+         void removeProfileEnd();
+ 
+         void beginCallEntry(ProfileNode*, double startTime = NAN);
+         void endCallEntry(ProfileNode*);
+ 
+         RefPtr<Profile> m_profile;
+         JSGlobalObject* m_origin;
+         unsigned m_profileGroup;
+         // Timestamp is set to NAN when the debugger is not currently paused.
+         double m_debuggerPausedTimestamp;
+         RefPtr<ProfileNode> m_rootNode;
+         RefPtr<ProfileNode> m_currentNode;
+         bool m_foundConsoleStartParent;
++        bool m_suspended;
+     };
+ 
+ } // namespace JSC
+ 
+ #endif // ProfileGenerator_h
+diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
+index 15b7cfa..d7bbf7e 100644
+--- a/Source/WebCore/ChangeLog
++++ b/Source/WebCore/ChangeLog
+@@ -1,12 +1,26 @@
+ 2014-09-14  Brian J. Burg  <burg@cs.washington.edu>
+ 
++        Web Inspector: InjectedScripts should not be profiled or displayed in Timeline
++        https://bugs.webkit.org/show_bug.cgi?id=136806
++
++        Reviewed by NOBODY (OOPS!).
++
++        Instead of creating timeline records for injected scripts, suspend profiling
++        of the current page before and after calling injected script functions.
++
++        * inspector/InspectorController.cpp:
++        (WebCore::InspectorController::willCallInjectedScriptFunction):
++        (WebCore::InspectorController::didCallInjectedScriptFunction):
++
++2014-09-14  Brian J. Burg  <burg@cs.washington.edu>
++
+         Web Inspector: subtract elapsed time while debugger is paused from profile nodes
+         https://bugs.webkit.org/show_bug.cgi?id=136796
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         * inspector/TimelineRecordFactory.cpp:
+         (WebCore::buildInspectorObject):
+ 
+ 2014-08-11  Brian J. Burg  <burg@cs.washington.edu>
+ 
+diff --git a/Source/WebCore/inspector/InspectorController.cpp b/Source/WebCore/inspector/InspectorController.cpp
+index c7c8795..a55b106 100644
+--- a/Source/WebCore/inspector/InspectorController.cpp
++++ b/Source/WebCore/inspector/InspectorController.cpp
+@@ -65,20 +65,21 @@
+ #include "PageConsoleAgent.h"
+ #include "PageDebuggerAgent.h"
+ #include "PageRuntimeAgent.h"
+ #include "PageScriptDebugServer.h"
+ #include "Settings.h"
+ #include "WebInjectedScriptHost.h"
+ #include "WebInjectedScriptManager.h"
+ #include <inspector/IdentifiersFactory.h>
+ #include <inspector/InspectorBackendDispatcher.h>
+ #include <inspector/agents/InspectorAgent.h>
++#include <profiler/LegacyProfiler.h>
+ #include <runtime/JSLock.h>
+ 
+ using namespace JSC;
+ using namespace Inspector;
+ 
+ namespace WebCore {
+ 
+ InspectorController::InspectorController(Page& page, InspectorClient* inspectorClient)
+     : m_instrumentingAgents(InstrumentingAgents::create(*this))
+     , m_injectedScriptManager(std::make_unique<WebInjectedScriptManager>(*this, WebInjectedScriptHost::create()))
+@@ -414,28 +415,23 @@ bool InspectorController::canAccessInspectedScriptState(JSC::ExecState* scriptSt
+ InspectorFunctionCallHandler InspectorController::functionCallHandler() const
+ {
+     return WebCore::functionCallHandlerFromAnyThread;
+ }
+ 
+ InspectorEvaluateHandler InspectorController::evaluateHandler() const
+ {
+     return WebCore::evaluateHandlerFromAnyThread;
+ }
+ 
+-void InspectorController::willCallInjectedScriptFunction(JSC::ExecState* scriptState, const String& scriptName, int scriptLine)
++void InspectorController::willCallInjectedScriptFunction(JSC::ExecState* scriptState, const String&, int)
+ {
+-    ScriptExecutionContext* scriptExecutionContext = scriptExecutionContextFromExecState(scriptState);
+-    InspectorInstrumentationCookie cookie = InspectorInstrumentation::willCallFunction(scriptExecutionContext, scriptName, scriptLine);
+-    m_injectedScriptInstrumentationCookies.append(cookie);
++    LegacyProfiler::profiler()->suspendProfiling(scriptState);
+ }
+ 
+ void InspectorController::didCallInjectedScriptFunction(JSC::ExecState* scriptState)
+ {
+-    ASSERT(!m_injectedScriptInstrumentationCookies.isEmpty());
+-    ScriptExecutionContext* scriptExecutionContext = scriptExecutionContextFromExecState(scriptState);
+-    InspectorInstrumentationCookie cookie = m_injectedScriptInstrumentationCookies.takeLast();
+-    InspectorInstrumentation::didCallFunction(cookie, scriptExecutionContext);
++    LegacyProfiler::profiler()->unsuspendProfiling(scriptState);
+ }
+ 
+ } // namespace WebCore
+ 
+ #endif // ENABLE(INSPECTOR)
+-- 
+2.0.1
+

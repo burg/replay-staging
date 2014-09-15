@@ -1,0 +1,210 @@
+From 887f242af559225453032efadd03abceb049908e Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Sun, 14 Sep 2014 01:10:10 -0700
+Subject: [PATCH] Web Inspector: FunctionCall timeline records omit profile
+ data if the debugger has paused
+ https://bugs.webkit.org/show_bug.cgi?id=136805
+
+Reviewed by NOBODY (OOPS!).
+
+TimelineAgent was mismanaging its call stack depth counter, which caused nested FunctionCall
+records to steal the parent FunctionCall's captured profile in the child's didCallFunction().
+Thus, the top FunctionCall node had no profile data and nested FunctionCall nodes each had
+their own profiles. The frontend expected just one profile, so it didn't show anything when
+it couldn't be found.
+
+* inspector/InspectorTimelineAgent.cpp: Rename m_recordingProfileDepth to m_callStackDepth.
+(WebCore::InspectorTimelineAgent::willCallFunction): Fix the call stack depth management.
+(WebCore::InspectorTimelineAgent::didCallFunction):
+(WebCore::InspectorTimelineAgent::willEvaluateScript):
+(WebCore::InspectorTimelineAgent::didEvaluateScript):
+(WebCore::InspectorTimelineAgent::InspectorTimelineAgent):
+* inspector/InspectorTimelineAgent.h:
+---
+ Source/WebCore/ChangeLog                           | 21 +++++++++++++++
+ .../WebCore/inspector/InspectorTimelineAgent.cpp   | 30 +++++++++++-----------
+ Source/WebCore/inspector/InspectorTimelineAgent.h  |  2 +-
+ 3 files changed, 37 insertions(+), 16 deletions(-)
+
+diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
+index 718be6e..efa61b1 100644
+--- a/Source/WebCore/ChangeLog
++++ b/Source/WebCore/ChangeLog
+@@ -1,10 +1,31 @@
++2014-09-14  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Inspector: FunctionCall timeline records omit profile data if the debugger has paused
++        https://bugs.webkit.org/show_bug.cgi?id=136805
++
++        Reviewed by NOBODY (OOPS!).
++
++        TimelineAgent was mismanaging its call stack depth counter, which caused nested FunctionCall
++        records to steal the parent FunctionCall's captured profile in the child's didCallFunction().
++        Thus, the top FunctionCall node had no profile data and nested FunctionCall nodes each had
++        their own profiles. The frontend expected just one profile, so it didn't show anything when
++        it couldn't be found.
++
++        * inspector/InspectorTimelineAgent.cpp: Rename m_recordingProfileDepth to m_callStackDepth.
++        (WebCore::InspectorTimelineAgent::willCallFunction): Fix the call stack depth management.
++        (WebCore::InspectorTimelineAgent::didCallFunction):
++        (WebCore::InspectorTimelineAgent::willEvaluateScript):
++        (WebCore::InspectorTimelineAgent::didEvaluateScript):
++        (WebCore::InspectorTimelineAgent::InspectorTimelineAgent):
++        * inspector/InspectorTimelineAgent.h:
++
+ 2014-08-27  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         Web Replay: capture and replay changes to the page's ViewState
+         https://bugs.webkit.org/show_bug.cgi?id=129694
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Generate encoding traits for ViewState::Flags. It is used in WebKit2 inputs.
+ 
+         * WebCore.exp.in:
+diff --git a/Source/WebCore/inspector/InspectorTimelineAgent.cpp b/Source/WebCore/inspector/InspectorTimelineAgent.cpp
+index bc496d0..edc1e12 100644
+--- a/Source/WebCore/inspector/InspectorTimelineAgent.cpp
++++ b/Source/WebCore/inspector/InspectorTimelineAgent.cpp
+@@ -224,33 +224,33 @@ PassRefPtr<JSC::Profile> InspectorTimelineAgent::stopFromConsole(JSC::ExecState*
+         }
+     }
+ 
+     return nullptr;
+ }
+ 
+ void InspectorTimelineAgent::willCallFunction(const String& scriptName, int scriptLine, Frame* frame)
+ {
+     pushCurrentRecord(TimelineRecordFactory::createFunctionCallData(scriptName, scriptLine), TimelineRecordType::FunctionCall, true, frame);
+ 
+-    if (frame && !m_recordingProfileDepth) {
+-        ++m_recordingProfileDepth;
++    if (frame && !m_callStackDepth)
+         startProfiling(frame, ASCIILiteral("Timeline FunctionCall"));
+-    }
++
++    ++m_callStackDepth;
+ }
+ 
+ void InspectorTimelineAgent::didCallFunction(Frame* frame)
+ {
+-    if (frame && m_recordingProfileDepth) {
+-        --m_recordingProfileDepth;
+-        ASSERT(m_recordingProfileDepth >= 0);
++    if (frame && m_callStackDepth) {
++        --m_callStackDepth;
++        ASSERT(m_callStackDepth >= 0);
+ 
+-        if (!m_recordingProfileDepth) {
++        if (!m_callStackDepth) {
+             if (m_recordStack.isEmpty())
+                 return;
+ 
+             TimelineRecordEntry& entry = m_recordStack.last();
+             ASSERT(entry.type == TimelineRecordType::FunctionCall);
+ 
+             RefPtr<JSC::Profile> profile = stopProfiling(frame, ASCIILiteral("Timeline FunctionCall"));
+             if (profile)
+                 TimelineRecordFactory::appendProfile(entry.data.get(), profile.release());
+         }
+@@ -398,33 +398,33 @@ void InspectorTimelineAgent::willDispatchXHRLoadEvent(const String& url, Frame*
+ 
+ void InspectorTimelineAgent::didDispatchXHRLoadEvent()
+ {
+     didCompleteCurrentRecord(TimelineRecordType::XHRLoad);
+ }
+ 
+ void InspectorTimelineAgent::willEvaluateScript(const String& url, int lineNumber, Frame* frame)
+ {
+     pushCurrentRecord(TimelineRecordFactory::createEvaluateScriptData(url, lineNumber), TimelineRecordType::EvaluateScript, true, frame);
+ 
+-    if (frame && !m_recordingProfileDepth) {
+-        ++m_recordingProfileDepth;
++    if (frame && !m_callStackDepth)
+         startProfiling(frame, ASCIILiteral("Timeline EvaluateScript"));
+-    }
++
++    ++m_callStackDepth;
+ }
+ 
+ void InspectorTimelineAgent::didEvaluateScript(Frame* frame)
+ {
+-    if (frame && m_recordingProfileDepth) {
+-        --m_recordingProfileDepth;
+-        ASSERT(m_recordingProfileDepth >= 0);
++    if (frame && m_callStackDepth) {
++        --m_callStackDepth;
++        ASSERT(m_callStackDepth >= 0);
+         
+-        if (!m_recordingProfileDepth) {
++        if (!m_callStackDepth) {
+             if (m_recordStack.isEmpty())
+                 return;
+ 
+             TimelineRecordEntry& entry = m_recordStack.last();
+             ASSERT(entry.type == TimelineRecordType::EvaluateScript);
+ 
+             RefPtr<JSC::Profile> profile = stopProfiling(frame, ASCIILiteral("Timeline EvaluateScript"));
+             if (profile)
+                 TimelineRecordFactory::appendProfile(entry.data.get(), profile.release());
+         }
+@@ -684,24 +684,24 @@ void InspectorTimelineAgent::didCompleteCurrentRecord(TimelineRecordType type)
+         ASSERT_UNUSED(type, entry.type == type);
+         didCompleteRecordEntry(entry);
+     }
+ }
+ 
+ InspectorTimelineAgent::InspectorTimelineAgent(InstrumentingAgents* instrumentingAgents, InspectorPageAgent* pageAgent, InspectorType type, InspectorClient* client)
+     : InspectorAgentBase(ASCIILiteral("Timeline"), instrumentingAgents)
+     , m_pageAgent(pageAgent)
+     , m_scriptDebugServer(nullptr)
+     , m_id(1)
++    , m_callStackDepth(0)
+     , m_maxCallStackDepth(5)
+     , m_inspectorType(type)
+     , m_client(client)
+-    , m_recordingProfileDepth(0)
+     , m_enabled(false)
+     , m_enabledFromFrontend(false)
+ {
+ }
+ 
+ void InspectorTimelineAgent::appendRecord(PassRefPtr<InspectorObject> data, TimelineRecordType type, bool captureCallStack, Frame* frame)
+ {
+     RefPtr<InspectorObject> record = TimelineRecordFactory::createGenericRecord(timestamp(), captureCallStack ? m_maxCallStackDepth : 0);
+     record->setObject("data", data);
+     setFrameIdentifier(record.get(), frame);
+diff --git a/Source/WebCore/inspector/InspectorTimelineAgent.h b/Source/WebCore/inspector/InspectorTimelineAgent.h
+index 1fca5ee..524f972 100644
+--- a/Source/WebCore/inspector/InspectorTimelineAgent.h
++++ b/Source/WebCore/inspector/InspectorTimelineAgent.h
+@@ -272,25 +272,25 @@ private:
+     PageScriptDebugServer* m_scriptDebugServer;
+     TimelineTimeConverter m_timeConverter;
+ 
+     std::unique_ptr<Inspector::InspectorTimelineFrontendDispatcher> m_frontendDispatcher;
+     RefPtr<Inspector::InspectorTimelineBackendDispatcher> m_backendDispatcher;
+     double m_timestampOffset;
+ 
+     Vector<TimelineRecordEntry> m_recordStack;
+ 
+     int m_id;
++    int m_callStackDepth;
+     int m_maxCallStackDepth;
+     InspectorType m_inspectorType;
+     InspectorClient* m_client;
+ 
+     Vector<TimelineRecordEntry> m_pendingConsoleProfileRecords;
+ 
+-    int m_recordingProfileDepth;
+     bool m_enabled;
+     bool m_enabledFromFrontend;
+ };
+ 
+ } // namespace WebCore
+ 
+ #endif // !ENABLE(INSPECTOR)
+ #endif // !defined(InspectorTimelineAgent_h)
+-- 
+2.0.1
+

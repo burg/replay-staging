@@ -1,4 +1,4 @@
-From 80834d81f14a3c8f643cc6f5234f626252477509 Mon Sep 17 00:00:00 2001
+From f94d98c2918fa9e59cdf55d9b13d28fcbc8f68cc Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 11:45:23 -0700
 Subject: [PATCH] Source/WebCore: [WIP] Web Replay: capture and replay Reload,
@@ -101,7 +101,7 @@ an enum with uint64_t-sized storage rather than int.
  12 files changed, 511 insertions(+), 9 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index c21ed4e..b3480ef 100644
+index 8c6c127..17cb315 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,83 @@
@@ -384,7 +384,7 @@ index 97daede..cd67cf0 100644
      if (m_scrollbarTargeted)
          controller.page().userInputBridge().handleMouseMoveOnScrollbarEvent(platformEvent(), InputSource::Synthetic);
 diff --git a/Source/WebCore/replay/SerializationMethods.cpp b/Source/WebCore/replay/SerializationMethods.cpp
-index a4bbcc2..e037b16 100644
+index 47d5643..2e31995 100644
 --- a/Source/WebCore/replay/SerializationMethods.cpp
 +++ b/Source/WebCore/replay/SerializationMethods.cpp
 @@ -25,54 +25,65 @@
@@ -679,9 +679,9 @@ index a4bbcc2..e037b16 100644
      ENCODE_TYPE_WITH_KEY(encodedData, String, mimeType, response.mimeType());
      ENCODE_TYPE_WITH_KEY(encodedData, long long, expectedContentLength, response.expectedContentLength());
      ENCODE_TYPE_WITH_KEY(encodedData, String, textEncodingName, response.textEncodingName());
-     ENCODE_TYPE_WITH_KEY(encodedData, String, suggestedFilename, response.suggestedFilename());
      ENCODE_TYPE_WITH_KEY(encodedData, int, httpStatusCode, response.httpStatusCode());
-@@ -681,20 +878,50 @@ EncodedValue EncodingTraits<SharedBuffer>::encodeValue(RefPtr<SharedBuffer> buff
+     ENCODE_TYPE_WITH_KEY(encodedData, String, httpStatusText, response.httpStatusText());
+@@ -679,20 +876,50 @@ EncodedValue EncodingTraits<SharedBuffer>::encodeValue(RefPtr<SharedBuffer> buff
  bool EncodingTraits<SharedBuffer>::decodeValue(EncodedValue& encodedBuffer, RefPtr<SharedBuffer>& decodedBuffer)
  {
      Vector<char, 0> data;
@@ -1138,7 +1138,7 @@ index 1dfa9be..6a63171 100644
      ]
  }
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 598f638..e4c8ebe 100644
+index a6d1a5c..362249c 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,25 @@

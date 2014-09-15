@@ -1,4 +1,4 @@
-From 0d13195014af2e4bdc3ddd0b736a707c66365206 Mon Sep 17 00:00:00 2001
+From 7aa40e432c43e53984773f069de6a3055fff2a93 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 27 Aug 2014 09:12:00 -0700
 Subject: [PATCH] Web Replay: the generator incorrectly complains about enums

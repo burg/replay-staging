@@ -1,4 +1,4 @@
-From 21ca7e5e47567cdf1bab99a296526beb32fc971e Mon Sep 17 00:00:00 2001
+From eaad8cbc4d6f1526d14c5e6c576808f319615bc7 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Mon, 11 Aug 2014 23:52:17 -0700
 Subject: [PATCH] Web Inspector: add eject current recording button to the
@@ -44,7 +44,7 @@ This will be replaced soon with a mini-timeline content view.
 (WebInspector.ReplayDashboardView.prototype._activeSessionChanged):
 ---
  Source/WebCore/ChangeLog                           |  15 +++++++
- Source/WebCore/inspector/InspectorReplayAgent.cpp  |   9 +++-
+ Source/WebCore/inspector/InspectorReplayAgent.cpp  |   7 +++
  Source/WebCore/inspector/InspectorReplayAgent.h    |   1 +
  Source/WebCore/inspector/protocol/Replay.json      |   7 +++
  Source/WebInspectorUI/ChangeLog                    |  32 ++++++++++++++
@@ -53,11 +53,11 @@ This will be replaced soon with a mini-timeline content view.
  .../UserInterface/Images/ReplayEjectButton.svg     |   8 ++++
  .../UserInterface/Views/ReplayDashboardView.css    |  13 ++++++
  .../UserInterface/Views/ReplayDashboardView.js     |  48 ++++++++++++++++++++-
- 10 files changed, 164 insertions(+), 2 deletions(-)
+ 10 files changed, 163 insertions(+), 1 deletion(-)
  create mode 100644 Source/WebInspectorUI/UserInterface/Images/ReplayEjectButton.svg
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index c47404b..8e0c87b 100644
+index efa61b1..9717bf9 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,25 @@
@@ -76,21 +76,21 @@ index c47404b..8e0c87b 100644
 +        * inspector/InspectorReplayAgent.h:
 +        * inspector/protocol/Replay.json:
 +
- 2014-07-16  Brian J. Burg  <burg@cs.washington.edu>
+ 2014-09-14  Brian J. Burg  <burg@cs.washington.edu>
  
-         [WIP] Web Replay: DOM Timers should be created and fired deterministically
-         Need the bug URL (OOPS!).
+         Web Inspector: FunctionCall timeline records omit profile data if the debugger has paused
+         https://bugs.webkit.org/show_bug.cgi?id=136805
  
          Reviewed by NOBODY (OOPS!).
  
-         Async mechanisms such as window.setTimeout are nondeterministic because the
-         interleaving of callbacks and other event loop items (which run JS) is also
-         nondeterministic.
+         TimelineAgent was mismanaging its call stack depth counter, which caused nested FunctionCall
+         records to steal the parent FunctionCall's captured profile in the child's didCallFunction().
+         Thus, the top FunctionCall node had no profile data and nested FunctionCall nodes each had
 diff --git a/Source/WebCore/inspector/InspectorReplayAgent.cpp b/Source/WebCore/inspector/InspectorReplayAgent.cpp
-index c1487a0..db04d79 100644
+index ef8cca0..8b54800 100644
 --- a/Source/WebCore/inspector/InspectorReplayAgent.cpp
 +++ b/Source/WebCore/inspector/InspectorReplayAgent.cpp
-@@ -381,21 +381,28 @@ void InspectorReplayAgent::pausePlayback(ErrorString* errorString)
+@@ -381,20 +381,27 @@ void InspectorReplayAgent::pausePlayback(ErrorString* errorString)
  void InspectorReplayAgent::cancelPlayback(ErrorString* errorString)
  {
      if (sessionState() == WebCore::SessionState::Capturing) {
@@ -101,7 +101,6 @@ index c1487a0..db04d79 100644
      m_page.replayController().cancelPlayback();
  }
  
--void InspectorReplayAgent::switchSession(ErrorString* errorString, Inspector::Protocol::Replay::SessionIdentifier identifier)
 +void InspectorReplayAgent::createSession(ErrorString*, Inspector::Protocol::Replay::SessionIdentifier* identifier)
 +{
 +    RefPtr<ReplaySession> session = ReplaySession::create();
@@ -109,7 +108,7 @@ index c1487a0..db04d79 100644
 +    *identifier = WTF::safeCast<int>(session->identifier());
 +}
 +
-+void InspectorReplayAgent::switchSession(ErrorString* errorString, TypeBuilder::Replay::SessionIdentifier identifier)
+ void InspectorReplayAgent::switchSession(ErrorString* errorString, Inspector::Protocol::Replay::SessionIdentifier identifier)
  {
      ASSERT(identifier > 0);
  
@@ -119,7 +118,6 @@ index c1487a0..db04d79 100644
      }
  
      RefPtr<ReplaySession> session = findSession(errorString, identifier);
-     if (!session)
 diff --git a/Source/WebCore/inspector/InspectorReplayAgent.h b/Source/WebCore/inspector/InspectorReplayAgent.h
 index 02cc7e0..f4fba87 100644
 --- a/Source/WebCore/inspector/InspectorReplayAgent.h
@@ -179,7 +177,7 @@ index 7d8f565..773f9d7 100644
              "description": "Splices the specified session segment into the session at the specified index.",
              "parameters": [
 diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
-index c39ff3d..214eec9 100644
+index e874686..170c3c8 100644
 --- a/Source/WebInspectorUI/ChangeLog
 +++ b/Source/WebInspectorUI/ChangeLog
 @@ -1,10 +1,42 @@
@@ -215,16 +213,16 @@ index c39ff3d..214eec9 100644
 +        (WebInspector.ReplayDashboardView.prototype._playbackFinished):
 +        (WebInspector.ReplayDashboardView.prototype._activeSessionChanged):
 +
- 2014-09-02  Brian J. Burg  <burg@cs.washington.edu>
+ 2014-08-28  Brian J. Burg  <burg@cs.washington.edu>
  
-         LegacyProfiler: remove redundant ProfileNode members and other cleanup
-         https://bugs.webkit.org/show_bug.cgi?id=136380
+         Promise reactions in the Inspector page do not run when the debugger is paused on the inspected page
+         https://bugs.webkit.org/show_bug.cgi?id=135830
  
-         Reviewed by Timothy Hatcher.
+         Reviewed by NOBODY (OOPS!).
  
-         Remove unused Profile.idleTime member.
+         This will hopefully be fixed by multi-process Web Inspector in the future, but until that lands, we
+         can use a pure-JavaScript promises implementation that doesn't use callOnMainThread under the hood.
  
-         * UserInterface/Models/Profile.js:
 diff --git a/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js b/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js
 index 648f5e2b457505e95e6aea28d012de082e8b5a8c..f4635febb02c77bde510d010769b3c68f296af30 100644
 GIT binary patch
@@ -245,7 +243,7 @@ z01Zxo8m2~sIwWJk9?%MsNAUoVkLCd;1)0f;p2CyY1*yVRA_*ZYZU_~dd>~k8^Mc^e
 jGDO5o{&&(8g{QJP;gq@{lF)?PNbxv%!fh31YX&X=@3Ml@
 
 diff --git a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
-index 46c0505..364a6b4 100644
+index f1d9a87..0316c7a 100644
 --- a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
 +++ b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
 @@ -225,20 +225,44 @@ WebInspector.ReplayManager.prototype = {
@@ -265,7 +263,7 @@ index 46c0505..364a6b4 100644
 +    {
 +        var listener = new WebInspector.EventListener(this, true);
 +
-+        var managerResult = new Promise(function(resolve, reject) {
++        var managerResult = new WebInspector.Promise(function(resolve, reject) {
 +            listener.connect(WebInspector.replayManager, WebInspector.ReplayManager.Event.SessionAdded, resolve);
 +        });
 +
@@ -276,7 +274,7 @@ index 46c0505..364a6b4 100644
 +                throw error;
 +            });
 +
-+        return Promise.all([this.waitUntilInitialized(), protocolResult, managerResult])
++        return WebInspector.Promise.all([this.waitUntilInitialized(), protocolResult, managerResult])
 +            .then(function(results) {
 +                var event = results.lastValue;
 +                return event.data.sessionId;
@@ -376,10 +374,10 @@ index 01b6e6e..d76f0e8 100644
  .toolbar.label-only .dashboard.replay .item.button > .glyph {
      /* The default styles here will try to elide buttons in label-only mode. */
 diff --git a/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js
-index b228924..a66d909 100644
+index a53ea11..956da3e 100644
 --- a/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js
 +++ b/Source/WebInspectorUI/UserInterface/Views/ReplayDashboardView.js
-@@ -35,32 +35,41 @@ WebInspector.ReplayDashboardView = function(representedObject)
+@@ -33,32 +33,41 @@ WebInspector.ReplayDashboardView = function(representedObject)
      this._captureButtonItem = new WebInspector.ActivateButtonNavigationItem("replay-dashboard-capture", WebInspector.UIString("Start Recording"), WebInspector.UIString("Stop Recording"), "Images/ReplayRecordingButton.svg", 16, 16);
      this._captureButtonItem.addEventListener(WebInspector.ButtonNavigationItem.Event.Clicked, this._captureButtonItemClicked, this);
      this._captureButtonItem.hidden = true;
@@ -422,7 +420,7 @@ index b228924..a66d909 100644
  
  // Class names for top-level flex items within the replay dashboard.
  WebInspector.ReplayDashboardView.RecordingContainerStyleClassName = "recording-container";
-@@ -88,39 +97,76 @@ WebInspector.ReplayDashboardView.prototype = {
+@@ -86,39 +95,76 @@ WebInspector.ReplayDashboardView.prototype = {
          console.assert(WebInspector.replayManager.sessionState !== WebInspector.ReplayManager.SessionState.Capturing, "Tried to start replaying while SessionState is Capturing!");
  
          if (WebInspector.replayManager.sessionState === WebInspector.ReplayManager.SessionState.Inactive)

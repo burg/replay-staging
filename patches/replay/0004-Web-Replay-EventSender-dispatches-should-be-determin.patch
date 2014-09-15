@@ -1,4 +1,4 @@
-From d6073f6a7f4ba144db572fb67a82812946abab53 Mon Sep 17 00:00:00 2001
+From bbe13af20f3e9e9a4f375628865236634695b34b Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Mon, 18 Aug 2014 18:50:22 -0700
 Subject: [PATCH] Web Replay: EventSender dispatches should be deterministic
@@ -85,7 +85,7 @@ the event sender) may not be available in a synchronous document write.
  create mode 100644 Source/WebCore/dom/SharedEventSenders.h
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 85e7ea3..5aa98a8 100644
+index 5fe4f66..be35ebd 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,77 @@
@@ -167,10 +167,10 @@ index 85e7ea3..5aa98a8 100644
          that originate from asynchronous Timer firings should be captured and replayed.
  
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index e587ac3..27c0f8b 100644
+index b8091e1..0ddea4e 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -5498,20 +5498,23 @@
+@@ -5495,20 +5495,23 @@
  		C348612315FDE21E007A1CC9 /* InputTypeNames.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C348612115FDE21E007A1CC9 /* InputTypeNames.cpp */; };
  		C348612415FDE21E007A1CC9 /* InputTypeNames.h in Headers */ = {isa = PBXBuildFile; fileRef = C348612215FDE21E007A1CC9 /* InputTypeNames.h */; };
  		C375D7FD16639519006184AB /* TypeAhead.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C375D7FB16639519006184AB /* TypeAhead.cpp */; };
@@ -194,7 +194,7 @@ index e587ac3..27c0f8b 100644
  		C50B561712119D23008B46E0 /* GroupSettings.h in Headers */ = {isa = PBXBuildFile; fileRef = C50B561512119D23008B46E0 /* GroupSettings.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		C50D0E820FF4272900AC2644 /* StorageNamespace.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C50D0E800FF4272900AC2644 /* StorageNamespace.cpp */; };
  		C50D0E830FF4272900AC2644 /* StorageNamespace.h in Headers */ = {isa = PBXBuildFile; fileRef = C50D0E810FF4272900AC2644 /* StorageNamespace.h */; settings = {ATTRIBUTES = (Private, ); }; };
-@@ -12901,20 +12904,22 @@
+@@ -12897,20 +12900,22 @@
  		C348612215FDE21E007A1CC9 /* InputTypeNames.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = InputTypeNames.h; sourceTree = "<group>"; };
  		C375D7FB16639519006184AB /* TypeAhead.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = TypeAhead.cpp; sourceTree = "<group>"; };
  		C375D7FC16639519006184AB /* TypeAhead.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TypeAhead.h; sourceTree = "<group>"; };
@@ -217,7 +217,7 @@ index e587ac3..27c0f8b 100644
  		C50B561512119D23008B46E0 /* GroupSettings.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GroupSettings.h; sourceTree = "<group>"; };
  		C50D0E800FF4272900AC2644 /* StorageNamespace.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = StorageNamespace.cpp; sourceTree = "<group>"; };
  		C50D0E810FF4272900AC2644 /* StorageNamespace.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = StorageNamespace.h; sourceTree = "<group>"; };
-@@ -22743,20 +22748,22 @@
+@@ -22732,20 +22737,22 @@
  				8A413ADF1207BBA50082016E /* ScriptRunner.cpp */,
  				8A413ADE1207BBA50082016E /* ScriptRunner.h */,
  				976F36E814686225005E93B4 /* SecurityContext.cpp */,
@@ -240,7 +240,7 @@ index e587ac3..27c0f8b 100644
  				81AC6C34131C57C20009A7E0 /* StringCallback.idl */,
  				A8C4A7EC09D563270003AC8D /* StyledElement.cpp */,
  				A8C4A7EB09D563270003AC8D /* StyledElement.h */,
-@@ -23334,20 +23341,21 @@
+@@ -23323,20 +23330,21 @@
  				7EE6846112D26E3800E79415 /* AuthenticationChallenge.h in Headers */,
  				934F713A0D5A6F1000018D69 /* AuthenticationChallengeBase.h in Headers */,
  				E124748410AA161D00B79493 /* AuthenticationClient.h in Headers */,
@@ -262,7 +262,7 @@ index e587ac3..27c0f8b 100644
  				BC124EE80C2641CD009E2349 /* BarProp.h in Headers */,
  				379E61CA126CA5C400B63E8D /* BaseButtonInputType.h in Headers */,
  				379E61CC126CA5C400B63E8D /* BaseCheckableInputType.h in Headers */,
-@@ -26365,20 +26373,21 @@
+@@ -26353,20 +26361,21 @@
  				1419D2C50CEA6F6100FF507A /* TreeShared.h in Headers */,
  				854FE7390A2297BE0058D7AD /* TreeWalker.h in Headers */,
  				2D76BB821945632400CFD29A /* RunLoopObserver.h in Headers */,
@@ -284,7 +284,7 @@ index e587ac3..27c0f8b 100644
  				A72763BF16689BFB002FCACB /* UserActionElementSet.h in Headers */,
  				868160D618766A130021E79D /* UserActivity.h in Headers */,
  				26255F0318878E110006E1FD /* UserAgent.h in Headers */,
-@@ -28029,20 +28038,21 @@
+@@ -28017,20 +28026,21 @@
  				BE6DF713171CA2DA00DD52B8 /* JSAudioTrackListCustom.cpp in Sources */,
  				BC124EFF0C26447A009E2349 /* JSBarProp.cpp in Sources */,
  				BC946346107A934B00857193 /* JSBeforeLoadEvent.cpp in Sources */,
@@ -307,7 +307,7 @@ index e587ac3..27c0f8b 100644
  				FDA15EA112B03EE1003A583A /* JSChannelMergerNode.cpp in Sources */,
  				FDA15EA312B03EE1003A583A /* JSChannelSplitterNode.cpp in Sources */,
 diff --git a/Source/WebCore/dom/Document.cpp b/Source/WebCore/dom/Document.cpp
-index 04133e9..a9ba907 100644
+index d6d4fcb..d134058 100644
 --- a/Source/WebCore/dom/Document.cpp
 +++ b/Source/WebCore/dom/Document.cpp
 @@ -131,20 +131,21 @@
@@ -332,7 +332,7 @@ index 04133e9..a9ba907 100644
  #include "VisitedLinkState.h"
  #include "XMLDocumentParser.h"
  #include "XMLNSNames.h"
-@@ -464,20 +465,21 @@ Document::Document(Frame* frame, const URL& url, unsigned documentClasses, unsig
+@@ -465,20 +466,21 @@ Document::Document(Frame* frame, const URL& url, unsigned documentClasses, unsig
  #endif
      , m_createRenderers(true)
      , m_inPageCache(false)
@@ -354,7 +354,7 @@ index 04133e9..a9ba907 100644
      , m_loadEventDelayCount(0)
      , m_loadEventDelayTimer(this, &Document::loadEventDelayTimerFired)
      , m_referrerPolicy(ReferrerPolicyDefault)
-@@ -2375,31 +2377,29 @@ void Document::implicitClose()
+@@ -2376,31 +2378,29 @@ void Document::implicitClose()
      // FIXME: We kick off the icon loader when the Document is done parsing.
      // There are earlier opportunities we could start it:
      //  -When the <head> finishes parsing
@@ -394,7 +394,7 @@ index 04133e9..a9ba907 100644
      enqueuePopstateEvent(m_pendingStateObject ? m_pendingStateObject.release() : SerializedScriptValue::nullValue());
      
 diff --git a/Source/WebCore/dom/Document.h b/Source/WebCore/dom/Document.h
-index 79a7c95..0a84ba7 100644
+index 6819503..2ebe624 100644
 --- a/Source/WebCore/dom/Document.h
 +++ b/Source/WebCore/dom/Document.h
 @@ -138,20 +138,21 @@ class RenderView;
@@ -419,7 +419,7 @@ index 79a7c95..0a84ba7 100644
  class TreeWalker;
  class VisitedLinkState;
  class WebKitNamedFlow;
-@@ -1111,20 +1112,22 @@ public:
+@@ -1116,20 +1117,22 @@ public:
      void setContainsValidityStyleRules() { m_containsValidityStyleRules = true; }
  
      void enqueueWindowEvent(PassRefPtr<Event>);
@@ -442,7 +442,7 @@ index 79a7c95..0a84ba7 100644
      Element* webkitCurrentFullScreenElement() const { return m_fullScreenElement.get(); }
      
      enum FullScreenCheckType {
-@@ -1558,20 +1561,22 @@ private:
+@@ -1563,20 +1566,22 @@ private:
  
      bool m_isSynthesized;
      bool m_isNonRenderedPlaceholder;

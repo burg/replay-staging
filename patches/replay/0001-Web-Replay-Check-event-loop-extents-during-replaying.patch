@@ -1,4 +1,4 @@
-From ee9803196f53878852d648f79c1c7d87114933e9 Mon Sep 17 00:00:00 2001
+From a95b7d793d9db0bb8c3ae6a71c60f22ceda283e7 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 19 Aug 2014 12:12:33 -0700
 Subject: [PATCH] Web Replay: Check event loop extents during replaying Need a
@@ -42,7 +42,7 @@ Source/WebCore:
  8 files changed, 70 insertions(+), 26 deletions(-)
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index 04f8534..ea32efb 100644
+index 38084a3..57a3489 100644
 --- a/Source/JavaScriptCore/ChangeLog
 +++ b/Source/JavaScriptCore/ChangeLog
 @@ -1,10 +1,27 @@
@@ -63,16 +63,16 @@ index 04f8534..ea32efb 100644
 +        (JSC::InputCursor::setWithinEventLoopInputExtent): Added.
 +        (JSC::InputCursor::withinEventLoopInputExtent): Added.
 +
- 2014-09-02  Brian J. Burg  <burg@cs.washington.edu>
+ 2014-09-11  Joseph Pecoraro  <pecoraro@apple.com>
  
-         Web Inspector: fix prefixes for subclasses of JSC::ConsoleClient
-         https://bugs.webkit.org/show_bug.cgi?id=136476
+         Web Inspector: Occasional ASSERT closing web inspector
+         https://bugs.webkit.org/show_bug.cgi?id=136762
  
          Reviewed by Timothy Hatcher.
  
-         * CMakeLists.txt:
-         * JavaScriptCore.xcodeproj/project.pbxproj:
-         * inspector/JSGlobalObjectConsoleClient.cpp: Renamed from Source/JavaScriptCore/inspector/JSConsoleClient.cpp.
+         It is harmless, and indeed possible to have an empty set of listeners
+         now that each Page gets its own PageDebugServer instead of a shared
+         global. So we should replace the null checks with isEmpty checks.
 diff --git a/Source/JavaScriptCore/replay/InputCursor.h b/Source/JavaScriptCore/replay/InputCursor.h
 index 6102a7f..2f40040 100644
 --- a/Source/JavaScriptCore/replay/InputCursor.h
@@ -139,7 +139,7 @@ index 6102a7f..2f40040 100644
  
  #endif // InputCursor_h
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index e4b4f78..84254e2 100644
+index cc257d1..422f220 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,33 @@
@@ -166,16 +166,16 @@ index e4b4f78..84254e2 100644
 +        * replay/ReplayController.cpp:
 +        (WebCore::ReplayController::willDispatchEvent): Expand the assetion to include replaying.
 +
- 2014-09-04  Daniel Bates  <dabates@apple.com>
+ 2014-09-11  Joseph Pecoraro  <pecoraro@apple.com>
  
-         [iOS] Make iOS build when ENABLE_TOUCH_EVENT and ENABLE_IOS_TOUCH_EVENTS disabled
-         https://bugs.webkit.org/show_bug.cgi?id=136494
+         Web Inspector: Occasional ASSERT closing web inspector
+         https://bugs.webkit.org/show_bug.cgi?id=136762
  
-         Reviewed by Andy Estes.
+         Reviewed by Timothy Hatcher.
  
-         * WebCore.exp.in: Add ENABLE(IOS_TOUCH_EVENTS) and ENABLE(TOUCH_EVENTS) guards. Also, sort this file using
-         the script Tools/Scripts/sort-export-file.
-         * bindings/js/JSDocumentCustom.cpp: Add ENABLE(TOUCH_EVENTS)-guard around headers JSTouch.h and JSTouchList.h.
+         * bindings/js/WorkerScriptDebugServer.h:
+         * inspector/PageScriptDebugServer.h:
+ 
 diff --git a/Source/WebCore/replay/CapturingInputCursor.cpp b/Source/WebCore/replay/CapturingInputCursor.cpp
 index 40db3b6..73b402f 100644
 --- a/Source/WebCore/replay/CapturingInputCursor.cpp

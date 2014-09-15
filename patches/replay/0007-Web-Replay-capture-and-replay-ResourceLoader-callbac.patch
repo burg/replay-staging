@@ -1,4 +1,4 @@
-From 9c7c92eb6fb959963f8fd6fe9217f5b1d436f8ac Mon Sep 17 00:00:00 2001
+From 3fdefc764a260873dc8551816d762d5b6440ffaa Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 12 Jun 2014 16:49:07 -0700
 Subject: [PATCH] Web Replay: capture and replay ResourceLoader callbacks
@@ -102,12 +102,12 @@ from taking over and fulfilling the loads nondeterministically.
  .../WebCore/platform/network/ResourceErrorBase.cpp |   8 +
  .../WebCore/platform/network/ResourceErrorBase.h   |   1 +
  .../WebCore/replay/ReplayInputDispatchMethods.cpp  |  54 ++++++-
- Source/WebCore/replay/SerializationMethods.cpp     | 169 +++++++++++++++++++++
+ Source/WebCore/replay/SerializationMethods.cpp     | 167 +++++++++++++++++++++
  Source/WebCore/replay/SerializationMethods.h       |  40 ++++-
  Source/WebCore/replay/WebInputs.json               |  64 ++++++++
  Source/WebKit2/ChangeLog                           |  15 +-
  .../Network/WebResourceLoadScheduler.cpp           |  13 +-
- 19 files changed, 611 insertions(+), 12 deletions(-)
+ 19 files changed, 609 insertions(+), 12 deletions(-)
 
 diff --git a/Source/JavaScriptCore/replay/EncodedValue.h b/Source/JavaScriptCore/replay/EncodedValue.h
 index c0010e8..3ed089f 100644
@@ -139,7 +139,7 @@ index c0010e8..3ed089f 100644
      {
          decodedValue = encodedValue.convertTo<DecodedType>();
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index c6e4c8f..c21ed4e 100644
+index 8994c7c..8c6c127 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,91 @@
@@ -235,10 +235,10 @@ index c6e4c8f..c21ed4e 100644
  
          No new tests. No behavior was changed.
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index d0a2c68..c7f9711 100644
+index 8d1fd40..bdbd7c5 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -3481,10 +3481,18 @@ __ZN7WebCore32WebVideoFullscreenInterfaceAVKitC2Ev
+@@ -3445,10 +3445,18 @@ __ZN7WebCore32WebVideoFullscreenInterfaceAVKitC2Ev
  __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
  #endif
  
@@ -258,7 +258,7 @@ index d0a2c68..c7f9711 100644
 +__ZNK7WebCore20ResourceResponseBase18resourceLoadTimingEv
 +#endif
 diff --git a/Source/WebCore/loader/DocumentLoader.cpp b/Source/WebCore/loader/DocumentLoader.cpp
-index 39d336c..f862a19 100644
+index 7336ef6..ce3a04c 100644
 --- a/Source/WebCore/loader/DocumentLoader.cpp
 +++ b/Source/WebCore/loader/DocumentLoader.cpp
 @@ -69,20 +69,24 @@
@@ -465,7 +465,7 @@ index 8a41b87..019fa24 100644
      }
  }
 diff --git a/Source/WebCore/loader/ResourceLoader.cpp b/Source/WebCore/loader/ResourceLoader.cpp
-index d34bd61..b700bdf 100644
+index 1b08c5d..de19cb8 100644
 --- a/Source/WebCore/loader/ResourceLoader.cpp
 +++ b/Source/WebCore/loader/ResourceLoader.cpp
 @@ -44,20 +44,25 @@
@@ -494,7 +494,7 @@ index d34bd61..b700bdf 100644
      , m_notifiedLoadComplete(false)
      , m_cancellationStatus(NotCancelled)
      , m_defersLoading(frame->page()->defersLoading())
-@@ -611,11 +616,29 @@ void ResourceLoader::unschedule(SchedulePair& pair)
+@@ -616,11 +621,29 @@ void ResourceLoader::unschedule(SchedulePair& pair)
  #endif
  
  #if USE(QUICK_LOOK)
@@ -525,7 +525,7 @@ index d34bd61..b700bdf 100644
 +
  }
 diff --git a/Source/WebCore/loader/ResourceLoader.h b/Source/WebCore/loader/ResourceLoader.h
-index 2bf7537..05cee25 100644
+index e37f0c2..69d6734 100644
 --- a/Source/WebCore/loader/ResourceLoader.h
 +++ b/Source/WebCore/loader/ResourceLoader.h
 @@ -33,20 +33,26 @@
@@ -555,7 +555,7 @@ index 2bf7537..05cee25 100644
  class ResourceBuffer;
  
  #if USE(QUICK_LOOK)
-@@ -130,20 +136,24 @@ public:
+@@ -131,20 +137,24 @@ public:
  
      void setDataBufferingPolicy(DataBufferingPolicy);
  
@@ -1024,7 +1024,7 @@ index 5bd4446..97daede 100644
  } // namespace WebCore
  
 diff --git a/Source/WebCore/replay/SerializationMethods.cpp b/Source/WebCore/replay/SerializationMethods.cpp
-index 6a9d2c0..a4bbcc2 100644
+index 6a9d2c0..47d5643 100644
 --- a/Source/WebCore/replay/SerializationMethods.cpp
 +++ b/Source/WebCore/replay/SerializationMethods.cpp
 @@ -27,42 +27,52 @@
@@ -1135,7 +1135,7 @@ index 6a9d2c0..a4bbcc2 100644
      ENCODE_TYPE_WITH_KEY(encodedData, Vector<String>, extensions, input.extensions);
  
      return encodedData;
-@@ -501,31 +545,156 @@ bool EncodingTraits<PluginInfo>::decodeValue(EncodedValue& encodedData, PluginIn
+@@ -501,31 +545,154 @@ bool EncodingTraits<PluginInfo>::decodeValue(EncodedValue& encodedData, PluginIn
      DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, String, name, info.name);
      DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, String, file, info.file);
      DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, String, desc, info.desc);
@@ -1210,7 +1210,6 @@ index 6a9d2c0..a4bbcc2 100644
 +    ENCODE_TYPE_WITH_KEY(encodedData, String, mimeType, response.mimeType());
 +    ENCODE_TYPE_WITH_KEY(encodedData, long long, expectedContentLength, response.expectedContentLength());
 +    ENCODE_TYPE_WITH_KEY(encodedData, String, textEncodingName, response.textEncodingName());
-+    ENCODE_TYPE_WITH_KEY(encodedData, String, suggestedFilename, response.suggestedFilename());
 +    ENCODE_TYPE_WITH_KEY(encodedData, int, httpStatusCode, response.httpStatusCode());
 +    ENCODE_TYPE_WITH_KEY(encodedData, String, httpStatusText, response.httpStatusText());
 +    ENCODE_TYPE_WITH_KEY(encodedData, HTTPHeaderMap, httpHeaders, response.httpHeaderFields());
@@ -1225,9 +1224,8 @@ index 6a9d2c0..a4bbcc2 100644
 +    DECODE_TYPE_WITH_KEY(encodedData, String, mimeType);
 +    DECODE_TYPE_WITH_KEY(encodedData, long long, expectedContentLength);
 +    DECODE_TYPE_WITH_KEY(encodedData, String, textEncodingName);
-+    DECODE_TYPE_WITH_KEY(encodedData, String, suggestedFilename);
 +
-+    std::unique_ptr<ResourceResponse> response = std::make_unique<ResourceResponse>(url, mimeType, expectedContentLength, textEncodingName, suggestedFilename);
++    std::unique_ptr<ResourceResponse> response = std::make_unique<ResourceResponse>(url, mimeType, expectedContentLength, textEncodingName);
 +
 +    DECODE_TYPE_WITH_KEY(encodedData, int, httpStatusCode);
 +    response->setHTTPStatusCode(httpStatusCode);
@@ -1513,7 +1511,7 @@ index 599e328..1dfa9be 100644
      ]
  }
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index a1a831e..598f638 100644
+index db5060b..a6d1a5c 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,11 +1,24 @@
@@ -1543,7 +1541,7 @@ index a1a831e..598f638 100644
  
          * Shared/SessionTracker.cpp:
 diff --git a/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp b/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
-index 2813fbc..2f98595 100644
+index 71c8889..a792e56 100644
 --- a/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
 +++ b/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
 @@ -46,20 +46,24 @@
@@ -1571,7 +1569,7 @@ index 2813fbc..2f98595 100644
      : m_internallyFailedLoadTimer(RunLoop::main(), this, &WebResourceLoadScheduler::internallyFailedLoadTimerFired)
      , m_suspendPendingRequestsCount(0)
  {
-@@ -109,21 +113,28 @@ void WebResourceLoadScheduler::scheduleLoad(ResourceLoader* resourceLoader, Cach
+@@ -141,21 +145,28 @@ void WebResourceLoadScheduler::scheduleLoad(ResourceLoader* resourceLoader, Cach
      }
  
  #if USE(QUICK_LOOK)

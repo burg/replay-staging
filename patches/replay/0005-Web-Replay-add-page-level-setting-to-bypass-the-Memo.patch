@@ -1,4 +1,4 @@
-From c64b1f167b27a6050e874cd9baa928f3d503faab Mon Sep 17 00:00:00 2001
+From 1922729545248518f1fa6c3cca53b12222a7932a Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 11 Jun 2014 15:33:16 -0700
 Subject: [PATCH] Web Replay: add page-level setting to bypass the MemoryCache
@@ -62,7 +62,7 @@ and bypass cache session id are both considered to be non-ephemeral.
  11 files changed, 104 insertions(+), 11 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 5aa98a8..39e825d 100644
+index be35ebd..dd17b39 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,58 @@
@@ -193,10 +193,10 @@ index f93b0d3..21f4aa8 100644
      memoryCache()->remove(resource);
      memoryCache()->add(newResource.get());
 diff --git a/Source/WebCore/loader/cache/MemoryCache.cpp b/Source/WebCore/loader/cache/MemoryCache.cpp
-index 3804134..59f1db5 100644
+index 9ffb95b..174da1f 100644
 --- a/Source/WebCore/loader/cache/MemoryCache.cpp
 +++ b/Source/WebCore/loader/cache/MemoryCache.cpp
-@@ -105,20 +105,23 @@ URL MemoryCache::removeFragmentIdentifierIfNeeded(const URL& originalURL)
+@@ -100,20 +100,23 @@ URL MemoryCache::removeFragmentIdentifierIfNeeded(const URL& originalURL)
      URL url = originalURL;
      url.removeFragmentIdentifier();
      return url;
@@ -221,7 +221,7 @@ index 3804134..59f1db5 100644
      }
      originMap->set(resource->cachePartition(), resource);
 diff --git a/Source/WebCore/page/Page.cpp b/Source/WebCore/page/Page.cpp
-index b2a41a7..b49fd2e 100644
+index 94a05ae..03b0d7b 100644
 --- a/Source/WebCore/page/Page.cpp
 +++ b/Source/WebCore/page/Page.cpp
 @@ -1173,22 +1173,22 @@ void Page::storageBlockingStateChanged()
@@ -249,7 +249,7 @@ index b2a41a7..b49fd2e 100644
      ASSERT(m_subframeCount >= 0);
  
      int subframeCount = 0;
-@@ -1600,20 +1600,23 @@ void Page::setUserContentController(UserContentController* userContentController
+@@ -1590,20 +1590,23 @@ void Page::setUserContentController(UserContentController* userContentController
  VisitedLinkStore& Page::visitedLinkStore()
  {
      if (m_visitedLinkStore)
@@ -502,7 +502,7 @@ index ea1419d..70a60d8 100644
      // The active cursor is set to nullptr when invalid.
      RefPtr<JSC::InputCursor> m_activeCursor;
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 66e1de7..a1a831e 100644
+index 14bcfaa..db5060b 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,24 @@
@@ -529,7 +529,7 @@ index 66e1de7..a1a831e 100644
  
          * CMakeLists.txt: Add replay/ directory to header include paths.
  
- 2014-09-04  Carlos Garcia Campos  <cgarcia@igalia.com>
+ 2014-09-11  Bear Travis  <betravis@adobe.com>
 diff --git a/Source/WebKit2/Shared/SessionTracker.cpp b/Source/WebKit2/Shared/SessionTracker.cpp
 index ac79a9d..0886af1 100644
 --- a/Source/WebKit2/Shared/SessionTracker.cpp
