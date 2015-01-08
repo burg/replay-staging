@@ -1,0 +1,789 @@
+From d4653984d8393e524aa1ca4b8890934ae074b84d Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Sat, 20 Sep 2014 12:52:14 -0700
+Subject: [PATCH] Hack to get the overview timeline data to persist during
+ playback, and snap the current time marker to playback position changes (for
+ now).
+
+This patch should be deleted and rewritten once we have a better plan for timelines integration.
+---
+ Source/WebInspectorUI/UserInterface/Base/Main.js   |  2 +
+ .../UserInterface/Controllers/ReplayManager.js     | 33 +++++++---
+ .../UserInterface/Controllers/TimelineManager.js   | 13 +++-
+ Source/WebInspectorUI/UserInterface/Main.html      |  1 +
+ .../UserInterface/Models/ReplayPosition.js         | 73 ++++++++++++++++++++++
+ .../UserInterface/Models/ReplaySession.js          |  2 +-
+ .../UserInterface/Models/ReplaySessionSegment.js   | 13 ++++
+ .../UserInterface/Protocol/ReplayObserver.js       | 11 ----
+ Source/WebInspectorUI/UserInterface/Test.html      |  1 +
+ .../UserInterface/Views/TimelineContentView.js     | 32 +++++++++-
+ .../UserInterface/Views/TimelineOverview.js        | 19 ++++++
+ .../UserInterface/Views/TimelineOverviewGraph.js   | 16 +++++
+ .../UserInterface/Views/TimelineRecordBar.js       |  2 +-
+ 13 files changed, 193 insertions(+), 25 deletions(-)
+ create mode 100644 Source/WebInspectorUI/UserInterface/Models/ReplayPosition.js
+
+diff --git a/Source/WebInspectorUI/UserInterface/Base/Main.js b/Source/WebInspectorUI/UserInterface/Base/Main.js
+index 2b52a70..3aad79a 100644
+--- a/Source/WebInspectorUI/UserInterface/Base/Main.js
++++ b/Source/WebInspectorUI/UserInterface/Base/Main.js
+@@ -742,24 +742,26 @@ WebInspector._dragOver = function(event)
+ 
+     // Allow dropping into editable areas.
+     if (WebInspector.isEventTargetAnEditableField(event))
+         return;
+ 
+     // Prevent the drop from being accepted.
+     event.dataTransfer.dropEffect = "none";
+     event.preventDefault();
+ }
+ 
++/*
+ WebInspector._captureDidStart = function(event)
+ {
+     this.dashboardContainer.showDashboardViewForRepresentedObject(this.dashboardManager.dashboards.replay);
+ }
++*/
+ 
+ WebInspector._debuggerDidPause = function(event)
+ {
+     this.debuggerSidebarPanel.show();
+     this.dashboardContainer.showDashboardViewForRepresentedObject(this.dashboardManager.dashboards.debugger);
+ 
+     // Since the Scope Chain details sidebar panel might not be in the sidebar yet,
+     // set a flag to select and show it when it does become available.
+     this._selectAndShowScopeChainDetailsSidebarPanelWhenAvailable = true;
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
+index 0efdb30..0de1226 100644
+--- a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
++++ b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
+@@ -26,21 +26,21 @@
+ 
+ WebInspector.ReplayManager = function()
+ {
+     WebInspector.Object.call(this);
+ 
+     this._sessionState = WebInspector.ReplayManager.SessionState.Inactive;
+     this._segmentState = WebInspector.ReplayManager.SegmentState.Unloaded;
+ 
+     this._activeSessionIdentifier = null;
+     this._activeSegmentIdentifier = null;
+-    this._currentPosition = new WebInspector.ReplayPosition(0, 0);
++    this._playbackPosition = new WebInspector.ReplayPosition(0, 0);
+     this._initialized = false;
+ 
+     // These hold actual instances of sessions and segments.
+     this._sessions = new Map;
+     this._segments = new Map;
+     // These hold promises that resolve when the instance data is recieved.
+     this._sessionPromises = new Map;
+     this._segmentPromises = new Map;
+ 
+     // Playback speed is specified in replayToPosition commands, and persists
+@@ -54,21 +54,21 @@ WebInspector.ReplayManager = function()
+ 
+     this._initializationPromise = ReplayAgent.currentReplayState()
+         .then(function(payload) {
+             console.assert(payload.sessionState in WebInspector.ReplayManager.SessionState, "Unknown session state: " + payload.sessionState);
+             console.assert(payload.segmentState in WebInspector.ReplayManager.SegmentState, "Unknown segment state: " + payload.segmentState);
+ 
+             instance._activeSessionIdentifier = payload.sessionIdentifier;
+             instance._activeSegmentIdentifier = payload.segmentIdentifier;
+             instance._sessionState = WebInspector.ReplayManager.SessionState[payload.sessionState];
+             instance._segmentState = WebInspector.ReplayManager.SegmentState[payload.segmentState];
+-            instance._currentPosition = payload.replayPosition;
++            instance._playbackPosition = payload.replayPosition;
+ 
+             instance._initialized = true;
+         }).then(function() {
+             return ReplayAgent.getAvailableSessions();
+         }).then(function(payload) {
+             for (var sessionId of payload.ids)
+                 instance.sessionCreated(sessionId);
+         }).catch(function(error) {
+             console.error("ReplayManager initialization failed: ", error);
+             throw error;
+@@ -139,64 +139,70 @@ WebInspector.ReplayManager.prototype = {
+     },
+ 
+     get activeSegmentIdentifier()
+     {
+         console.assert(this._initialized);
+         return this._activeSegmentIdentifier;
+     },
+ 
+     get playbackSpeed()
+     {
+-        console.assert(this._initialized);
++        console.assert(this.sessionState !== WebInspector.ReplayManager.SessionState.Capturing);
+         return this._playbackSpeed;
+     },
+ 
+     set playbackSpeed(value)
+     {
+-        console.assert(this._initialized);
++        console.assert(this.sessionState !== WebInspector.ReplayManager.SessionState.Capturing);
+         this._playbackSpeed = value;
+     },
+ 
+-    get currentPosition()
++    get playbackSession()
+     {
+-        console.assert(this._initialized);
+-        return this._currentPosition;
++        console.assert(this.sessionState === WebInspector.ReplayManager.SessionState.Replaying);
++        return this._sessions.get(this.activeSessionIdentifier);
++    },
++
++    get playbackPosition()
++    {
++        console.assert(this.sessionState === WebInspector.ReplayManager.SessionState.Replaying);
++        return this._playbackPosition;
+     },
+ 
+     // These return promises even if the relevant instance is already created.
+     waitUntilInitialized: function()  // --> ()
+     {
+         return this._initializationPromise;
+     },
+ 
+     // Return a promise that resolves to a session, if it exists.
+     getSession: function(sessionId) // --> (WebInspector.ReplaySession)
+     {
+         if (this._sessionPromises.has(sessionId))
+             return this._sessionPromises.get(sessionId);
+ 
+-        var newPromise = ReplayAgent.getSessionData.promise(sessionId)
++        var newPromise = ReplayAgent.getSessionData(sessionId)
+             .then(function(payload) {
+                 return Promise.resolve(WebInspector.ReplaySession.fromPayload(sessionId, payload));
+             });
+ 
+         this._sessionPromises.set(sessionId, newPromise);
+         return newPromise;
+     },
+ 
+     // Return a promise that resolves to a session segment, if it exists.
+     getSegment: function(segmentId)  // --> (WebInspector.ReplaySessionSegment)
+     {
+         if (this._segmentPromises.has(segmentId))
+             return this._segmentPromises.get(segmentId);
+ 
+-        var newPromise = ReplayAgent.getSegmentData.promise(segmentId)
++        var newPromise = ReplayAgent.getSegmentData(segmentId)
+             .then(function(payload) {
+                 return Promise.resolve(new WebInspector.ReplaySessionSegment(segmentId, payload));
+             });
+ 
+         this._segmentPromises.set(segmentId, newPromise);
+         return newPromise;
+     },
+ 
+     // Switch to the specified session.
+     // Returns a promise that resolves when the switch completes.
+@@ -271,36 +277,43 @@ WebInspector.ReplayManager.prototype = {
+                 return WebInspector.replayManager.cancelPlayback();
+             });
+         }
+ 
+         result = result.then(this._suppressBreakpointsAndResumeIfNeeded());
+ 
+         result = result.then(function() {
+                 console.assert(manager.sessionState === WebInspector.ReplayManager.SessionState.Inactive);
+                 console.assert(manager.segmentState === WebInspector.ReplayManager.SegmentState.Unloaded);
+ 
++                if (WebInspector.timelineManager.isCapturing())
++                    WebInspector.timelineManager.stopCapturing();
++                var shouldCreateRecording = true;
++                WebInspector.timelineManager.startCapturing(shouldCreateRecording);
++
+                 return ReplayAgent.startCapturing();
+             }).catch(function(error) {
+                 console.error("Failed to start capturing: ", error);
+                 throw error;
+             });
+ 
+         return result;
+     },
+ 
+     // Stop capturing into the current session as soon as possible.
+     // Returns a promise that resolves when capturing ends.
+     stopCapturing: function() // --> ()
+     {
+         console.assert(this.sessionState === WebInspector.ReplayManager.SessionState.Capturing, "Cannot stop capturing unless capture is active.");
+         console.assert(this.segmentState === WebInspector.ReplayManager.SegmentState.Appending);
+ 
++        WebInspector.timelineManager.stopCapturing();
++
+         return ReplayAgent.stopCapturing()
+             .catch(function(error) {
+                 console.error("Failed to stop capturing: ", error);
+                 throw error;
+             });
+     },
+ 
+     // Pause playback as soon as possible.
+     // Returns a promise that resolves when playback is paused.
+     pausePlayback: function() // --> ()
+@@ -462,21 +475,21 @@ WebInspector.ReplayManager.prototype = {
+ 
+     playbackHitPosition: function(replayPosition)
+     {
+         if (!this._initialized)
+             return this.waitUntilInitialized().then(this.playbackHitPosition.bind(this, replayPosition));
+ 
+         console.assert(this.sessionState === WebInspector.ReplayManager.SessionState.Replaying);
+         console.assert(this.segmentState === WebInspector.ReplayManager.SegmentState.Dispatching);
+         console.assert(replayPosition instanceof WebInspector.ReplayPosition);
+ 
+-        this._currentPosition = replayPosition;
++        this._playbackPosition = replayPosition;
+         this.dispatchEventToListeners(WebInspector.ReplayManager.Event.PlaybackPositionChanged);
+     },
+ 
+     playbackPaused: function(position)
+     {
+         if (!this._initialized)
+             return this.waitUntilInitialized().then(this.playbackPaused.bind(this, position));
+ 
+         console.assert(this.sessionState === WebInspector.ReplayManager.SessionState.Replaying);
+         this._changeSegmentState(WebInspector.ReplayManager.SegmentState.Loaded);
+diff --git a/Source/WebInspectorUI/UserInterface/Controllers/TimelineManager.js b/Source/WebInspectorUI/UserInterface/Controllers/TimelineManager.js
+index 3f71642..3274e80 100644
+--- a/Source/WebInspectorUI/UserInterface/Controllers/TimelineManager.js
++++ b/Source/WebInspectorUI/UserInterface/Controllers/TimelineManager.js
+@@ -20,21 +20,21 @@
+  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ WebInspector.TimelineManager = function()
+ {
+     WebInspector.Object.call(this);
+ 
+-    WebInspector.Frame.addEventListener(WebInspector.Frame.Event.ProvisionalLoadStarted, this._startAutoCapturing, this);
++    WebInspector.Frame.addEventListener(WebInspector.Frame.Event.ProvisionalLoadStarted, this._provisionalLoadStarted, this);
+     WebInspector.Frame.addEventListener(WebInspector.Frame.Event.MainResourceDidChange, this._mainResourceDidChange, this);
+     WebInspector.Frame.addEventListener(WebInspector.Frame.Event.ResourceWasAdded, this._resourceWasAdded, this);
+ 
+     this._recordings = [];
+     this._activeRecording = null;
+     this._isCapturing = false;
+ 
+     this._nextRecordingIdentifier = 1;
+ 
+     this._boundStopCapturing = this.stopCapturing.bind(this);
+@@ -510,27 +510,38 @@ WebInspector.TimelineManager.prototype = {
+     {
+         // Only monitor dead time when auto capturing.
+         if (!this._isCapturing || !this._autoCapturingMainResource)
+             return;
+ 
+         if (this._deadTimeTimeout)
+             clearTimeout(this._deadTimeTimeout);
+         this._deadTimeTimeout = setTimeout(this._boundStopCapturing, WebInspector.TimelineManager.DeadTimeRequiredToStopAutoRecordingEarly);
+     },
+ 
++    _provisionalLoadStarted: function(event)
++    {
++        if (WebInspector.replayManager.sessionState === WebInspector.ReplayManager.SessionState.Replaying)
++            return;
++
++        this._startAutoCapturing(event);
++    },
++
+     _mainResourceDidChange: function(event)
+     {
+         // Ignore resource events when there isn't a main frame yet. Those events are triggered by
+         // loading the cached resources when the inspector opens, and they do not have timing information.
+         if (!WebInspector.frameResourceManager.mainFrame)
+             return;
+ 
++        if (WebInspector.replayManager.sessionState === WebInspector.ReplayManager.SessionState.Replaying)
++            return;
++
+         if (this._startAutoCapturing(event))
+             return;
+ 
+         if (!this._isCapturing)
+             return;
+ 
+         var mainResource = event.target.mainResource;
+         if (mainResource === this._autoCapturingMainResource)
+             return;
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Main.html b/Source/WebInspectorUI/UserInterface/Main.html
+index 3698bf4..2b82171 100644
+--- a/Source/WebInspectorUI/UserInterface/Main.html
++++ b/Source/WebInspectorUI/UserInterface/Main.html
+@@ -243,20 +243,21 @@
+     <script src="Models/LogObject.js"></script>
+     <script src="Models/NetworkTimeline.js"></script>
+     <script src="Models/Probe.js"></script>
+     <script src="Models/ProbeSet.js"></script>
+     <script src="Models/ProbeSetDataFrame.js"></script>
+     <script src="Models/ProbeSetDataTable.js"></script>
+     <script src="Models/Profile.js"></script>
+     <script src="Models/ProfileNode.js"></script>
+     <script src="Models/ProfileNodeCall.js"></script>
+     <script src="Models/ReplayDashboard.js"></script>
++    <script src="Models/ReplayPosition.js"></script>
+     <script src="Models/ReplaySession.js"></script>
+     <script src="Models/ReplaySessionSegment.js"></script>
+     <script src="Models/Resource.js"></script>
+     <script src="Models/ResourceCollection.js"></script>
+     <script src="Models/ResourceSearchMatchObject.js"></script>
+     <script src="Models/ResourceTimelineRecord.js"></script>
+     <script src="Models/Revision.js"></script>
+     <script src="Models/ScopeChainNode.js"></script>
+     <script src="Models/Script.js"></script>
+     <script src="Models/ScriptSyntaxTree.js"></script>
+diff --git a/Source/WebInspectorUI/UserInterface/Models/ReplayPosition.js b/Source/WebInspectorUI/UserInterface/Models/ReplayPosition.js
+new file mode 100644
+index 0000000..2ac0c24
+--- /dev/null
++++ b/Source/WebInspectorUI/UserInterface/Models/ReplayPosition.js
+@@ -0,0 +1,73 @@
++/*
++ * Copyright (C) 2014 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
++ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
++ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
++ * THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++// ReplayPosition refers to where playback has run _up to_, exclusive of the input
++// at the given position. Thus, it's possible for inputOffset to equal the number of inputs.
++WebInspector.ReplayPosition = function(segmentOffset, inputOffset)
++{
++    this.segmentOffset = segmentOffset;
++    this.inputOffset = inputOffset;
++};
++
++WebInspector.ReplayPosition.fromProtocol = function(payload)
++{
++    return new WebInspector.ReplayPosition(payload.segmentOffset, payload.inputOffset);
++};
++
++WebInspector.ReplayPosition.prototype = {
++    constructor: WebInspector.ReplayPosition,
++    __proto__: WebInspector.Object.prototype,
++
++    elapsedTimeWithinSession: function(session)
++    {
++        console.assert(session instanceof WebInspector.ReplaySession, session);
++        console.assert(this.segmentOffset < session.segments.length);
++        console.assert(this.inputOffset <= session.segments[this.segmentOffset].eventLoopInputs.length);
++
++        var elapsedTime = 0;
++        var segments = session.segments;
++        for (var i = 0; i < this.segmentOffset; ++i)
++            elapsedTime += segments[i].duration;
++
++        var inputOffset = Number.constrain(this.inputOffset, 0, segments[this.segmentOffset].eventLoopInputs.length - 1);
++        var input = segments[this.segmentOffset].eventLoopInputs[inputOffset];
++        return elapsedTime + input.timestamp;
++    },
++
++    nextPositionWithinSession:  function(session)
++    {
++        console.assert(session instanceof WebInspector.ReplaySession, session);
++        console.assert(this.segmentOffset < session.segments.length);
++        console.assert(this.inputOffset <= session.segments[this.segmentOffset].eventLoopInputs.length);
++
++        var currentSegment = session.segments[this.segmentOffset];
++        var nextSegment = (this.segmentOffset + 1 < session.segments.length) ? session.segments[this.segmentOffset] : null;
++
++        if (this.inputOffset === currentSegment.eventLoopInputs.length)
++            return nextSegment ? new WebInspector.ReplayPosition(this.segmentOffset + 1, 0) : null;
++
++        return new WebInspector.ReplayPosition(this.segmentOffset, this.inputOffset + 1);
++    }
++};
+diff --git a/Source/WebInspectorUI/UserInterface/Models/ReplaySession.js b/Source/WebInspectorUI/UserInterface/Models/ReplaySession.js
+index c11a3ed..1431d5d 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/ReplaySession.js
++++ b/Source/WebInspectorUI/UserInterface/Models/ReplaySession.js
+@@ -50,21 +50,21 @@ WebInspector.ReplaySession.prototype = {
+     __proto__: WebInspector.Object.prototype,
+ 
+     get segments()
+     {
+         return this._segments.slice();
+     },
+ 
+     segmentsChanged: function()
+     {
+         // The replay manager won't update the session's list of segments nor create a new session.
+-        ReplayAgent.getSessionData.promise(this.identifier)
++        ReplayAgent.getSessionData(this.identifier)
+             .then(this._updateFromPayload.bind(this));
+     },
+ 
+     _updateFromPayload: function(payload)
+     {
+         var session = payload.session;
+         console.assert(session.id === this.identifier);
+ 
+         var segmentIds = session.segments;
+         var oldSegments = this._segments;
+diff --git a/Source/WebInspectorUI/UserInterface/Models/ReplaySessionSegment.js b/Source/WebInspectorUI/UserInterface/Models/ReplaySessionSegment.js
+index c25ea02..5a5b524 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/ReplaySessionSegment.js
++++ b/Source/WebInspectorUI/UserInterface/Models/ReplaySessionSegment.js
+@@ -56,12 +56,25 @@ WebInspector.ReplaySessionSegment = function(identifier, payload)
+     this._queues = segment.queues;
+ };
+ 
+ WebInspector.ReplaySessionSegment.prototype = {
+     constructor: WebInspector.ReplaySessionSegment,
+     __proto__: WebInspector.Object.prototype,
+ 
+     get isComplete()
+     {
+         return true;
++    },
++
++    get duration()
++    {
++        var inputs = this.eventLoopInputs;
++        return inputs.length ? inputs.lastValue.timestamp : 0.0;
++    },
++
++    get eventLoopInputs()
++    {
++        for (var queue of this._queues)
++            if (queue.type === "EventLoopInput")
++                return queue.inputs;
+     }
+ };
+diff --git a/Source/WebInspectorUI/UserInterface/Protocol/ReplayObserver.js b/Source/WebInspectorUI/UserInterface/Protocol/ReplayObserver.js
+index 36bd03c..a0a5a22 100644
+--- a/Source/WebInspectorUI/UserInterface/Protocol/ReplayObserver.js
++++ b/Source/WebInspectorUI/UserInterface/Protocol/ReplayObserver.js
+@@ -17,31 +17,20 @@
+  * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+  * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+-WebInspector.ReplayPosition = function(segmentOffset, inputOffset)
+-{
+-    this.segmentOffset = segmentOffset;
+-    this.inputOffset = inputOffset;
+-};
+-
+-WebInspector.ReplayPosition.fromProtocol = function(payload)
+-{
+-    return new WebInspector.ReplayPosition(payload.segmentOffset, payload.inputOffset);
+-};
+-
+ WebInspector.ReplayObserver = function()
+ {
+     WebInspector.Object.call(this);
+ };
+ 
+ WebInspector.ReplayObserver.prototype = {
+     constructor: WebInspector.ReplayObserver,
+     __proto__: WebInspector.Object.prototype,
+ 
+     captureStarted: function()
+diff --git a/Source/WebInspectorUI/UserInterface/Test.html b/Source/WebInspectorUI/UserInterface/Test.html
+index 4dc1e87..bdd31b2 100644
+--- a/Source/WebInspectorUI/UserInterface/Test.html
++++ b/Source/WebInspectorUI/UserInterface/Test.html
+@@ -90,20 +90,21 @@
+     <script src="Models/LayoutTimelineRecord.js"></script>
+     <script src="Models/LazySourceCodeLocation.js"></script>
+     <script src="Models/NetworkTimeline.js"></script>
+     <script src="Models/Probe.js"></script>
+     <script src="Models/ProbeSet.js"></script>
+     <script src="Models/ProbeSetDataFrame.js"></script>
+     <script src="Models/ProbeSetDataTable.js"></script>
+     <script src="Models/Profile.js"></script>
+     <script src="Models/ProfileNode.js"></script>
+     <script src="Models/ProfileNodeCall.js"></script>
++    <script src="Models/ReplayPosition.js"></script>
+     <script src="Models/ReplaySession.js"></script>
+     <script src="Models/ReplaySessionSegment.js"></script>
+     <script src="Models/Resource.js"></script>
+     <script src="Models/ResourceCollection.js"></script>
+     <script src="Models/ResourceTimelineRecord.js"></script>
+     <script src="Models/Revision.js"></script>
+     <script src="Models/ScopeChainNode.js"></script>
+     <script src="Models/Script.js"></script>
+     <script src="Models/ScriptSyntaxTree.js"></script>
+     <script src="Models/ScriptTimelineRecord.js"></script>
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineContentView.js b/Source/WebInspectorUI/UserInterface/Views/TimelineContentView.js
+index a203f2e..75f9902 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineContentView.js
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineContentView.js
+@@ -91,20 +91,25 @@ WebInspector.TimelineContentView = function(recording)
+     this._currentTime = NaN;
+     this._lastUpdateTimestamp = NaN;
+     this._startTimeNeedsReset = true;
+ 
+     recording.addEventListener(WebInspector.TimelineRecording.Event.Reset, this._recordingReset, this);
+     recording.addEventListener(WebInspector.TimelineRecording.Event.Unloaded, this._recordingUnloaded, this);
+ 
+     WebInspector.timelineManager.addEventListener(WebInspector.TimelineManager.Event.CapturingStarted, this._capturingStarted, this);
+     WebInspector.timelineManager.addEventListener(WebInspector.TimelineManager.Event.CapturingStopped, this._capturingStopped, this);
+ 
++    WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.CaptureStarted, this._replayCaptureStarted, this);
++    WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.CaptureStopped, this._replayCaptureStopped, this);
++    WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.PlaybackPositionChanged, this._playbackPositionChanged, this);
++    WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.ActiveSessionChanged, this._playbackSessionChanged, this);
++
+     WebInspector.debuggerManager.addEventListener(WebInspector.DebuggerManager.Event.Paused, this._debuggerPaused, this);
+     WebInspector.debuggerManager.addEventListener(WebInspector.DebuggerManager.Event.Resumed, this._debuggerResumed, this);
+ 
+     this.showOverviewTimelineView();
+ };
+ 
+ WebInspector.TimelineContentView.StyleClassName = "timeline";
+ WebInspector.TimelineContentView.ViewContainerStyleClassName = "view-container";
+ 
+ WebInspector.TimelineContentView.SelectedTimelineTypeCookieKey = "timeline-content-view-selected-timeline-type";
+@@ -389,34 +394,59 @@ WebInspector.TimelineContentView.prototype = {
+     },
+ 
+     _stopUpdatingCurrentTime: function()
+     {
+         console.assert(this._updating);
+         this._updating = false;
+ 
+         if (this._waitingToResetCurrentTime) {
+             // Did not get any event while waiting for the current time, but we should stop waiting.
+             this._recording.removeEventListener(WebInspector.TimelineRecording.Event.TimesUpdated, this._recordingTimesUpdated, this);
+-            this._waitingToResetCurrentTime = false;            
++            this._waitingToResetCurrentTime = false;
+         }
+     },
+ 
+     _capturingStarted: function(event)
+     {
+         this._startUpdatingCurrentTime();
+     },
+ 
+     _capturingStopped: function(event)
+     {
+         this._stopUpdatingCurrentTime();
+     },
+ 
++    _replayCaptureStarted: function(event)
++    {
++        this._timelineOverview.shouldDisplayFutureRecords = false;
++    },
++
++    _replayCaptureStopped: function(event)
++    {
++        this._timelineOverview.shouldDisplayFutureRecords = true;
++    },
++
++    _playbackSessionChanged: function(event)
++    {
++        if (!WebInspector.replayManager.playbackSession.segments.length)
++            this._timelineOverview.shouldDisplayFutureRecords = false;
++    },
++
++    _playbackPositionChanged: function(event)
++    {
++        var position = WebInspector.replayManager.playbackPosition;
++        var session = WebInspector.replayManager.playbackSession;
++        var elapsedTime = position.elapsedTimeWithinSession(session);
++
++        this._updateTimes(this._recording.startTime, elapsedTime, this._recording.endTime);
++    },
++
+     _debuggerPaused: function(event)
+     {
+         if (WebInspector.replayManager.sessionState === WebInspector.ReplayManager.SessionState.Replaying)
+             return;
+ 
+         this._stopUpdatingCurrentTime();
+     },
+ 
+     _debuggerResumed: function(event)
+     {
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineOverview.js b/Source/WebInspectorUI/UserInterface/Views/TimelineOverview.js
+index c2f563b..cfc408a 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineOverview.js
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineOverview.js
+@@ -66,20 +66,22 @@ WebInspector.TimelineOverview = function(timelineOverviewGraphsMap)
+ 
+     this._startTime = 0;
+     this._currentTime = 0;
+     this._endTime = 0;
+     this._secondsPerPixel = this._secondsPerPixelSetting.value;
+     this._scrollStartTime = 0;
+     this._cachedScrollContainerWidth = NaN;
+ 
+     this.selectionStartTime = this._selectionStartTimeSetting.value;
+     this.selectionDuration = this._selectionDurationSetting.value;
++
++    this._shouldDisplayFutureRecords = false;
+ };
+ 
+ WebInspector.TimelineOverview.StyleClassName = "timeline-overview";
+ WebInspector.TimelineOverview.GraphsContainerStyleClassName = "graphs-container";
+ WebInspector.TimelineOverview.ScrollContainerStyleClassName = "scroll-container";
+ WebInspector.TimelineOverview.ScrollWidthSizerStyleClassName = "scroll-width-sizer";
+ WebInspector.TimelineOverview.MinimumSecondsPerPixel = 0.001;
+ WebInspector.TimelineOverview.ScrollDeltaDenominator = 500;
+ 
+ WebInspector.TimelineOverview.Event = {
+@@ -204,20 +206,37 @@ WebInspector.TimelineOverview.prototype = {
+     {
+         return this._timelineRuler.selectionEndTime - this._timelineRuler.selectionStartTime;
+     },
+ 
+     set selectionDuration(x)
+     {
+         x = Math.max(WebInspector.TimelineRuler.MinimumSelectionTimeRange, x);
+         this._timelineRuler.selectionEndTime = this._timelineRuler.selectionStartTime + x;
+     },
+ 
++    get shouldDisplayFutureRecords()
++    {
++        return this._shouldDisplayFutureRecords;
++    },
++
++    set shouldDisplayFutureRecords(x)
++    {
++        if (x === this._shouldDisplayFutureRecords)
++            return;
++
++        this._shouldDisplayFutureRecords = x;
++        for (var timelineOverviewGraph of this._timelineOverviewGraphsMap.values())
++            timelineOverviewGraph.shouldDisplayFutureRecords = x;
++
++        this._needsLayout();
++    },
++
+     addMarker: function(marker)
+     {
+         this._timelineRuler.addMarker(marker);
+     },
+ 
+     revealMarker: function(marker)
+     {
+         this.scrollStartTime = marker.time - (this.visibleDuration / 2);
+     },
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineOverviewGraph.js b/Source/WebInspectorUI/UserInterface/Views/TimelineOverviewGraph.js
+index 1f6e4e7..1bbd9fd 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineOverviewGraph.js
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineOverviewGraph.js
+@@ -49,20 +49,22 @@ WebInspector.TimelineOverviewGraph = function(timeline)
+     WebInspector.Object.call(this);
+ 
+     this.element = document.createElement("div");
+     this.element.classList.add(WebInspector.TimelineOverviewGraph.StyleClassName);
+ 
+     this._zeroTime = 0;
+     this._startTime = 0;
+     this._endTime = 5;
+     this._currentTime = 0;
+     this._timelineOverview = null;
++
++    this._shouldDisplayFutureRecords = false;
+ };
+ 
+ WebInspector.TimelineOverviewGraph.StyleClassName = "timeline-overview-graph";
+ 
+ WebInspector.TimelineOverviewGraph.prototype = {
+     constructor: WebInspector.TimelineOverviewGraph,
+     __proto__: WebInspector.Object.prototype,
+ 
+     // Public
+ 
+@@ -132,20 +134,34 @@ WebInspector.TimelineOverviewGraph.prototype = {
+     get timelineOverview()
+     {
+         return this._timelineOverview;
+     },
+ 
+     set timelineOverview(x)
+     {
+         this._timelineOverview = x;
+     },
+ 
++    get shouldDisplayFutureRecords()
++    {
++        return this._shouldDisplayFutureRecords;
++    },
++
++    set shouldDisplayFutureRecords(x)
++    {
++        if (x === this._shouldDisplayFutureRecords)
++            return;
++
++        this._shouldDisplayFutureRecords = x;
++        this.needsLayout();
++    },
++
+     reset: function()
+     {
+         // Implemented by sub-classes if needed.
+     },
+ 
+     updateLayout: function()
+     {
+         if (this._scheduledLayoutUpdateIdentifier) {
+             cancelAnimationFrame(this._scheduledLayoutUpdateIdentifier);
+             delete this._scheduledLayoutUpdateIdentifier;
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineRecordBar.js b/Source/WebInspectorUI/UserInterface/Views/TimelineRecordBar.js
+index 8b0c0b0..aa4d1db 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineRecordBar.js
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineRecordBar.js
+@@ -69,21 +69,21 @@ WebInspector.TimelineRecordBar.createCombinedBars = function(records, secondsPer
+     for (var record of records) {
+         if (isNaN(record.startTime))
+             continue;
+ 
+         // If this bar is completely before the bounds of the graph, skip this record.
+         if (record.endTime < startTime)
+             continue;
+ 
+         // If this record is completely after the current time or end time, break out now.
+         // Records are sorted, so all records after this will be beyond the current or end time too.
+-        if (record.startTime > currentTime || record.startTime > endTime)
++        if (!graphDataSource.shouldDisplayFutureRecords && (record.startTime > currentTime || record.startTime > endTime))
+             break;
+ 
+         if (record.usesActiveStartTime)
+             usesActiveStartTime = true;
+ 
+         // If one record uses active time the rest are assumed to use it.
+         console.assert(record.usesActiveStartTime === usesActiveStartTime);
+ 
+         // Only a single record type is supported right now.
+         console.assert(!lastRecordType || record.type === lastRecordType);
+-- 
+2.0.1
+

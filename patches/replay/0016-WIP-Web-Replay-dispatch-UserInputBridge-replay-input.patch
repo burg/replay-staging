@@ -1,0 +1,1372 @@
+From fb9c602f32322fa1383e8c0cf4d39baaa8e8baca Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Thu, 21 Aug 2014 13:29:17 -0700
+Subject: [PATCH] WIP: Web Replay: dispatch UserInputBridge replay inputs from
+ WK2 instead
+
+---
+ .../replay/scripts/CodeGeneratorReplayInputs.py    |   5 +-
+ Source/WebCore/WebCore.exp.in                      |  16 ++--
+ Source/WebCore/replay/EventLoopInputDispatcher.cpp |   1 -
+ Source/WebCore/replay/UserInputBridge.cpp          |  72 --------------
+ Source/WebCore/replay/UserInputBridge.h            |   8 +-
+ Source/WebCore/replay/WebInputs.json               |  29 ------
+ Source/WebCore/replay/WebReplayInputCoders.cpp     |  47 ---------
+ Source/WebCore/replay/WebReplayInputCoders.h       |  15 +--
+ .../replay/WebReplayInputDispatchMethods.cpp       |  18 ----
+ Source/WebKit2/CMakeLists.txt                      |   1 +
+ Source/WebKit2/Shared/WebEvent.h                   |   6 +-
+ Source/WebKit2/WebKit2.xcodeproj/project.pbxproj   |   4 +-
+ Source/WebKit2/WebProcess/Replay/WKInputs.json     |  55 +++++++++--
+ .../WebProcess/Replay/WKReplayInputCoders.cpp      | 105 ++++++++++++++++++++-
+ .../WebProcess/Replay/WKReplayInputCoders.h        |  11 +++
+ .../WebKit2/WebProcess/Replay/WebEventLoopInput.h  |   2 +-
+ Source/WebKit2/WebProcess/WebPage/WebPage.cpp      |  47 ++++++---
+ Source/WebKit2/WebProcess/WebPage/WebPage.h        |   8 ++
+ 18 files changed, 231 insertions(+), 219 deletions(-)
+
+diff --git a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
+index 489868d..a159ab4 100644
+--- a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
++++ b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
+@@ -68,29 +68,26 @@ GLOBAL_CONFIG = {
+         (["Test"],
+             ("WebCore", "platform/ExternalNamespaceHeaderIncludeDummy.h")
+         ),
+         (["Test"],
+             ("Test", "platform/InternalNamespaceHeaderIncludeDummy.h")
+         )
+     ],
+ 
+     "implIncludes": [
+         (["WebKit", "WebCore"],
+-            ("WebCore", "replay/ReplayInputTypes.h")
+-        ),
+-        (["WebKit", "WebCore"],
+             ("WebCore", "replay/WebReplayInputCoders.h")
+         ),
+         (["WebKit", "WebCore", "JavaScriptCore"],
+             ("JavaScriptCore", "inspector/InspectorValues.h")
+         ),
+-        (["WebCore", "JavaScriptCore"],
++        (["WebKit", "WebCore", "JavaScriptCore"],
+             ("WTF", "wtf/NeverDestroyed.h")
+         ),
+ 
+         # Testing fixtures.
+         (["Test"],
+             ("WebCore", "platform/ExternalNamespaceImplIncludeDummy.h")
+         ),
+         (["Test"],
+             ("Test", "platform/InternalNamespaceImplIncludeDummy.h")
+         )
+diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
+index 0c61eef..26ddbf1 100644
+--- a/Source/WebCore/WebCore.exp.in
++++ b/Source/WebCore/WebCore.exp.in
+@@ -207,20 +207,21 @@ __ZN7WebCore11writeToFileEiPKci
+ __ZN7WebCore12BlobDataItem11toEndOfFileE
+ __ZN7WebCore12BlobRegistryD2Ev
+ __ZN7WebCore12DOMWindowCSS6createEv
+ __ZN7WebCore12DataTransferD1Ev
+ __ZN7WebCore12EditingStyleD1Ev
+ __ZN7WebCore12EventHandler10mouseMovedERKNS_18PlatformMouseEventE
+ __ZN7WebCore12EventHandler14scrollOverflowENS_15ScrollDirectionENS_17ScrollGranularityEPNS_4NodeE
+ __ZN7WebCore12EventHandler15handleAccessKeyERKNS_21PlatformKeyboardEventE
+ __ZN7WebCore12EventHandler16handleWheelEventERKNS_18PlatformWheelEventE
+ __ZN7WebCore12EventHandler17scrollRecursivelyENS_15ScrollDirectionENS_17ScrollGranularityEPNS_4NodeE
++__ZN7WebCore12EventHandler20handleMouseMoveEventERKNS_18PlatformMouseEventEPNS_13HitTestResultEb
+ __ZN7WebCore12EventHandler20hitTestResultAtPointERKNS_11LayoutPointEjRKNS_10LayoutSizeE
+ __ZN7WebCore12EventHandler21handleMousePressEventERKNS_18PlatformMouseEventE
+ __ZN7WebCore12EventHandler23handleMouseReleaseEventERKNS_18PlatformMouseEventE
+ __ZN7WebCore12EventHandler24logicalScrollRecursivelyENS_22ScrollLogicalDirectionENS_17ScrollGranularityEPNS_4NodeE
+ __ZN7WebCore12EventHandler30setCapturingMouseEventsElementEN3WTF10PassRefPtrINS_7ElementEEE
+ __ZN7WebCore12EventHandler31passMouseMovedEventToScrollbarsERKNS_18PlatformMouseEventE
+ __ZN7WebCore12EventHandler8keyEventERKNS_21PlatformKeyboardEventE
+ __ZN7WebCore12GCController17garbageCollectNowEv
+ __ZN7WebCore12GCController18garbageCollectSoonEv
+ __ZN7WebCore12GCController41setJavaScriptGarbageCollectorTimerEnabledEb
+@@ -658,24 +659,20 @@ __ZN7WebCore15StringTruncator13rightTruncateERKN3WTF6StringEfRKNS_4FontENS0_24En
+ __ZN7WebCore15StringTruncator14centerTruncateERKN3WTF6StringEfRKNS_4FontENS0_24EnableRoundingHacksOrNotE
+ __ZN7WebCore15StringTruncator5widthERKN3WTF6StringERKNS_4FontENS0_24EnableRoundingHacksOrNotE
+ __ZN7WebCore15UserInputBridge11loadRequestERKNS_16FrameLoadRequestENS_11InputSourceE
+ __ZN7WebCore15UserInputBridge11reloadFrameEPNS_5FrameEbNS_11InputSourceE
+ __ZN7WebCore15UserInputBridge12tryClosePageENS_11InputSourceE
+ __ZN7WebCore15UserInputBridge14handleKeyEventERKNS_21PlatformKeyboardEventENS_11InputSourceE
+ __ZN7WebCore15UserInputBridge16handleWheelEventERKNS_18PlatformWheelEventENS_11InputSourceE
+ __ZN7WebCore15UserInputBridge16stopLoadingFrameEPNS_5FrameENS_11InputSourceE
+ __ZN7WebCore15UserInputBridge17scrollRecursivelyENS_15ScrollDirectionENS_17ScrollGranularityENS_11InputSourceE
+ __ZN7WebCore15UserInputBridge20handleAccessKeyEventERKNS_21PlatformKeyboardEventENS_11InputSourceE
+-__ZN7WebCore15UserInputBridge20handleMouseMoveEventERKNS_18PlatformMouseEventENS_11InputSourceE
+-__ZN7WebCore15UserInputBridge21handleMousePressEventERKNS_18PlatformMouseEventENS_11InputSourceE
+-__ZN7WebCore15UserInputBridge23handleMouseReleaseEventERKNS_18PlatformMouseEventENS_11InputSourceE
+-__ZN7WebCore15UserInputBridge31handleMouseMoveOnScrollbarEventERKNS_18PlatformMouseEventENS_11InputSourceE
+ __ZN7WebCore15VisiblePositionC1ERKNS_8PositionENS_9EAffinityE
+ __ZN7WebCore15defaultLanguageEv
+ __ZN7WebCore15localizedStringEPKc
+ __ZN7WebCore15mimeTypeFromURLERKNS_3URLE
+ __ZN7WebCore15originalURLDataEP5NSURL
+ __ZN7WebCore15pathGetFileNameERKN3WTF6StringE
+ __ZN7WebCore15reportExceptionEPN3JSC9ExecStateENS0_7JSValueEPNS_12CachedScriptE
+ __ZN7WebCore15setDOMExceptionEPN3JSC9ExecStateEi
+ __ZN7WebCore15visitedLinkHashEPKtj
+ __ZN7WebCore15visitedLinkHashERKN3WTF6StringE
+@@ -3523,44 +3520,38 @@ __ZN3JSC11InputTraitsIN7WebCore14LoadURLRequestEE6decodeERNS_12EncodedValueERNSt
+ __ZN3JSC11InputTraitsIN7WebCore14LoadURLRequestEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore15AsyncTimerFiredEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore15AsyncTimerFiredEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore15AsyncTimerFiredEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore15DOMTimerCreatedEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore15DOMTimerCreatedEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore15DOMTimerCreatedEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6encodeERNS_12EncodedValueERKS2_
+-__ZN3JSC11InputTraitsIN7WebCore15HandleMouseMoveEE4typeEv
+-__ZN3JSC11InputTraitsIN7WebCore15HandleMouseMoveEE6encodeERNS_12EncodedValueERKS2_
+-__ZN3JSC11InputTraitsIN7WebCore16HandleMousePressEE4typeEv
+-__ZN3JSC11InputTraitsIN7WebCore16HandleMousePressEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore16HandleWheelEventEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore16HandleWheelEventEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore16HandleWheelEventEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore17InitialNavigationEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore17InitialNavigationEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore17InitialNavigationEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore17InitializeHistoryEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore17InitializeHistoryEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore17InitializeHistoryEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore17LogicalScrollPageEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore17LogicalScrollPageEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore17LogicalScrollPageEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6encodeERNS_12EncodedValueERKS2_
+-__ZN3JSC11InputTraitsIN7WebCore18HandleMouseReleaseEE4typeEv
+-__ZN3JSC11InputTraitsIN7WebCore18HandleMouseReleaseEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore21MemoizedDOMResultBaseEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore21MemoizedDOMResultBaseEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore21MemoizedDOMResultBaseEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore21ResourceLoaderDidFailEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore21ResourceLoaderDidFailEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore21ResourceLoaderDidFailEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore24DocumentLastModifiedDateEE4typeEv
+@@ -3571,15 +3562,20 @@ __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6decodeERNS_12Encode
+ __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore32ResourceLoaderDidReceiveResponseEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore32ResourceLoaderDidReceiveResponseEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore32ResourceLoaderDidReceiveResponseEE6encodeERNS_12EncodedValueERKS2_
++__ZN3JSC14EncodingTraitsIN7WebCore8IntPointEE11encodeValueERKS2_
++__ZN7WebCore20EventLoopInputExtentC1ERN3JSC11InputCursorE
++__ZN7WebCore20EventLoopInputExtentD1Ev
++__ZNK7WebCore14ResourceLoader17activeInputCursorEv
++__ZNK7WebCore16ReplayController17activeInputCursorEv
+ #endif
+ 
+ #if ENABLE(WEB_TIMING)
+ __ZNK7WebCore20ResourceResponseBase18resourceLoadTimingEv
+ #endif
+diff --git a/Source/WebCore/replay/EventLoopInputDispatcher.cpp b/Source/WebCore/replay/EventLoopInputDispatcher.cpp
+index 0c835b6..6909cf7 100644
+--- a/Source/WebCore/replay/EventLoopInputDispatcher.cpp
++++ b/Source/WebCore/replay/EventLoopInputDispatcher.cpp
+@@ -24,21 +24,20 @@
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #include "config.h"
+ #include "EventLoopInputDispatcher.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include "Page.h"
+-#include "ReplayInputTypes.h"
+ #include "ReplayClient.h"
+ #include "ReplayController.h"
+ #include "ReplayingInputCursor.h"
+ #include "WebReplayInputs.h"
+ #include <wtf/TemporaryChange.h>
+ 
+ #if !LOG_DISABLED
+ #include "Logging.h"
+ #include "WebReplayInputCoders.h"
+ #include <replay/EncodedValue.h>
+diff --git a/Source/WebCore/replay/UserInputBridge.cpp b/Source/WebCore/replay/UserInputBridge.cpp
+index f1b5c93..0b1fd29 100644
+--- a/Source/WebCore/replay/UserInputBridge.cpp
++++ b/Source/WebCore/replay/UserInputBridge.cpp
+@@ -75,92 +75,20 @@ InputCursor& UserInputBridge::activeCursor() const
+ }
+ #endif
+ 
+ #if ENABLE(CONTEXT_MENUS)
+ bool UserInputBridge::handleContextMenuEvent(const PlatformMouseEvent& mouseEvent, const Frame* frame, InputSource)
+ {
+     return frame->eventHandler().sendContextMenuEvent(mouseEvent);
+ }
+ #endif
+ 
+-bool UserInputBridge::handleMousePressEvent(const PlatformMouseEvent& mouseEvent, InputSource inputSource)
+-{
+-#if ENABLE(WEB_REPLAY)
+-    EARLY_RETURN_IF_SHOULD_IGNORE_INPUT;
+-
+-    InputCursor& cursor = activeCursor();
+-    if (cursor.isCapturing()) {
+-        std::unique_ptr<PlatformMouseEvent> ownedEvent = std::make_unique<PlatformMouseEvent>(mouseEvent);
+-        cursor.appendInput<HandleMousePress>(WTF::move(ownedEvent));
+-    }
+-    EventLoopInputExtent extent(cursor);
+-#else
+-    UNUSED_PARAM(inputSource);
+-#endif
+-
+-    return m_page.mainFrame().eventHandler().handleMousePressEvent(mouseEvent);
+-}
+-
+-bool UserInputBridge::handleMouseReleaseEvent(const PlatformMouseEvent& mouseEvent, InputSource inputSource)
+-{
+-#if ENABLE(WEB_REPLAY)
+-    EARLY_RETURN_IF_SHOULD_IGNORE_INPUT;
+-
+-    InputCursor& cursor = activeCursor();
+-    if (cursor.isCapturing()) {
+-        std::unique_ptr<PlatformMouseEvent> ownedEvent = std::make_unique<PlatformMouseEvent>(mouseEvent);
+-        cursor.appendInput<HandleMouseRelease>(WTF::move(ownedEvent));
+-    }
+-    EventLoopInputExtent extent(cursor);
+-#else
+-    UNUSED_PARAM(inputSource);
+-#endif
+-
+-    return m_page.mainFrame().eventHandler().handleMouseReleaseEvent(mouseEvent);
+-}
+-
+-bool UserInputBridge::handleMouseMoveEvent(const PlatformMouseEvent& mouseEvent, InputSource inputSource)
+-{
+-#if ENABLE(WEB_REPLAY)
+-    EARLY_RETURN_IF_SHOULD_IGNORE_INPUT;
+-
+-    InputCursor& cursor = activeCursor();
+-    if (cursor.isCapturing()) {
+-        std::unique_ptr<PlatformMouseEvent> ownedEvent = std::make_unique<PlatformMouseEvent>(mouseEvent);
+-        cursor.appendInput<HandleMouseMove>(WTF::move(ownedEvent), false);
+-    }
+-    EventLoopInputExtent extent(cursor);
+-#else
+-    UNUSED_PARAM(inputSource);
+-#endif
+-
+-    return m_page.mainFrame().eventHandler().mouseMoved(mouseEvent);
+-}
+-
+-bool UserInputBridge::handleMouseMoveOnScrollbarEvent(const PlatformMouseEvent& mouseEvent, InputSource inputSource)
+-{
+-#if ENABLE(WEB_REPLAY)
+-    EARLY_RETURN_IF_SHOULD_IGNORE_INPUT;
+-
+-    InputCursor& cursor = activeCursor();
+-    if (cursor.isCapturing()) {
+-        std::unique_ptr<PlatformMouseEvent> ownedEvent = std::make_unique<PlatformMouseEvent>(mouseEvent);
+-        cursor.appendInput<HandleMouseMove>(WTF::move(ownedEvent), true);
+-    }
+-    EventLoopInputExtent extent(cursor);
+-#else
+-    UNUSED_PARAM(inputSource);
+-#endif
+-
+-    return m_page.mainFrame().eventHandler().passMouseMovedEventToScrollbars(mouseEvent);
+-}
+-
+ bool UserInputBridge::handleKeyEvent(const PlatformKeyboardEvent& keyEvent, InputSource inputSource)
+ {
+ #if ENABLE(WEB_REPLAY)
+     EARLY_RETURN_IF_SHOULD_IGNORE_INPUT;
+ 
+     InputCursor& cursor = activeCursor();
+     if (cursor.isCapturing()) {
+         std::unique_ptr<PlatformKeyboardEvent> ownedEvent = std::make_unique<PlatformKeyboardEvent>(keyEvent);
+         cursor.appendInput<HandleKeyPress>(WTF::move(ownedEvent));
+     }
+diff --git a/Source/WebCore/replay/UserInputBridge.h b/Source/WebCore/replay/UserInputBridge.h
+index 79b7185..47b954f 100644
+--- a/Source/WebCore/replay/UserInputBridge.h
++++ b/Source/WebCore/replay/UserInputBridge.h
+@@ -67,31 +67,33 @@ public:
+     void setState(State bridgeState) { m_state = bridgeState; }
+     State state() const { return m_state; }
+ 
+     JSC::InputCursor& activeCursor() const;
+ #endif
+ 
+     // User input APIs.
+ #if ENABLE(CONTEXT_MENUS)
+     WEBCORE_EXPORT bool handleContextMenuEvent(const PlatformMouseEvent&, const Frame*, InputSource source = InputSource::User);
+ #endif
++/*
+     WEBCORE_EXPORT bool handleMousePressEvent(const PlatformMouseEvent&, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool handleMouseReleaseEvent(const PlatformMouseEvent&, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool handleMouseMoveEvent(const PlatformMouseEvent&, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool handleMouseMoveOnScrollbarEvent(const PlatformMouseEvent&, InputSource source = InputSource::User);
++*/
+     WEBCORE_EXPORT bool handleWheelEvent(const PlatformWheelEvent&, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool handleKeyEvent(const PlatformKeyboardEvent&, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool handleAccessKeyEvent(const PlatformKeyboardEvent&, InputSource source = InputSource::User);
+-    void focusSetActive(bool active, InputSource source = InputSource::User);
+-    void focusSetFocused(bool focused, InputSource source = InputSource::User);
++    WEBCORE_EXPORT void focusSetActive(bool active, InputSource source = InputSource::User);
++    WEBCORE_EXPORT void focusSetFocused(bool focused, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool scrollRecursively(ScrollDirection, ScrollGranularity, InputSource source = InputSource::User);
+-    bool logicalScrollRecursively(ScrollLogicalDirection, ScrollGranularity, InputSource source = InputSource::User);
++    WEBCORE_EXPORT bool logicalScrollRecursively(ScrollLogicalDirection, ScrollGranularity, InputSource source = InputSource::User);
+ 
+     // Navigation APIs.
+     WEBCORE_EXPORT void loadRequest(const FrameLoadRequest&, InputSource source = InputSource::User);
+     WEBCORE_EXPORT void reloadFrame(Frame*, bool endToEndReload, InputSource source = InputSource::User);
+     WEBCORE_EXPORT void stopLoadingFrame(Frame*, InputSource source = InputSource::User);
+     WEBCORE_EXPORT bool tryClosePage(InputSource source = InputSource::User);
+ 
+ private:
+     Page& m_page;
+ #if ENABLE(WEB_REPLAY)
+diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
+index 8f8fd78..8409e81 100644
+--- a/Source/WebCore/replay/WebInputs.json
++++ b/Source/WebCore/replay/WebInputs.json
+@@ -61,24 +61,20 @@
+             },
+             {
+                 "name": "Page", "mode": "OWNED",
+                 "header": "page/Page.h"
+             },
+             {
+                 "name": "PlatformKeyboardEvent", "mode": "OWNED",
+                 "header": "platform/PlatformKeyboardEvent.h"
+             },
+             {
+-                "name": "PlatformMouseEvent", "mode": "OWNED",
+-                "header": "platform/PlatformMouseEvent.h"
+-            },
+-            {
+                 "name": "PlatformWheelEvent", "mode": "OWNED",
+                 "header": "platform/PlatformWheelEvent.h"
+             },
+             {
+                 "name": "PlatformWheelEventGranularity", "mode": "SCALAR", "storage": "uint8_t",
+                 "flags": ["ENUM"],
+                 "values": ["ScrollByPageWheelEvent", "ScrollByPixelWheelEvent"],
+                 "header": "platform/PlatformWheelEvent.h"
+             },
+             {
+@@ -259,45 +255,20 @@
+                 { "name": "timerIdentifier", "type": "uint32_t"}
+             ]
+         },
+         {
+             "name": "EndSegmentSentinel",
+             "description": "A sentinel input to signal the end of a segment.",
+             "queue": "EVENT_LOOP",
+             "members": [ ]
+         },
+         {
+-            "name": "HandleMouseMove",
+-            "description": "The embedder signalled a mouse move event.",
+-            "queue": "EVENT_LOOP",
+-            "members": [
+-                { "name": "platformEvent", "type": "PlatformMouseEvent" },
+-                { "name": "scrollbarTargeted", "type": "bool" }
+-            ]
+-        },
+-        {
+-            "name": "HandleMousePress",
+-            "description": "The embedder signalled a mouse press event.",
+-            "queue": "EVENT_LOOP",
+-            "members": [
+-                { "name": "platformEvent", "type": "PlatformMouseEvent" }
+-            ]
+-        },
+-        {
+-            "name": "HandleMouseRelease",
+-            "description": "The embedder signalled a mouse release event.",
+-            "queue": "EVENT_LOOP",
+-            "members": [
+-                { "name": "platformEvent", "type": "PlatformMouseEvent" }
+-            ]
+-        },
+-        {
+             "name": "HandleKeyPress",
+             "description": "The embedder signalled a key press event.",
+             "queue": "EVENT_LOOP",
+             "members": [
+                 { "name": "platformEvent", "type": "PlatformKeyboardEvent" }
+             ]
+         },
+         {
+             "name": "HandleWheelEvent",
+             "description": "The embedder signalled a mouse wheel event.",
+diff --git a/Source/WebCore/replay/WebReplayInputCoders.cpp b/Source/WebCore/replay/WebReplayInputCoders.cpp
+index 93a32a3..f0f7efd 100644
+--- a/Source/WebCore/replay/WebReplayInputCoders.cpp
++++ b/Source/WebCore/replay/WebReplayInputCoders.cpp
+@@ -34,24 +34,22 @@
+ #include "FormData.h"
+ #include "Frame.h"
+ #include "FrameLoadRequest.h"
+ #include "FrameTree.h"
+ #include "HTTPHeaderMap.h"
+ #include "HistoryItem.h"
+ #include "MainFrame.h"
+ #include "MemoizedDOMResult.h"
+ #include "Page.h"
+ #include "PlatformKeyboardEvent.h"
+-#include "PlatformMouseEvent.h"
+ #include "PlatformWheelEvent.h"
+ #include "PluginData.h"
+-#include "ReplayInputTypes.h"
+ #include "ResourceError.h"
+ #include "ResourceLoadTiming.h"
+ #include "ResourceRequest.h"
+ #include "ResourceResponse.h"
+ #include "SecurityOrigin.h"
+ #include "SerializedScriptValue.h"
+ #include "SharedBuffer.h"
+ #include "SubstituteData.h"
+ #include "URL.h"
+ #include "WebReplayInputs.h"
+@@ -61,21 +59,20 @@
+ using WebCore::FormData;
+ using WebCore::FormDataElement;
+ using WebCore::FrameLoadRequest;
+ using WebCore::HTTPHeaderMap;
+ using WebCore::HistoryItem;
+ using WebCore::IntPoint;
+ using WebCore::MimeClassInfo;
+ using WebCore::MouseButton;
+ using WebCore::PlatformEvent;
+ using WebCore::PlatformKeyboardEvent;
+-using WebCore::PlatformMouseEvent;
+ using WebCore::PlatformWheelEvent;
+ using WebCore::PlatformWheelEventGranularity;
+ using WebCore::PluginData;
+ using WebCore::PluginInfo;
+ using WebCore::ResourceError;
+ using WebCore::ResourceLoadTiming;
+ using WebCore::ResourceLoadPriority;
+ using WebCore::ResourceRequest;
+ using WebCore::ResourceRequestCachePolicy;
+ using WebCore::ResourceResponse;
+@@ -396,32 +393,30 @@ bool EncodingTraits<HistoryItem>::decodeValue(EncodedValue& encodedData, RefPtr<
+     item->setTarget(target);
+     for (auto& child : children)
+         item->addChildItem(child);
+     if (stateObjectWasDecoded)
+         item->setStateObject(stateObject.release());
+ 
+     decodedItem = item.release();
+     return true;
+ }
+ 
+-template<>
+ EncodedValue EncodingTraits<IntPoint>::encodeValue(const IntPoint& point)
+ {
+     EncodedValue encodedData = EncodedValue::createObject();
+ 
+     ENCODE_TYPE_WITH_KEY(encodedData, int, x, point.x());
+     ENCODE_TYPE_WITH_KEY(encodedData, int, y, point.y());
+ 
+     return encodedData;
+ }
+ 
+-template<>
+ bool EncodingTraits<IntPoint>::decodeValue(EncodedValue& encodedData, IntPoint& point)
+ {
+     IntPoint decodedPoint;
+ 
+     DECODE_TYPE_WITH_KEY(encodedData, int, x);
+     DECODE_TYPE_WITH_KEY(encodedData, int, y);
+ 
+     point = IntPoint(x, y);
+     return true;
+ }
+@@ -501,62 +496,20 @@ bool EncodingTraits<PlatformKeyboardEvent>::decodeValue(EncodedValue& encodedVal
+ 
+     PlatformKeyboardEvent platformEvent = PlatformKeyboardEvent(type, text, unmodifiedText, keyIdentifier, WTF::safeCast<int>(windowsVirtualKeyCode), WTF::safeCast<int>(nativeVirtualKeyCode), WTF::safeCast<int>(macCharCode), autoRepeat, keypad, systemKey, modifiers, timestamp);
+ #if USE(APPKIT)
+     input = std::make_unique<PlatformKeyboardEventAppKit>(platformEvent, handledByInputMethod, commands);
+ #else
+     input = std::make_unique<PlatformKeyboardEvent>(platformEvent);
+ #endif
+     return true;
+ }
+ 
+-EncodedValue EncodingTraits<PlatformMouseEvent>::encodeValue(const PlatformMouseEvent& input)
+-{
+-    EncodedValue encodedValue = EncodedValue::createObject();
+-
+-    ENCODE_TYPE_WITH_KEY(encodedValue, int, positionX, input.position().x());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, int, positionY, input.position().y());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, int, globalPositionX, input.globalPosition().x());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, int, globalPositionY, input.globalPosition().y());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, MouseButton, button, input.button());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, PlatformEvent::Type, type, input.type());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, int, clickCount, input.clickCount());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, bool, shiftKey, input.shiftKey());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, bool, ctrlKey, input.ctrlKey());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, bool, altKey, input.altKey());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, bool, metaKey, input.metaKey());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, int, timestamp, input.timestamp());
+-
+-    return encodedValue;
+-}
+-
+-bool EncodingTraits<PlatformMouseEvent>::decodeValue(EncodedValue& encodedValue, std::unique_ptr<PlatformMouseEvent>& input)
+-{
+-    DECODE_TYPE_WITH_KEY(encodedValue, int, positionX);
+-    DECODE_TYPE_WITH_KEY(encodedValue, int, positionY);
+-    DECODE_TYPE_WITH_KEY(encodedValue, int, globalPositionX);
+-    DECODE_TYPE_WITH_KEY(encodedValue, int, globalPositionY);
+-    DECODE_TYPE_WITH_KEY(encodedValue, MouseButton, button);
+-    DECODE_TYPE_WITH_KEY(encodedValue, PlatformEvent::Type, type);
+-    DECODE_TYPE_WITH_KEY(encodedValue, int, clickCount);
+-    DECODE_TYPE_WITH_KEY(encodedValue, bool, shiftKey);
+-    DECODE_TYPE_WITH_KEY(encodedValue, bool, ctrlKey);
+-    DECODE_TYPE_WITH_KEY(encodedValue, bool, altKey);
+-    DECODE_TYPE_WITH_KEY(encodedValue, bool, metaKey);
+-    DECODE_TYPE_WITH_KEY(encodedValue, int, timestamp);
+-
+-    input = std::make_unique<PlatformMouseEvent>(IntPoint(positionX, positionY),
+-        IntPoint(globalPositionX, globalPositionY),
+-        button, type, clickCount,
+-        shiftKey, ctrlKey, altKey, metaKey, timestamp);
+-    return true;
+-}
+-
+ #if PLATFORM(COCOA)
+ struct PlatformWheelEventCocoaArguments {
+     bool directionInvertedFromDevice;
+     bool hasPreciseScrollingDeltas;
+     PlatformWheelEventPhase phase;
+     PlatformWheelEventPhase momentumPhase;
+     int scrollCount;
+     float unacceleratedScrollingDeltaX;
+     float unacceleratedScrollingDeltaY;
+ };
+diff --git a/Source/WebCore/replay/WebReplayInputCoders.h b/Source/WebCore/replay/WebReplayInputCoders.h
+index a5d767f..a6c59bc 100644
+--- a/Source/WebCore/replay/WebReplayInputCoders.h
++++ b/Source/WebCore/replay/WebReplayInputCoders.h
+@@ -36,20 +36,21 @@
+ 
+ namespace WebCore {
+ 
+ struct FrameLoadRequest;
+ 
+ class Document;
+ class FormData;
+ class Frame;
+ class HTTPHeaderMap;
+ class HistoryItem;
++class IntPoint;
+ class Page;
+ class PlatformKeyboardEvent;
+ class PlatformMouseEvent;
+ class PlatformWheelEvent;
+ class PluginData;
+ class ResourceError;
+ class ResourceRequest;
+ class ResourceResponse;
+ class SecurityOrigin;
+ class SerializedScriptValue;
+@@ -84,20 +85,27 @@ template<> struct EncodingTraits<WebCore::FrameLoadRequest> {
+     static bool decodeValue(EncodedValue&, std::unique_ptr<WebCore::FrameLoadRequest>& value);
+ };
+ 
+ template<> struct EncodingTraits<WebCore::HTTPHeaderMap> {
+     typedef WebCore::HTTPHeaderMap DecodedType;
+ 
+     static EncodedValue encodeValue(const WebCore::HTTPHeaderMap& value);
+     static bool decodeValue(EncodedValue&, std::unique_ptr<WebCore::HTTPHeaderMap>& value);
+ };
+ 
++template<> struct EncodingTraits<WebCore::IntPoint> {
++    typedef WebCore::IntPoint DecodedType;
++
++    static EncodedValue encodeValue(const WebCore::IntPoint& value);
++    static bool decodeValue(EncodedValue&, WebCore::IntPoint& value);
++};
++
+ #if USE(APPKIT)
+ template<> struct EncodingTraits<WebCore::KeypressCommand> {
+     typedef WebCore::KeypressCommand DecodedType;
+ 
+     static EncodedValue encodeValue(const WebCore::KeypressCommand& value);
+     static bool decodeValue(EncodedValue&, WebCore::KeypressCommand& value);
+ };
+ #endif // USE(APPKIT)
+ 
+ template<> struct EncodingTraits<WebCore::HistoryItem> {
+@@ -107,27 +115,20 @@ template<> struct EncodingTraits<WebCore::HistoryItem> {
+     static bool decodeValue(EncodedValue&, RefPtr<WebCore::HistoryItem>&);
+ };
+ 
+ template<> struct EncodingTraits<WebCore::PlatformKeyboardEvent> {
+     typedef WebCore::PlatformKeyboardEvent DecodedType;
+ 
+     static EncodedValue encodeValue(const WebCore::PlatformKeyboardEvent& value);
+     static bool decodeValue(EncodedValue&, std::unique_ptr<WebCore::PlatformKeyboardEvent>& value);
+ };
+ 
+-template<> struct EncodingTraits<WebCore::PlatformMouseEvent> {
+-    typedef WebCore::PlatformMouseEvent DecodedType;
+-
+-    static EncodedValue encodeValue(const WebCore::PlatformMouseEvent& value);
+-    static bool decodeValue(EncodedValue&, std::unique_ptr<WebCore::PlatformMouseEvent>& value);
+-};
+-
+ template<> struct EncodingTraits<WebCore::PlatformWheelEvent> {
+     typedef WebCore::PlatformWheelEvent DecodedType;
+ 
+     static EncodedValue encodeValue(const WebCore::PlatformWheelEvent& value);
+     static bool decodeValue(EncodedValue&, std::unique_ptr<WebCore::PlatformWheelEvent>& value);
+ };
+ 
+ template<> struct EncodingTraits<WebCore::PluginData> {
+     typedef RefPtr<WebCore::PluginData> DecodedType;
+ 
+diff --git a/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp b/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
+index 063e139..ab420bc 100644
+--- a/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
++++ b/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
+@@ -117,38 +117,20 @@ void InitializeHistory::dispatchOnPage(Page& page)
+ 
+     page.mainFrame().loader().history().setCurrentItem(page.backForward().currentItem());
+ }
+ 
+ void HandleKeyPress::dispatchOnPage(Page& page)
+ {
+     page.userInputBridge().handleKeyEvent(platformEvent(), InputSource::Synthetic);
+ }
+ 
+ // User interaction inputs.
+-void HandleMouseMove::dispatchOnPage(Page& page)
+-{
+-    if (m_scrollbarTargeted)
+-        page.userInputBridge().handleMouseMoveOnScrollbarEvent(platformEvent(), InputSource::Synthetic);
+-    else
+-        page.userInputBridge().handleMouseMoveEvent(platformEvent(), InputSource::Synthetic);
+-}
+-
+-void HandleMousePress::dispatchOnPage(Page& page)
+-{
+-    page.userInputBridge().handleMousePressEvent(platformEvent(), InputSource::Synthetic);
+-}
+-
+-void HandleMouseRelease::dispatchOnPage(Page& page)
+-{
+-    page.userInputBridge().handleMouseReleaseEvent(platformEvent(), InputSource::Synthetic);
+-}
+-
+ void HandleWheelEvent::dispatchOnPage(Page& page)
+ {
+     page.userInputBridge().handleWheelEvent(platformEvent(), InputSource::Synthetic);
+ }
+ 
+ void LogicalScrollPage::dispatchOnPage(Page& page)
+ {
+     page.userInputBridge().logicalScrollRecursively(direction(), granularity(), InputSource::Synthetic);
+ }
+ 
+diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
+index b1c2269..cc83727 100644
+--- a/Source/WebKit2/CMakeLists.txt
++++ b/Source/WebKit2/CMakeLists.txt
+@@ -748,20 +748,21 @@ if (ENABLE_WEB_REPLAY)
+         DEPENDS ${WebKit2_WEB_REPLAY_INPUTS}
+         COMMAND ${PYTHON_EXECUTABLE} ${JAVASCRIPTCORE_DIR}/replay/scripts/CodeGeneratorReplayInputs.py --outputDir ${DERIVED_SOURCES_WEBKIT2_DIR}/ --framework WebKit ${WebKit2_WEB_REPLAY_INPUTS}
+         VERBATIM)
+ 
+     list(APPEND WebKit2_INCLUDE_DIRECTORIES
+         "${WEBKIT2_DIR}/WebProcess/Replay"
+     )
+ 
+     list(APPEND WebKit2_SOURCES
+         WebProcess/Replay/WKReplayInputCoders.cpp
++        WebProcess/Replay/WKReplayInputDispatchMethods.cpp
+         WebProcess/Replay/WebReplayClient.cpp
+         ${DERIVED_SOURCES_WEBKIT2_DIR}/WKReplayInputs.cpp
+     )
+ endif ()
+ 
+ POPULATE_LIBRARY_VERSION(WEBKIT2)
+ set_target_properties(WebKit2 PROPERTIES VERSION ${WEBKIT2_VERSION} SOVERSION ${WEBKIT2_VERSION_MAJOR})
+ 
+ install(TARGETS WebKit2 DESTINATION "${LIB_INSTALL_DIR}")
+ install(TARGETS WebProcess DESTINATION "${LIBEXEC_INSTALL_DIR}")
+diff --git a/Source/WebKit2/Shared/WebEvent.h b/Source/WebKit2/Shared/WebEvent.h
+index 68ecff9..fc2d8c0 100644
+--- a/Source/WebKit2/Shared/WebEvent.h
++++ b/Source/WebKit2/Shared/WebEvent.h
+@@ -44,21 +44,21 @@ namespace IPC {
+ #if USE(APPKIT)
+ namespace WebCore {
+ struct KeypressCommand;
+ }
+ #endif
+ 
+ namespace WebKit {
+ 
+ class WebEvent {
+ public:
+-    enum Type {
++    enum Type : int8_t {
+         NoType = -1,
+         
+         // WebMouseEvent
+         MouseDown,
+         MouseUp,
+         MouseMove,
+ 
+         // WebWheelEvent
+         Wheel,
+ 
+@@ -70,21 +70,21 @@ public:
+ 
+ #if ENABLE(TOUCH_EVENTS)
+         // WebTouchEvent
+         TouchStart,
+         TouchMove,
+         TouchEnd,
+         TouchCancel,
+ #endif
+     };
+ 
+-    enum Modifiers {
++    enum Modifiers : uint8_t {
+         ShiftKey    = 1 << 0,
+         ControlKey  = 1 << 1,
+         AltKey      = 1 << 2,
+         MetaKey     = 1 << 3,
+         CapsLockKey = 1 << 4,
+     };
+ 
+     Type type() const { return static_cast<Type>(m_type); }
+ 
+     bool shiftKey() const { return m_modifiers & ShiftKey; }
+@@ -107,21 +107,21 @@ protected:
+ 
+ private:
+     uint32_t m_type; // Type
+     uint32_t m_modifiers; // Modifiers
+     double m_timestamp;
+ };
+ 
+ // FIXME: Move this class to its own header file.
+ class WebMouseEvent : public WebEvent {
+ public:
+-    enum Button {
++    enum Button : int8_t {
+         NoButton = -1,
+         LeftButton,
+         MiddleButton,
+         RightButton
+     };
+ 
+     WebMouseEvent();
+ 
+     WebMouseEvent(Type, Button, const WebCore::IntPoint& position, const WebCore::IntPoint& globalPosition, float deltaX, float deltaY, float deltaZ, int clickCount, Modifiers, double timestamp);
+ 
+diff --git a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
+index 1d92a29..5ca9ccb 100644
+--- a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
++++ b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
+@@ -3654,21 +3654,21 @@
+ 		C0CE72581247E4DA00BC0EC4 /* WebPage.messages.in */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = WebPage.messages.in; sourceTree = "<group>"; };
+ 		C0CE729E1247E71D00BC0EC4 /* WebPageMessageReceiver.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WebPageMessageReceiver.cpp; sourceTree = "<group>"; };
+ 		C0CE729F1247E71D00BC0EC4 /* WebPageMessages.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WebPageMessages.h; sourceTree = "<group>"; };
+ 		C0CE72AC1247E78D00BC0EC4 /* HandleMessage.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = HandleMessage.h; sourceTree = "<group>"; };
+ 		C0CE72DB1247E8F700BC0EC4 /* DerivedSources.make */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = DerivedSources.make; sourceTree = "<group>"; };
+ 		C0CE73361247F70E00BC0EC4 /* generate-message-receiver.py */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.python; path = "generate-message-receiver.py"; sourceTree = "<group>"; };
+ 		C0CE73371247F70E00BC0EC4 /* generate-messages-header.py */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.python; path = "generate-messages-header.py"; sourceTree = "<group>"; };
+ 		C0E3AA441209E2BA00A49D01 /* Module.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Module.h; sourceTree = "<group>"; };
+ 		C0E3AA451209E2BA00A49D01 /* Module.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Module.cpp; sourceTree = "<group>"; };
+ 		C0E3AA481209E45000A49D01 /* ModuleCF.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ModuleCF.cpp; sourceTree = "<group>"; };
+-		C490806819A6A87800663BCF /* WebEventLoopInput.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WebEventLoopInput.h; sourceTree = "<group>"; };
++		C490806619A594AB00663BCF /* WKReplayInputDispatchMethods.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WKReplayInputDispatchMethods.cpp; sourceTree = "<group>"; };
+ 		C49474AD19A3F924009B3DE8 /* WebReplayClient.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WebReplayClient.cpp; sourceTree = "<group>"; };
+ 		C49474AE19A3F924009B3DE8 /* WebReplayClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WebReplayClient.h; sourceTree = "<group>"; };
+ 		C49474B319A41246009B3DE8 /* WKInputs.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = WKInputs.json; sourceTree = "<group>"; };
+ 		C49474B519A41B73009B3DE8 /* WKReplayInputs.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WKReplayInputs.cpp; sourceTree = "<group>"; };
+ 		C49474B619A41B73009B3DE8 /* WKReplayInputs.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WKReplayInputs.h; sourceTree = "<group>"; };
+ 		C49474B919A5413F009B3DE8 /* WKReplayInputCoders.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WKReplayInputCoders.cpp; sourceTree = "<group>"; };
+ 		C49474BA19A5413F009B3DE8 /* WKReplayInputCoders.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WKReplayInputCoders.h; sourceTree = "<group>"; };
+ 		C517388012DF8F4F00EE3F47 /* DragControllerAction.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DragControllerAction.h; sourceTree = "<group>"; };
+ 		C5237F5F12441CA300780472 /* WebEditorClientMac.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = WebEditorClientMac.mm; sourceTree = "<group>"; };
+ 		C54256AF18BEC18B00DE4179 /* WKFormInputControl.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WKFormInputControl.h; path = ios/forms/WKFormInputControl.h; sourceTree = "<group>"; };
+@@ -6947,20 +6947,21 @@
+ 			sourceTree = "<group>";
+ 			tabWidth = 8;
+ 			usesTabs = 0;
+ 		};
+ 		C49474B219A4121A009B3DE8 /* Replay */ = {
+ 			isa = PBXGroup;
+ 			children = (
+ 				C49474B319A41246009B3DE8 /* WKInputs.json */,
+ 				C49474B919A5413F009B3DE8 /* WKReplayInputCoders.cpp */,
+ 				C49474BA19A5413F009B3DE8 /* WKReplayInputCoders.h */,
++				C490806619A594AB00663BCF /* WKReplayInputDispatchMethods.cpp */,
+ 				C490806819A6A87800663BCF /* WebEventLoopInput.h */,
+ 			);
+ 			path = Replay;
+ 			sourceTree = "<group>";
+ 		};
+ 		C54256AE18BEC16100DE4179 /* forms */ = {
+ 			isa = PBXGroup;
+ 			children = (
+ 				C5FA1ED118E1062200B3F402 /* WKAirPlayRoutePicker.h */,
+ 				C5FA1ED218E1062200B3F402 /* WKAirPlayRoutePicker.mm */,
+@@ -9136,20 +9137,21 @@
+ 				512A9769180E09B80039A149 /* DatabaseProcessProxyMessageReceiver.cpp in Sources */,
+ 				C5E1AFEE16B21025006CC1F2 /* APIWebArchiveResource.cpp in Sources */,
+ 				BC72BA1D11E64907001EB4EA /* WebBackForwardList.cpp in Sources */,
+ 				1AC133741857C21E00F3EC05 /* APIGeometry.cpp in Sources */,
+ 				518D2CAD12D5153B003BB93B /* WebBackForwardListItem.cpp in Sources */,
+ 				BC72B9FA11E6476B001EB4EA /* WebBackForwardListProxy.cpp in Sources */,
+ 				BC111A5A112F4FBB00337BAB /* WebChromeClient.cpp in Sources */,
+ 				2D0730A219F9C7DA00E9D9C4 /* WKActionMenuController.mm in Sources */,
+ 				868160D0187645570021E79D /* WindowServerConnection.mm in Sources */,
+ 				3F87B9BD158940120090FF62 /* WebColorChooser.cpp in Sources */,
++				C490806719A594AB00663BCF /* WKReplayInputDispatchMethods.cpp in Sources */,
+ 				A58B6F0918FCA733008CBA53 /* WKFileUploadPanel.mm in Sources */,
+ 				F036978815F4BF0500C3A80E /* WebColorPicker.cpp in Sources */,
+ 				BC4A628F147312BE006C681A /* WebConnection.cpp in Sources */,
+ 				BC4A6291147312BE006C681A /* WebConnectionClient.cpp in Sources */,
+ 				1A1FEC1C1627B45700700F6D /* WebConnectionMessageReceiver.cpp in Sources */,
+ 				BCD3675C148C26C000447E87 /* WebConnectionToUIProcess.cpp in Sources */,
+ 				BC4A62A714744EC7006C681A /* WebConnectionToWebProcess.cpp in Sources */,
+ 				BC82836516B354F600A278FE /* WebContentProcessMain.mm in Sources */,
+ 				2D125C5F1857EA05003BA3CB /* ViewGestureControllerMac.mm in Sources */,
+ 				BC82839916B48DC000A278FE /* WebContentServiceEntryPoint.mm in Sources */,
+diff --git a/Source/WebKit2/WebProcess/Replay/WKInputs.json b/Source/WebKit2/WebProcess/Replay/WKInputs.json
+index 42ac5ab..c91c314 100644
+--- a/Source/WebKit2/WebProcess/Replay/WKInputs.json
++++ b/Source/WebKit2/WebProcess/Replay/WKInputs.json
+@@ -1,25 +1,60 @@
+ {
+     "types": {
+-        "Global": [
+-            { "name": "bool", "mode": "SCALAR" }
+-        ],
+-        "WebCore": [
++        "WebKit": [
+             {
+-                "name": "PlatformMouseEvent", "mode": "OWNED",
+-                "header": "platform/PlatformMouseEvent.h"
++                "name": "WebMouseEvent", "mode": "OWNED",
++                "header": "Shared/WebEvent.h"
++            },
++            {
++                "name": "Modifiers", "mode": "SCALAR", "storage": "uint8_t",
++                "enclosing_class": "WebEvent",
++                "flags": ["ENUM"],
++                "values": ["ShiftKey", "ControlKey", "AltKey", "MetaKey", "CapsLockKey"],
++                "header": "Shared/WebEvent.h"
++            },
++            {
++                "name": "Button", "mode": "SCALAR", "storage": "int8_t",
++                "enclosing_class": "WebMouseEvent",
++                "flags": ["ENUM"],
++                "values": ["NoButton", "LeftButton", "MiddleButton", "RightButton"],
++                "header": "Shared/WebEvent.h"
++            },
++            {
++                "name": "Type", "mode": "SCALAR", "storage": "int8_t",
++                "enclosing_class": "WebEvent",
++                "flags": ["ENUM"],
++                "values": [
++                    "NoType",
++                    "MouseDown",
++                    "MouseUp",
++                    "MouseMove",
++                    "Wheel",
++                    "KeyDown",
++                    "KeyUp",
++                    "RawKeyDown",
++                    "Char"
++                ],
++                "guarded_values": {
++                    "ENABLE(TOUCH_EVENTS)": [
++                        "TouchStart",
++                        "TouchMove",
++                        "TouchEnd",
++                        "TouchCancel"
++                    ]
++                },
++                "header": "Shared/WebEvent.h"
+             }
+         ]
+     },
+ 
+     "inputs": [
+         {
+-            "name": "HandleMouseMove",
+-            "description": "The embedder signalled a mouse move event.",
++            "name": "HandleMouseEvent",
++            "description": "A mouse event is handled by the web page.",
+             "queue": "EVENT_LOOP",
+             "members": [
+-                { "name": "platformEvent", "type": "PlatformMouseEvent" },
+-                { "name": "scrollbarTargeted", "type": "bool" }
++                { "name": "mouseEvent", "type": "WebMouseEvent" }
+             ]
+         }
+     ]
+ }
+diff --git a/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.cpp b/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.cpp
+index ffdac55..a830b9f 100644
+--- a/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.cpp
++++ b/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.cpp
+@@ -24,41 +24,70 @@
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #include "config.h"
+ #include "WKReplayInputCoders.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include "WKReplayInputs.h"
++#include "WebEvent.h"
+ #include <JavaScriptCore/JSReplayInputs.h>
+ #include <WebCore/MemoizedDOMResult.h>
+ #include <WebCore/WebReplayInputs.h>
+ 
+ #define IMPORT_FROM_JSC_NAMESPACE(name) \
+ using JSC::name; \
+ 
+ JS_REPLAY_INPUT_NAMES_FOR_EACH(IMPORT_FROM_JSC_NAMESPACE)
+ #undef IMPORT_FROM_JSC_NAMESPACE
+ 
+ #define IMPORT_FROM_WEBCORE_NAMESPACE(name) \
+ using WebCore::name; \
+ 
+ WEB_REPLAY_INPUT_NAMES_FOR_EACH(IMPORT_FROM_WEBCORE_NAMESPACE)
+ #undef IMPORT_FROM_WEBCORE_NAMESPACE
+ 
++#define IMPORT_FROM_WEBKIT_NAMESPACE(name) \
++using WebKit::name; \
++
++WK_REPLAY_INPUT_NAMES_FOR_EACH(IMPORT_FROM_WEBKIT_NAMESPACE)
++#undef IMPORT_FROM_WEBKIT_NAMESPACE
++
+ // FIXME: This is copied verbatim from WebReplayInputCoders.cpp
+ #define ENCODE_TYPE_WITH_KEY(_encodedValue, _type, _key, _value) \
+-_encodedValue.put<_type>(ASCIILiteral(#_key), _value)
++    _encodedValue.put<_type>(ASCIILiteral(#_key), _value)
++
++#define ENCODE_OPTIONAL_TYPE_WITH_KEY(_encodedValue, _type, _key, _value, condition) \
++    if (condition) \
++        ENCODE_TYPE_WITH_KEY(_encodedValue, _type, _key, _value)
++
++#define DECODE_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _lvalue) \
++    if (!_encodedValue.get<_type>(ASCIILiteral(#_key), _lvalue)) \
++        return false
++
++#define DECODE_TYPE_WITH_KEY(_encodedValue, _type, _key) \
++    EncodingTraits<_type>::DecodedType _key; \
++    DECODE_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _key)
++
++#define DECODE_OPTIONAL_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _lvalue) \
++    bool _key ## WasDecoded = _encodedValue.get<_type>(ASCIILiteral(#_key), _lvalue)
++
++#define DECODE_OPTIONAL_TYPE_WITH_KEY(_encodedValue, _type, _key) \
++    EncodingTraits<_type>::DecodedType _key; \
++    DECODE_OPTIONAL_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _key)
+ 
++using WebCore::IntPoint;
+ using WebCore::MemoizedDOMResultBase;
++using WebKit::WebEvent;
++using WebKit::WebMouseEvent;
+ 
+ namespace JSC {
+ 
+ EncodedValue EncodingTraits<NondeterministicInputBase>::encodeValue(const NondeterministicInputBase& input)
+ {
+     EncodedValue encodedValue = EncodedValue::createObject();
+     const AtomicString& type = input.type();
+ 
+     ENCODE_TYPE_WITH_KEY(encodedValue, String, type, type.string());
+ 
+@@ -76,13 +105,87 @@ EncodedValue EncodingTraits<NondeterministicInputBase>::encodeValue(const Nondet
+     // The macro won't work here because of the class template argument.
+     if (type == InputTraits<MemoizedDOMResultBase>::type()) {
+         InputTraits<MemoizedDOMResultBase>::encode(encodedValue, static_cast<const MemoizedDOMResultBase&>(input));
+         return encodedValue;
+     }
+ 
+     ASSERT_NOT_REACHED();
+     return EncodedValue();
+ }
+ 
++bool EncodingTraits<NondeterministicInputBase>::decodeValue(EncodedValue& encodedValue, std::unique_ptr<NondeterministicInputBase>& input)
++{
++    DECODE_TYPE_WITH_KEY(encodedValue, String, type);
++
++#define DECODE_IF_TYPE_TAG_MATCHES(name) \
++    if (type == InputTraits<name>::type()) { \
++        std::unique_ptr<name> decodedInput; \
++        if (!InputTraits<name>::decode(encodedValue, decodedInput)) \
++            return false; \
++        \
++        input = WTF::move(decodedInput); \
++        return true; \
++    } \
++
++    JS_REPLAY_INPUT_NAMES_FOR_EACH(DECODE_IF_TYPE_TAG_MATCHES)
++    WEB_REPLAY_INPUT_NAMES_FOR_EACH(DECODE_IF_TYPE_TAG_MATCHES)
++    WK_REPLAY_INPUT_NAMES_FOR_EACH(DECODE_IF_TYPE_TAG_MATCHES)
++#undef DECODE_IF_TYPE_TAG_MATCHES
++
++    if (type == InputTraits<MemoizedDOMResultBase>::type()) {
++        std::unique_ptr<MemoizedDOMResultBase> decodedInput;
++        if (!InputTraits<MemoizedDOMResultBase>::decode(encodedValue, decodedInput))
++            return false;
++
++        input = WTF::move(decodedInput);
++        return true;
++    }
++
++    return false;
++}
++
++// Actual inputs below.
++
++EncodedValue EncodingTraits<WebMouseEvent>::encodeValue(const WebMouseEvent& input)
++{
++    EncodedValue encodedValue = EncodedValue::createObject();
++
++    // WebEvent members.
++    ENCODE_TYPE_WITH_KEY(encodedValue, WebEvent::Type, type, input.type());
++    ENCODE_TYPE_WITH_KEY(encodedValue, WebEvent::Modifiers, modifiers, input.modifiers());
++    ENCODE_TYPE_WITH_KEY(encodedValue, double, timestamp, input.timestamp());
++
++    // WebMouseEvent members.
++    ENCODE_TYPE_WITH_KEY(encodedValue, WebMouseEvent::Button, button, input.button());
++    ENCODE_TYPE_WITH_KEY(encodedValue, IntPoint, position, input.position());
++    ENCODE_TYPE_WITH_KEY(encodedValue, IntPoint, globalPosition, input.globalPosition());
++    ENCODE_TYPE_WITH_KEY(encodedValue, float, deltaX, input.deltaX());
++    ENCODE_TYPE_WITH_KEY(encodedValue, float, deltaY, input.deltaY());
++    ENCODE_TYPE_WITH_KEY(encodedValue, float, deltaZ, input.deltaZ());
++    ENCODE_TYPE_WITH_KEY(encodedValue, int32_t, clickCount, input.clickCount());
++
++    return encodedValue;
++}
++
++bool EncodingTraits<WebMouseEvent>::decodeValue(EncodedValue& encodedValue, std::unique_ptr<WebMouseEvent>& input)
++{
++    // WebEvent members.
++    DECODE_TYPE_WITH_KEY(encodedValue, WebEvent::Type, type);
++    DECODE_TYPE_WITH_KEY(encodedValue, WebEvent::Modifiers, modifiers);
++    DECODE_TYPE_WITH_KEY(encodedValue, double, timestamp);
++
++    // WebMouseEvent members.
++    DECODE_TYPE_WITH_KEY(encodedValue, WebMouseEvent::Button, button);
++    DECODE_TYPE_WITH_KEY(encodedValue, IntPoint, position);
++    DECODE_TYPE_WITH_KEY(encodedValue, IntPoint, globalPosition);
++    DECODE_TYPE_WITH_KEY(encodedValue, float, deltaX);
++    DECODE_TYPE_WITH_KEY(encodedValue, float, deltaY);
++    DECODE_TYPE_WITH_KEY(encodedValue, float, deltaZ);
++    DECODE_TYPE_WITH_KEY(encodedValue, int32_t, clickCount);
++
++    input = std::make_unique<WebMouseEvent>(type, button, position, globalPosition, deltaX, deltaY, deltaZ, clickCount, modifiers, timestamp);
++    return true;
++}
++
+ } // namespace JSC
+ 
+ #endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.h b/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.h
+index e12f187..2a183a5 100644
+--- a/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.h
++++ b/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.h
+@@ -25,23 +25,34 @@
+  */
+ 
+ #ifndef WKReplayInputCoders_h
+ #define WKReplayInputCoders_h
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include <JavaScriptCore/EncodedValue.h>
+ #include <JavaScriptCore/NondeterministicInput.h>
+ 
++namespace WebKit {
++class WebMouseEvent;
++}
++
+ // Template specializations must be defined in the same namespace as the template declaration.
+ namespace JSC {
+ 
++template<> struct EncodingTraits<WebKit::WebMouseEvent> {
++    typedef WebKit::WebMouseEvent DecodedType;
++
++    static EncodedValue encodeValue(const WebKit::WebMouseEvent& value);
++    static bool decodeValue(EncodedValue&, std::unique_ptr<WebKit::WebMouseEvent>& value);
++};
++
+ template<> struct EncodingTraits<JSC::NondeterministicInputBase> {
+     typedef JSC::NondeterministicInputBase DecodedType;
+ 
+     static EncodedValue encodeValue(const JSC::NondeterministicInputBase& input);
+     static bool decodeValue(EncodedValue&, std::unique_ptr<JSC::NondeterministicInputBase>& input);
+ };
+ 
+ } // namespace JSC
+ 
+ #endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/WebKit2/WebProcess/Replay/WebEventLoopInput.h b/Source/WebKit2/WebProcess/Replay/WebEventLoopInput.h
+index 9ca7e55..962b4ba 100644
+--- a/Source/WebKit2/WebProcess/Replay/WebEventLoopInput.h
++++ b/Source/WebKit2/WebProcess/Replay/WebEventLoopInput.h
+@@ -45,21 +45,21 @@ public:
+     virtual ~WebEventLoopInputBase() { }
+ 
+     virtual WebCore::InputDispatchContext context() const override final { return WebCore::InputDispatchContext::WebKit; }
+ 
+     virtual void dispatchOnPage(WebCore::Page&) override final { ASSERT_NOT_REACHED(); }
+     virtual void dispatchOnWebPage(WebPage&) = 0;
+ };
+ 
+ template <typename InputType>
+ class WebEventLoopInput : public WebEventLoopInputBase {
+-    virtual const AtomicString& type() const override final
++    virtual const String& type() const override final
+     {
+         return InputTraits<InputType>::type();
+     }
+ };
+ 
+ } // namespace WebPage
+ 
+ #endif // ENABLE(WEB_REPLAY)
+ 
+ #endif // WebEventLoopInput_h
+diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
+index ea8f9d5..d3338ac 100644
+--- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
++++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
+@@ -172,21 +172,26 @@
+ 
+ #if ENABLE(VIBRATION)
+ #include "WebVibrationClient.h"
+ #endif
+ 
+ #if ENABLE(PROXIMITY_EVENTS)
+ #include "WebDeviceProximityClient.h"
+ #endif
+ 
+ #if ENABLE(WEB_REPLAY)
++#include "WKReplayInputs.h"
+ #include "WebReplayClient.h"
++#include <WebCore/EventLoopInput.h>
++#include <WebCore/ReplayController.h>
++#include <WebCore/WebReplayInputCoders.h>
++#include <replay/InputCursor.h>
+ #endif
+ 
+ #if PLATFORM(COCOA)
+ #include "PDFPlugin.h"
+ #include "RemoteLayerTreeTransaction.h"
+ #include "WKStringCF.h"
+ #include <WebCore/LegacyWebArchive.h>
+ #endif
+ 
+ #if PLATFORM(GTK)
+@@ -1849,87 +1854,105 @@ static bool handleContextMenuEvent(const PlatformMouseEvent& platformMouseEvent,
+         frame = result.innerNonSharedNode()->document().frame();
+ 
+     bool handled = page->corePage()->userInputBridge().handleContextMenuEvent(platformMouseEvent, frame);
+     if (handled)
+         page->contextMenu()->show();
+ 
+     return handled;
+ }
+ #endif
+ 
+-static bool handleMouseEvent(const WebMouseEvent& mouseEvent, WebPage* page, bool onlyUpdateScrollbars)
++static bool disambiguateMouseEvent(const WebMouseEvent& mouseEvent, WebPage* page, bool onlyUpdateScrollbars)
+ {
+     Frame& frame = page->corePage()->mainFrame();
+     if (!frame.view())
+         return false;
+ 
+     PlatformMouseEvent platformMouseEvent = platform(mouseEvent);
+ 
+     switch (platformMouseEvent.type()) {
+         case PlatformEvent::MousePressed: {
+ #if ENABLE(CONTEXT_MENUS)
+             if (isContextClick(platformMouseEvent))
+                 page->corePage()->contextMenuController().clearContextMenu();
+ #endif
+ 
+-            bool handled = page->corePage()->userInputBridge().handleMousePressEvent(platformMouseEvent);
++            bool handled = frame.eventHandler().handleMousePressEvent(platformMouseEvent);
+ #if ENABLE(CONTEXT_MENUS)
+             if (isContextClick(platformMouseEvent))
+                 handled = handleContextMenuEvent(platformMouseEvent, page);
+ #endif
+             return handled;
+         }
+         case PlatformEvent::MouseReleased:
+-            return page->corePage()->userInputBridge().handleMouseReleaseEvent(platformMouseEvent);
++            return frame.eventHandler().handleMouseReleaseEvent(platformMouseEvent);
+ 
+         case PlatformEvent::MouseMoved:
+             if (onlyUpdateScrollbars)
+-                return page->corePage()->userInputBridge().handleMouseMoveOnScrollbarEvent(platformMouseEvent);
+-            return page->corePage()->userInputBridge().handleMouseMoveEvent(platformMouseEvent);
++                return frame.eventHandler().passMouseMovedEventToScrollbars(platformMouseEvent);
++            return frame.eventHandler().handleMouseMoveEvent(platformMouseEvent);
+         default:
+             ASSERT_NOT_REACHED();
+             return false;
+     }
+ }
+ 
+-void WebPage::mouseEvent(const WebMouseEvent& mouseEvent)
++bool WebPage::handleMouseEvent(const WebMouseEvent& mouseEvent, ActionSource source)
+ {
+     m_page->pageThrottler().didReceiveUserInput();
+ 
++#if ENABLE(WEB_REPLAY)
++    // Don't try to handle any real mouse events if the web content is being replayed.
++    InputCursor& cursor = corePage()->replayController().activeInputCursor();
++    if (cursor.isReplaying() && source != ActionSource::Synthetic)
++        return false;
++#else
++    UNUSED_PARAM(source);
++#endif
++
+ #if ENABLE(CONTEXT_MENUS)
+     // Don't try to handle any pending mouse events if a context menu is showing.
+-    if (m_isShowingContextMenu) {
+-        send(Messages::WebPageProxy::DidReceiveEvent(static_cast<uint32_t>(mouseEvent.type()), false));
+-        return;
+-    }
++    if (m_isShowingContextMenu)
++        return false;
+ #endif
+     bool handled = false;
+ 
+ #if !PLATFORM(IOS)
+     if (!handled && m_headerBanner)
+         handled = m_headerBanner->mouseEvent(mouseEvent);
+     if (!handled && m_footerBanner)
+         handled = m_footerBanner->mouseEvent(mouseEvent);
+ #endif // !PLATFORM(IOS)
+ 
+     if (!handled && canHandleUserEvents()) {
+         CurrentEvent currentEvent(mouseEvent);
+ 
++#if ENABLE(WEB_REPLAY)
++        if (cursor.isCapturing())
++            cursor.appendInput<HandleMouseEvent>(std::make_unique<WebMouseEvent>(mouseEvent));
++        EventLoopInputExtent extent(cursor);
++#endif
+         // We need to do a full, normal hit test during this mouse event if the page is active or if a mouse
+         // button is currently pressed. It is possible that neither of those things will be true since on
+         // Lion when legacy scrollbars are enabled, WebKit receives mouse events all the time. If it is one
+         // of those cases where the page is not active and the mouse is not pressed, then we can fire a more
+         // efficient scrollbars-only version of the event.
+         bool onlyUpdateScrollbars = !(m_page->focusController().isActive() || (mouseEvent.button() != WebMouseEvent::NoButton));
+-        handled = handleMouseEvent(mouseEvent, this, onlyUpdateScrollbars);
++        handled = disambiguateMouseEvent(mouseEvent, this, onlyUpdateScrollbars);
+     }
+ 
++    return handled;
++}
++
++void WebPage::mouseEvent(const WebMouseEvent& mouseEvent)
++{
++    bool handled = handleMouseEvent(mouseEvent, ActionSource::User);
+     send(Messages::WebPageProxy::DidReceiveEvent(static_cast<uint32_t>(mouseEvent.type()), handled));
+ }
+ 
+ void WebPage::mouseEventSyncForTesting(const WebMouseEvent& mouseEvent, bool& handled)
+ {
+     handled = false;
+ #if !PLATFORM(IOS)
+     if (!handled && m_headerBanner)
+         handled = m_headerBanner->mouseEvent(mouseEvent);
+     if (!handled && m_footerBanner)
+@@ -1938,21 +1961,21 @@ void WebPage::mouseEventSyncForTesting(const WebMouseEvent& mouseEvent, bool& ha
+ 
+     if (!handled) {
+         CurrentEvent currentEvent(mouseEvent);
+ 
+         // We need to do a full, normal hit test during this mouse event if the page is active or if a mouse
+         // button is currently pressed. It is possible that neither of those things will be true since on 
+         // Lion when legacy scrollbars are enabled, WebKit receives mouse events all the time. If it is one 
+         // of those cases where the page is not active and the mouse is not pressed, then we can fire a more
+         // efficient scrollbars-only version of the event.
+         bool onlyUpdateScrollbars = !(m_page->focusController().isActive() || (mouseEvent.button() != WebMouseEvent::NoButton));
+-        handled = handleMouseEvent(mouseEvent, this, onlyUpdateScrollbars);
++        handled = disambiguateMouseEvent(mouseEvent, this, onlyUpdateScrollbars);
+     }
+ }
+ 
+ static bool handleWheelEvent(const WebWheelEvent& wheelEvent, Page* page)
+ {
+     Frame& frame = page->mainFrame();
+     if (!frame.view())
+         return false;
+ 
+     PlatformWheelEvent platformWheelEvent = platform(wheelEvent);
+diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.h b/Source/WebKit2/WebProcess/WebPage/WebPage.h
+index 7b530cc..9bcd643 100644
+--- a/Source/WebKit2/WebProcess/WebPage/WebPage.h
++++ b/Source/WebKit2/WebProcess/WebPage/WebPage.h
+@@ -834,20 +834,28 @@ public:
+ 
+ #if ENABLE(SERVICE_CONTROLS) || ENABLE(TELEPHONE_NUMBER_DETECTION)
+     void handleTelephoneNumberClick(const String& number, const WebCore::IntPoint&);
+     void handleSelectionServiceClick(WebCore::FrameSelection&, const Vector<String>& telephoneNumbers, const WebCore::IntPoint&);
+ #endif
+ 
+     void didChangeScrollOffsetForFrame(WebCore::Frame*);
+ 
+     void willChangeCurrentHistoryItemForMainFrame();
+ 
++    // Synthetic actions are simulated during web replay.
++    enum class ActionSource {
++        User,
++        Synthetic
++    };
++
++    bool handleMouseEvent(const WebMouseEvent&, ActionSource);
++
+ private:
+     WebPage(uint64_t pageID, const WebPageCreationParameters&);
+ 
+     // IPC::MessageSender
+     virtual IPC::Connection* messageSenderConnection() override;
+     virtual uint64_t messageSenderDestinationID() override;
+ 
+     void platformInitialize();
+     void platformDetach();
+ 
+-- 
+2.0.1
+

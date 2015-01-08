@@ -1,0 +1,356 @@
+From c3216e833a3fba288a00da11657f3f3d8ad02d71 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Wed, 27 Aug 2014 15:49:33 -0700
+Subject: [PATCH] Web Replay: capture and replay changes to the page's
+ ViewState https://bugs.webkit.org/show_bug.cgi?id=129694
+
+Reviewed by NOBODY (OOPS!).
+
+Source/WebCore:
+
+Generate encoding traits for ViewState::Flags. It is used in WebKit2 inputs.
+
+* WebCore.exp.in:
+* replay/WebInputs.json:
+
+Source/WebKit2:
+
+SetViewState can cause DOM events like focus and blur to be fired, so
+we want these changes to be captured and replayed.
+
+WIP note: haven't tested this. Does it cause bad things to happen when
+we suppress or fake up view state changes? Particularly worried about
+drawing area calls.
+
+* WebProcess/Replay/WKInputs.json:
+* WebProcess/Replay/WKReplayInputDispatchMethods.cpp:
+(WebKit::HandleViewStateChange::dispatchOnWebPage): Added.
+* WebProcess/WebPage/WebPage.cpp:
+(WebKit::WebPage::handleViewStateChange): Added.
+(WebKit::WebPage::setViewState):
+* WebProcess/WebPage/WebPage.h:
+---
+ Source/WebCore/ChangeLog                           | 12 ++++++++++++
+ Source/WebCore/WebCore.exp.in                      |  2 ++
+ Source/WebCore/replay/WebInputs.json               | 14 ++++++++++++++
+ Source/WebKit2/ChangeLog                           | 22 ++++++++++++++++++++++
+ Source/WebKit2/WebProcess/Replay/WKInputs.json     | 22 ++++++++++++++++++++++
+ .../Replay/WKReplayInputDispatchMethods.cpp        |  5 +++++
+ Source/WebKit2/WebProcess/WebPage/WebPage.cpp      | 22 ++++++++++++++++++++--
+ Source/WebKit2/WebProcess/WebPage/WebPage.h        |  1 +
+ 8 files changed, 98 insertions(+), 2 deletions(-)
+
+diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
+index 04a5bff..df5d661 100644
+--- a/Source/WebCore/ChangeLog
++++ b/Source/WebCore/ChangeLog
+@@ -1,12 +1,24 @@
+ 2014-08-27  Brian J. Burg  <burg@cs.washington.edu>
+ 
++        Web Replay: capture and replay changes to the page's ViewState
++        https://bugs.webkit.org/show_bug.cgi?id=129694
++
++        Reviewed by NOBODY (OOPS!).
++
++        Generate encoding traits for ViewState::Flags. It is used in WebKit2 inputs.
++
++        * WebCore.exp.in:
++        * replay/WebInputs.json:
++
++2014-08-27  Brian J. Burg  <burg@cs.washington.edu>
++
+         Web Replay: only generate EncodingTraits for enums defined in the target framework
+         https://bugs.webkit.org/show_bug.cgi?id=136311
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Duplicate the definitions for some enumerations used in WebKit but not in WebCore.
+         Add enum encoding traits symbols to the export file.
+ 
+         Covered by existing generator tests.
+ 
+diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
+index 69d2417..967587e 100644
+--- a/Source/WebCore/WebCore.exp.in
++++ b/Source/WebCore/WebCore.exp.in
+@@ -3541,20 +3541,22 @@ __ZN3JSC14EncodingTraitsIN7WebCore15KeypressCommandEE11encodeValueERKS2_
+ __ZN3JSC14EncodingTraitsIN7WebCore15ScrollDirectionEE11decodeValueERNS_12EncodedValueERS2_
+ __ZN3JSC14EncodingTraitsIN7WebCore15ScrollDirectionEE11encodeValueERKS2_
+ __ZN3JSC14EncodingTraitsIN7WebCore16FrameLoadRequestEE11decodeValueERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC14EncodingTraitsIN7WebCore16FrameLoadRequestEE11encodeValueERKS2_
+ __ZN3JSC14EncodingTraitsIN7WebCore17ScrollGranularityEE11decodeValueERNS_12EncodedValueERS2_
+ __ZN3JSC14EncodingTraitsIN7WebCore17ScrollGranularityEE11encodeValueERKS2_
+ __ZN3JSC14EncodingTraitsIN7WebCore8IntPointEE11decodeValueERNS_12EncodedValueERS2_
+ __ZN3JSC14EncodingTraitsIN7WebCore8IntPointEE11encodeValueERKS2_
+ __ZN3JSC14EncodingTraitsIN7WebCore9FloatSizeEE11decodeValueERNS_12EncodedValueERS2_
+ __ZN3JSC14EncodingTraitsIN7WebCore9FloatSizeEE11encodeValueERKS2_
++__ZN3JSC14EncodingTraitsINS_7PhantomIN7WebCore14UncheckedEnumsELS3_0EEEE11decodeValueERNS_12EncodedValueERj
++__ZN3JSC14EncodingTraitsINS_7PhantomIN7WebCore14UncheckedEnumsELS3_0EEEE11encodeValueERKj
+ __ZN7WebCore19frameFromFrameIndexEPNS_4PageEj
+ __ZN7WebCore19frameIndexFromFrameEPKNS_5FrameE
+ __ZN7WebCore20EventLoopInputExtentC1ERN3JSC11InputCursorE
+ __ZN7WebCore20EventLoopInputExtentD1Ev
+ __ZNK7WebCore14ResourceLoader17activeInputCursorEv
+ __ZNK7WebCore16ReplayController17activeInputCursorEv
+ #endif
+ 
+ #if ENABLE(WEB_TIMING)
+ __ZNK7WebCore20ResourceResponseBase18resourceLoadTimingEv
+diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
+index 2b005d2..e975a1a 100644
+--- a/Source/WebCore/replay/WebInputs.json
++++ b/Source/WebCore/replay/WebInputs.json
+@@ -163,20 +163,34 @@
+                 "values": [
+                     "Data",
+                     "EncodedFile",
+                     "EncodedBlob"
+                 ],
+                 "header": "platform/network/FormData.h"
+             },
+             {
+                 "name": "URL", "mode": "HEAVY_SCALAR",
+                 "header": "platform/URL.h"
++            },
++            {
++                "name": "Flags", "mode": "SCALAR",
++                "flags": ["ENUM", "UNCHECKED"],
++                "enclosing_class": "ViewState",
++                "values": [
++                    "WindowIsActive",
++                    "IsFocused",
++                    "IsVisible",
++                    "IsVisibleOrOccluded",
++                    "IsInWindow",
++                    "IsVisuallyIdle"
++                ],
++                "header": "page/ViewState.h"
+             }
+         ]
+     },
+ 
+     "inputs": [
+         {
+             "name": "AsyncTimerFired",
+             "description": "A ReplayableTimer instance fired that was associated with the specified frame.",
+             "queue": "EVENT_LOOP",
+             "members": [
+diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
+index 638dda4..db2b956 100644
+--- a/Source/WebKit2/ChangeLog
++++ b/Source/WebKit2/ChangeLog
+@@ -1,10 +1,32 @@
++2014-08-27  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Replay: capture and replay changes to the page's ViewState
++        https://bugs.webkit.org/show_bug.cgi?id=129694
++
++        Reviewed by NOBODY (OOPS!).
++
++        SetViewState can cause DOM events like focus and blur to be fired, so
++        we want these changes to be captured and replayed.
++
++        WIP note: haven't tested this. Does it cause bad things to happen when
++        we suppress or fake up view state changes? Particularly worried about
++        drawing area calls.
++
++        * WebProcess/Replay/WKInputs.json:
++        * WebProcess/Replay/WKReplayInputDispatchMethods.cpp:
++        (WebKit::HandleViewStateChange::dispatchOnWebPage): Added.
++        * WebProcess/WebPage/WebPage.cpp:
++        (WebKit::WebPage::handleViewStateChange): Added.
++        (WebKit::WebPage::setViewState):
++        * WebProcess/WebPage/WebPage.h:
++
+ 2014-08-20  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         Web Replay: Encode replay inputs through ReplayClient
+         Need the bug URL (OOPS!).
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Only WebKit2 can access all possible replay inputs, so it should contain
+         the big function with cases to encode each input based on its type tag.
+ 
+diff --git a/Source/WebKit2/WebProcess/Replay/WKInputs.json b/Source/WebKit2/WebProcess/Replay/WKInputs.json
+index 9ee7dd3..0ceef63 100644
+--- a/Source/WebKit2/WebProcess/Replay/WKInputs.json
++++ b/Source/WebKit2/WebProcess/Replay/WKInputs.json
+@@ -24,20 +24,34 @@
+                 "name": "ScrollGranularity", "mode": "SCALAR", "storage": "uint8_t",
+                 "flags": ["ENUM"],
+                 "values": [
+                     "ScrollByLine",
+                     "ScrollByPage",
+                     "ScrollByDocument",
+                     "ScrollByPixel",
+                     "ScrollByPrecisePixel"
+                 ],
+                 "header": "platform/ScrollTypes.h"
++            },
++            {
++                "name": "Flags", "mode": "SCALAR",
++                "flags": ["ENUM", "UNCHECKED"],
++                "enclosing_class": "ViewState",
++                "values": [
++                    "WindowIsActive",
++                    "IsFocused",
++                    "IsVisible",
++                    "IsVisibleOrOccluded",
++                    "IsInWindow",
++                    "IsVisuallyIdle"
++                ],
++                "header": "page/ViewState.h"
+             }
+         ],
+         "WebKit": [
+             {
+                 "name": "WebMouseEvent", "mode": "OWNED",
+                 "header": "Shared/WebEvent.h"
+             },
+             {
+                 "name": "Modifiers", "mode": "SCALAR", "storage": "uint8_t",
+                 "enclosing_class": "WebEvent",
+@@ -164,17 +178,25 @@
+         },
+         {
+             "name": "HandleWheelEvent",
+             "description": "A wheel event is forwarded to the web page.",
+             "queue": "EVENT_LOOP",
+             "members": [
+                 { "name": "wheelEvent", "type": "WebWheelEvent" }
+             ]
+         },
+         {
++            "name": "HandleViewStateChange",
++            "description": "View state of the page changed. See ViewState.h for possible changes.",
++            "queue": "EVENT_LOOP",
++            "members": [
++                { "name": "state", "type": "ViewState::Flags" }
++            ]
++        },
++        {
+             "name": "TryClosePage",
+             "description": "The embedder requested that the page should be closed (subject to beforeunload cancellation).",
+             "queue": "EVENT_LOOP",
+             "members": [ ]
+         }
+     ]
+ }
+diff --git a/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp b/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp
+index cc24b09..8b0c2f3 100644
+--- a/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp
++++ b/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp
+@@ -72,18 +72,23 @@ void HandleFrameReload::dispatchOnWebPage(WebPage& page)
+ void HandleFrameStop::dispatchOnWebPage(WebPage& page)
+ {
+     WebCore::Frame* frame = WebCore::frameFromFrameIndex(page.corePage(), m_frameIndex);
+     ASSERT(frame);
+     if (!frame)
+         return;
+ 
+     page.handleFrameStop(*frame, WebPage::ActionSource::Synthetic);
+ }
+ 
++void HandleViewStateChange::dispatchOnWebPage(WebPage& page)
++{
++    page.handleViewStateChange(state(), false, WebPage::ActionSource::Synthetic);
++}
++
+ void TryClosePage::dispatchOnWebPage(WebPage& page)
+ {
+     page.handleTryClose(WebPage::ActionSource::Synthetic);
+ }
+ 
+ } // namespace WebKit
+ 
+ #endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
+index 9f0e04b..7c0bfc5 100644
+--- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
++++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
+@@ -2412,35 +2412,53 @@ void WebPage::updateIsInWindow(bool isInitialState)
+         if (m_mayStartMediaWhenInWindow)
+             m_setCanStartMediaTimer.startOneShot(0);
+ 
+         WebProcess::shared().pageDidEnterWindow(m_pageID);
+     }
+ 
+     if (isInWindow)
+         layoutIfNeeded();
+ }
+ 
+-void WebPage::setViewState(ViewState::Flags viewState, bool wantsDidUpdateViewState)
++void WebPage::handleViewStateChange(WebCore::ViewState::Flags viewState, bool wantsDidUpdateViewState, ActionSource source)
+ {
+-    ViewState::Flags changed = m_viewState ^ viewState;
++#if ENABLE(WEB_REPLAY)
++    // Don't try to handle view state changes if the web content is being replayed.
++    InputCursor& cursor = corePage()->replayController().activeInputCursor();
++    if (cursor.isReplaying() && source != ActionSource::Synthetic)
++        return;
++    if (cursor.isCapturing())
++        cursor.appendInput<HandleViewStateChange>(viewState);
++    EventLoopInputExtent extent(cursor);
++#else
++    UNUSED_PARAM(source);
++#endif
++
++    ViewState::Flags changed = static_cast<ViewState::Flags>(m_viewState ^ viewState);
+     m_viewState = viewState;
+ 
+     m_page->setViewState(viewState);
+     for (auto* pluginView : m_pluginViews)
+         pluginView->viewStateDidChange(changed);
+ 
+     m_drawingArea->viewStateDidChange(changed, wantsDidUpdateViewState);
+ 
+     if (changed & ViewState::IsInWindow)
+         updateIsInWindow();
+ }
+ 
++
++void WebPage::setViewState(uint32_t viewStateFlags, bool wantsDidUpdateViewState)
++{
++    handleViewStateChange(static_cast<ViewState::Flags>(viewStateFlags), wantsDidUpdateViewState, ActionSource::User);
++}
++
+ void WebPage::setLayerHostingMode(unsigned layerHostingMode)
+ {
+     m_layerHostingMode = static_cast<LayerHostingMode>(layerHostingMode);
+ 
+     m_drawingArea->setLayerHostingMode(m_layerHostingMode);
+ 
+     for (auto* pluginView : m_pluginViews)
+         pluginView->setLayerHostingMode(m_layerHostingMode);
+ }
+ 
+diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.h b/Source/WebKit2/WebProcess/WebPage/WebPage.h
+index a6c6ad9..e23f8d3 100644
+--- a/Source/WebKit2/WebProcess/WebPage/WebPage.h
++++ b/Source/WebKit2/WebProcess/WebPage/WebPage.h
+@@ -851,20 +851,21 @@ public:
+     // Entry points for actions that can be simulated during web replay.
+     bool handleMouseEvent(const WebMouseEvent&, ActionSource);
+     bool handleKeyEvent(const WebKeyboardEvent&, ActionSource);
+     bool handleWheelEvent(const WebWheelEvent&, ActionSource);
+     bool handleScroll(WebCore::ScrollDirection, WebCore::ScrollGranularity, ActionSource = ActionSource::User);
+ 
+     void handleFrameLoad(const WebCore::FrameLoadRequest&, ActionSource);
+     void handleFrameReload(WebCore::Frame&, bool endToEndReload, ActionSource);
+     void handleFrameStop(WebCore::Frame&, ActionSource);
+     bool handleTryClose(ActionSource);
++    void handleViewStateChange(WebCore::ViewState::Flags, bool wantsDidUpdateViewState, ActionSource);
+ 
+     
+ private:
+     WebPage(uint64_t pageID, const WebPageCreationParameters&);
+ 
+     // IPC::MessageSender
+     virtual IPC::Connection* messageSenderConnection() override;
+     virtual uint64_t messageSenderDestinationID() override;
+ 
+     void platformInitialize();
+-- 
+2.0.1
+

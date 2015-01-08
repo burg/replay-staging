@@ -1,0 +1,496 @@
+From f90806031cf02b71faef0c45f22d60d12ee545d6 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Fri, 19 Sep 2014 15:00:18 -0700
+Subject: [PATCH] Rework how event loop input timestamps are calculated. They
+ should not be recomputed on replay. They should be elapsed time, not
+ monotonic time.
+
+---
+ Source/JavaScriptCore/inspector/protocol/Replay.json    |  4 ++--
+ Source/WebCore/inspector/InspectorReplayAgent.cpp       | 17 +++++++++++------
+ Source/WebCore/replay/CapturingInputCursor.cpp          |  8 +++++++-
+ Source/WebCore/replay/CapturingInputCursor.h            |  2 ++
+ Source/WebCore/replay/EventLoopInputDispatcher.cpp      |  8 ++++++--
+ Source/WebCore/replay/EventLoopInputDispatcher.h        |  2 ++
+ Source/WebCore/replay/ReplaySessionSegment.h            |  3 ++-
+ .../UserInterface/Controllers/ReplayManager.js          |  4 ++--
+ .../UserInterface/Protocol/ReplayObserver.js            |  4 ++--
+ 9 files changed, 36 insertions(+), 16 deletions(-)
+
+diff --git a/Source/JavaScriptCore/inspector/protocol/Replay.json b/Source/JavaScriptCore/inspector/protocol/Replay.json
+index b39111c..2d79dea 100644
+--- a/Source/JavaScriptCore/inspector/protocol/Replay.json
++++ b/Source/JavaScriptCore/inspector/protocol/Replay.json
+@@ -29,20 +29,21 @@
+                { "name": "segmentOffset", "type": "integer", "description": "Offset for a segment within the currently-loaded replay session." },
+                { "name": "inputOffset", "type": "integer", "description": "Offset for an event loop input within the specified session segment." }
+             ]
+         },
+         {
+             "id": "ReplayInput",
+             "type": "object",
+             "properties": [
+                 { "name": "type", "type": "string", "description": "Input type." },
+                 { "name": "offset", "type": "integer", "description": "Offset of this input in its respective queue."},
++                { "name": "timestamp", "type": "number", "optional": true, "description": "Timestamp of the input since beginning of the segment, if applicable."},
+                 { "name": "data", "type": "object", "description": "Per-input payload." }
+             ]
+         },
+         {
+             "id": "ReplayInputQueue",
+             "type": "object",
+             "properties": [
+                 { "name": "type", "type": "string", "description": "Queue type" },
+                 { "name": "inputs", "type": "array", "items": { "$ref": "ReplayInput"}, "description": "Inputs belonging to this queue." }
+             ]
+@@ -174,22 +175,21 @@
+             "description": "Fired when capture has started."
+         },
+         {
+             "name": "captureStopped",
+             "description": "Fired when capture has stopped."
+         },
+         {
+             "name": "playbackHitPosition",
+             "description": "Playback within the session has progressed up to this position, and is about to replay the input at the specified offset.",
+             "parameters": [
+-                { "name": "position", "$ref": "ReplayPosition", "description": "The playback position that was hit." },
+-                { "name": "timestamp", "type": "number", "description": "A timestamp for the event." }
++                { "name": "position", "$ref": "ReplayPosition", "description": "The playback position that was hit." }
+             ]
+         },
+         {
+             "name": "playbackStarted",
+             "description": "Fired when session playback has started."
+         },
+         {
+             "name": "playbackPaused",
+             "description": "Fired when session playback has paused, but not finished.",
+             "parameters": [
+diff --git a/Source/WebCore/inspector/InspectorReplayAgent.cpp b/Source/WebCore/inspector/InspectorReplayAgent.cpp
+index 3917468..36b8d43 100644
+--- a/Source/WebCore/inspector/InspectorReplayAgent.cpp
++++ b/Source/WebCore/inspector/InspectorReplayAgent.cpp
+@@ -92,58 +92,63 @@ static Inspector::Protocol::Replay::SessionState buildInspectorObjectForSessionS
+ static Inspector::Protocol::Replay::SegmentState buildInspectorObjectForSegmentState(WebCore::SegmentState segmentState)
+ {
+     switch (segmentState) {
+     case WebCore::SegmentState::Appending: return Inspector::Protocol::Replay::SegmentState::Appending;
+     case WebCore::SegmentState::Unloaded: return Inspector::Protocol::Replay::SegmentState::Unloaded;
+     case WebCore::SegmentState::Loaded: return Inspector::Protocol::Replay::SegmentState::Loaded;
+     case WebCore::SegmentState::Dispatching: return Inspector::Protocol::Replay::SegmentState::Dispatching;
+     }
+ }
+ 
+-class SerializeInputToJSONFunctor {
++class SerializeSegmentInputsToJSONFunctor {
+ public:
+     typedef PassRefPtr<Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInput>> ReturnType;
+ 
+-    SerializeInputToJSONFunctor(ReplayClient& client)
+-        : m_client(client)
++    SerializeSegmentInputsToJSONFunctor(ReplaySessionSegment& segment, ReplayClient& client)
++        : m_segment(segment)
++        , m_client(client)
+         , m_inputs(Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInput>::create()) { }
+-    ~SerializeInputToJSONFunctor() { }
++    ~SerializeSegmentInputsToJSONFunctor() { }
+ 
+     void operator()(size_t index, const NondeterministicInputBase* input)
+     {
+         LOG(WebReplay, "%-25s Writing %5zu: %s\n", "[SerializeInput]", index, input->type().ascii().data());
+ 
+         EncodedValue encodedInput;
+         if (!m_client.encodeInput(*input, encodedInput))
+             return;
+ 
+         RefPtr<Inspector::Protocol::Replay::ReplayInput> inputObject = Inspector::Protocol::Replay::ReplayInput::create()
+             .setType(input->type())
+             .setOffset(index)
+             .setData(encodedInput.asObject());
+ 
++        if (input->queue() == InputQueue::EventLoopInput)
++            inputObject->setTimestamp(m_segment.eventLoopTimings().at(index));
++
+         m_inputs->addItem(inputObject.release());
+     }
+ 
+     ReturnType returnValue() { return m_inputs.release(); }
+ private:
++    ReplaySessionSegment& m_segment;
+     ReplayClient& m_client;
+     RefPtr<Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInput>> m_inputs;
+ };
+ 
+ static PassRefPtr<Inspector::Protocol::Replay::SessionSegment> buildInspectorObjectForSegment(PassRefPtr<ReplaySessionSegment> prpSegment, ReplayClient& client)
+ {
+     RefPtr<ReplaySessionSegment> segment = prpSegment;
+     RefPtr<Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInputQueue>> queuesObject = Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInputQueue>::create();
+ 
+     for (size_t i = 0; i < static_cast<size_t>(InputQueue::Count); i++) {
+-        SerializeInputToJSONFunctor collector(client);
++        SerializeSegmentInputsToJSONFunctor collector(*segment, client);
+         InputQueue queue = static_cast<InputQueue>(i);
+         RefPtr<FunctorInputCursor> functorCursor = FunctorInputCursor::create(segment);
+         RefPtr<Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInput>> queueInputs = functorCursor->forEachInputInQueue(queue, collector);
+ 
+         RefPtr<Inspector::Protocol::Replay::ReplayInputQueue> queueObject = Inspector::Protocol::Replay::ReplayInputQueue::create()
+             .setType(EncodingTraits<InputQueue>::encodeValue(queue).convertTo<String>())
+             .setInputs(queueInputs);
+ 
+         queuesObject->addItem(queueObject.release());
+     }
+@@ -300,21 +305,21 @@ void InspectorReplayAgent::playbackStarted()
+ 
+ void InspectorReplayAgent::playbackPaused(const ReplayPosition& position)
+ {
+     LOG(WebReplay, "-----REPLAY PAUSED-----");
+ 
+     m_frontendDispatcher->playbackPaused(buildInspectorObjectForPosition(position));
+ }
+ 
+ void InspectorReplayAgent::playbackHitPosition(const ReplayPosition& position)
+ {
+-    m_frontendDispatcher->playbackHitPosition(buildInspectorObjectForPosition(position), monotonicallyIncreasingTime());
++    m_frontendDispatcher->playbackHitPosition(buildInspectorObjectForPosition(position));
+ }
+ 
+ void InspectorReplayAgent::playbackFinished()
+ {
+     LOG(WebReplay, "-----REPLAY FINISHED-----");
+ 
+     m_frontendDispatcher->playbackFinished();
+ }
+ 
+ void InspectorReplayAgent::startCapturing(ErrorString& errorString)
+diff --git a/Source/WebCore/replay/CapturingInputCursor.cpp b/Source/WebCore/replay/CapturingInputCursor.cpp
+index 731842e..adce8f6 100644
+--- a/Source/WebCore/replay/CapturingInputCursor.cpp
++++ b/Source/WebCore/replay/CapturingInputCursor.cpp
+@@ -52,41 +52,47 @@ static const char* queueTypeToLogPrefix(InputQueue queue)
+     case InputQueue::Count: return "ERROR!";
+     }
+ }
+ #endif // !LOG_DISABLED
+ 
+ namespace WebCore {
+ 
+ CapturingInputCursor::CapturingInputCursor(PassRefPtr<ReplaySessionSegment> segment, Page& page)
+     : m_segment(segment)
+     , m_page(page)
++    , m_stopwatch(Stopwatch::create())
+ {
+     LOG(WebReplay, "%-30sCreated capture cursor=%p.\n", "[ReplayController]", this);
++
++    m_stopwatch->reset();
++    m_stopwatch->start();
+ }
+ 
+ CapturingInputCursor::~CapturingInputCursor()
+ {
+     LOG(WebReplay, "%-30sDestroyed capture cursor=%p.\n", "[ReplayController]", this);
++
++    m_stopwatch->stop();
+ }
+ 
+ PassRefPtr<CapturingInputCursor> CapturingInputCursor::create(PassRefPtr<ReplaySessionSegment> segment, Page& page)
+ {
+     return adoptRef(new CapturingInputCursor(segment, page));
+ }
+ 
+ void CapturingInputCursor::storeInput(std::unique_ptr<NondeterministicInputBase> input)
+ {
+     ASSERT_ARG(input, input);
+ 
+     if (input->queue() == InputQueue::EventLoopInput) {
+         // FIXME: rewrite this (and related dispatch code) to use std::chrono.
+-        double now = monotonicallyIncreasingTime();
++        double now = m_stopwatch->elapsedTime();
+         m_segment->eventLoopTimings().append(now);
+     }
+ 
+     InputQueue queue = input->queue();
+     const AtomicString& type = input->type();
+     EncodedValue encodedInput;
+     m_page.replayController().client().encodeInput(*input, encodedInput);
+ 
+     size_t inputCount = m_segment->storage().store(WTF::move(input));
+ 
+diff --git a/Source/WebCore/replay/CapturingInputCursor.h b/Source/WebCore/replay/CapturingInputCursor.h
+index 31f3061..f3e8975 100644
+--- a/Source/WebCore/replay/CapturingInputCursor.h
++++ b/Source/WebCore/replay/CapturingInputCursor.h
+@@ -25,20 +25,21 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #ifndef CapturingInputCursor_h
+ #define CapturingInputCursor_h
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include <replay/InputCursor.h>
+ #include <wtf/Noncopyable.h>
++#include <wtf/Stopwatch.h>
+ 
+ namespace WebCore {
+ 
+ class EventLoopInputExtent;
+ class Page;
+ class ReplaySessionSegment;
+ 
+ class CapturingInputCursor final : public InputCursor {
+     WTF_MAKE_NONCOPYABLE(CapturingInputCursor);
+ public:
+@@ -52,17 +53,18 @@ protected:
+     virtual NondeterministicInputBase* loadInput(InputQueue, const AtomicString& type) override;
+ 
+ private:
+     CapturingInputCursor(PassRefPtr<ReplaySessionSegment>, Page&);
+ 
+     virtual NondeterministicInputBase* uncheckedLoadInput(InputQueue) override;
+     virtual void storeInput(std::unique_ptr<NondeterministicInputBase>) override;
+ 
+     RefPtr<ReplaySessionSegment> m_segment;
+     Page& m_page;
++    RefPtr<Stopwatch> m_stopwatch;
+ };
+ 
+ } // namespace WebCore
+ 
+ #endif // ENABLE(WEB_REPLAY)
+ 
+ #endif // CapturingInputCursor_h
+diff --git a/Source/WebCore/replay/EventLoopInputDispatcher.cpp b/Source/WebCore/replay/EventLoopInputDispatcher.cpp
+index 6909cf7..8781ca3 100644
+--- a/Source/WebCore/replay/EventLoopInputDispatcher.cpp
++++ b/Source/WebCore/replay/EventLoopInputDispatcher.cpp
+@@ -49,39 +49,43 @@ namespace WebCore {
+ EventLoopInputDispatcher::EventLoopInputDispatcher(Page& page, ReplayingInputCursor& cursor, EventLoopInputDispatcherClient* client)
+     : m_page(page)
+     , m_client(client)
+     , m_cursor(cursor)
+     , m_timer(this, &EventLoopInputDispatcher::timerFired)
+     , m_dispatching(false)
+     , m_running(false)
+     , m_speed(DispatchSpeed::FastForward)
+     , m_previousDispatchStartTime(0.0)
+     , m_previousInputTimestamp(0.0)
++    , m_stopwatch(Stopwatch::create())
+ {
+     m_currentWork.input = nullptr;
+     m_currentWork.timestamp = 0.0;
++    m_stopwatch->reset();
+ }
+ 
+ void EventLoopInputDispatcher::run()
+ {
+     ASSERT(!m_running);
+     m_running = true;
++    m_stopwatch->start();
+ 
+     LOG(WebReplay, "%-20s Starting dispatch of event loop inputs for page: %p\n", "ReplayEvents", &m_page);
+     dispatchInputSoon();
+ }
+ 
+ void EventLoopInputDispatcher::pause()
+ {
+     ASSERT(!m_dispatching);
+     ASSERT(m_running);
+     m_running = false;
++    m_stopwatch->stop();
+ 
+     LOG(WebReplay, "%-20s Pausing dispatch of event loop inputs for page: %p\n", "ReplayEvents", &m_page);
+     if (m_timer.isActive())
+         m_timer.stop();
+ }
+ 
+ void EventLoopInputDispatcher::timerFired(Timer<EventLoopInputDispatcher>*)
+ {
+     dispatchInput();
+ }
+@@ -102,21 +106,21 @@ void EventLoopInputDispatcher::dispatchInputSoon()
+     if (m_speed == DispatchSpeed::RealTime) {
+         // The goal is to reproduce the dispatch delay between inputs as it was
+         // was observed during the recording. So, we need to compute how much time
+         // to wait such that the elapsed time plus the wait time will equal the
+         // observed delay between the previous and current input.
+ 
+         if (!m_previousInputTimestamp)
+             m_previousInputTimestamp = m_currentWork.timestamp;
+ 
+         double targetInterval = m_currentWork.timestamp - m_previousInputTimestamp;
+-        double elapsed = monotonicallyIncreasingTime() - m_previousDispatchStartTime;
++        double elapsed = m_stopwatch->elapsedTime() - m_previousDispatchStartTime;
+         waitInterval = targetInterval - elapsed;
+     }
+ 
+     // A negative wait time means that dispatch took longer on replay than on
+     // capture. In this case, proceed without waiting at all.
+     if (waitInterval < 0)
+         waitInterval = 0;
+ 
+     if (waitInterval > 1000.0) {
+         LOG_ERROR("%-20s Tried to wait for over 1000 seconds before dispatching next event loop input; this is probably a bug.", "ReplayEvents");
+@@ -126,21 +130,21 @@ void EventLoopInputDispatcher::dispatchInputSoon()
+     LOG(WebReplay, "%-20s (WAIT: %.3f ms)", "ReplayEvents", waitInterval * 1000.0);
+     m_timer.startOneShot(waitInterval);
+ }
+ 
+ void EventLoopInputDispatcher::dispatchInput()
+ {
+     ASSERT(m_currentWork.input);
+     ASSERT(!m_dispatching);
+ 
+     if (m_speed == DispatchSpeed::RealTime) {
+-        m_previousDispatchStartTime = monotonicallyIncreasingTime();
++        m_previousDispatchStartTime = m_stopwatch->elapsedTime();
+         m_previousInputTimestamp = m_currentWork.timestamp;
+     }
+ 
+ #if !LOG_DISABLED
+     EncodedValue encodedInput;
+     if (m_page.replayController().client().encodeInput(*m_currentWork.input, encodedInput)) {
+         LOG(WebReplay, "%-20s ----------------------------------------------", "ReplayEvents");
+         LOG(WebReplay, "%-20s >DISPATCH: %s %s\n", "ReplayEvents", m_currentWork.input->type().utf8().data(), encodedInput.asObject()->toJSONString().utf8().data());
+     }
+ #endif
+diff --git a/Source/WebCore/replay/EventLoopInputDispatcher.h b/Source/WebCore/replay/EventLoopInputDispatcher.h
+index 6b56c8d..4884af3 100644
+--- a/Source/WebCore/replay/EventLoopInputDispatcher.h
++++ b/Source/WebCore/replay/EventLoopInputDispatcher.h
+@@ -26,20 +26,21 @@
+  */
+ 
+ #ifndef EventLoopInputDispatcher_h
+ #define EventLoopInputDispatcher_h
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include "EventLoopInput.h"
+ #include "Timer.h"
+ #include <wtf/Noncopyable.h>
++#include <wtf/Stopwatch.h>
+ #include <wtf/Vector.h>
+ #include <wtf/text/WTFString.h>
+ 
+ namespace WebCore {
+ 
+ class Page;
+ class ReplayingInputCursor;
+     
+ enum class DispatchSpeed {
+     RealTime,
+@@ -84,17 +85,18 @@ private:
+     // Whether the dispatcher is currently calling out to an inputs' dispatch() method.
+     bool m_dispatching;
+     // Whether the dispatcher is waiting to dispatch or actively dispatching inputs.
+     bool m_running;
+ 
+     DispatchSpeed m_speed;
+     // The time at which the last input dispatch() method was called.
+     double m_previousDispatchStartTime;
+     // The timestamp specified by the last dispatched input.
+     double m_previousInputTimestamp;
++    RefPtr<Stopwatch> m_stopwatch;
+ };
+ 
+ } // namespace WebCore
+ 
+ #endif // ENABLE(WEB_REPLAY)
+ 
+ #endif // EventLoopInputDispatcher_h
+diff --git a/Source/WebCore/replay/ReplaySessionSegment.h b/Source/WebCore/replay/ReplaySessionSegment.h
+index 5d45041..5f29d45 100644
+--- a/Source/WebCore/replay/ReplaySessionSegment.h
++++ b/Source/WebCore/replay/ReplaySessionSegment.h
+@@ -46,23 +46,24 @@ class SegmentedInputStorage;
+ class ReplaySessionSegment : public RefCounted<ReplaySessionSegment> {
+ friend class CapturingInputCursor;
+ friend class FunctorInputCursor;
+ friend class ReplayingInputCursor;
+ public:
+     static PassRefPtr<ReplaySessionSegment> create();
+     ~ReplaySessionSegment();
+ 
+     unsigned identifier() const { return m_identifier; }
+     double timestamp() const { return m_timestamp; }
++    Vector<double, 0>& eventLoopTimings() { return m_eventLoopTimings; }
++
+ protected:
+     SegmentedInputStorage& storage() { return *m_storage; }
+-    Vector<double, 0>& eventLoopTimings() { return m_eventLoopTimings; }
+ 
+ private:
+     ReplaySessionSegment();
+ 
+     std::unique_ptr<SegmentedInputStorage> m_storage;
+     Vector<double, 0> m_eventLoopTimings;
+ 
+     unsigned m_identifier;
+     bool m_canCapture;
+     double m_timestamp;
+diff --git a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
+index d3f562e..0efdb30 100644
+--- a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
++++ b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
+@@ -453,24 +453,24 @@ WebInspector.ReplayManager.prototype = {
+             return this.waitUntilInitialized().then(this.playbackStarted.bind(this));
+ 
+         if (this.sessionState === WebInspector.ReplayManager.SessionState.Inactive)
+             this._changeSessionState(WebInspector.ReplayManager.SessionState.Replaying);
+ 
+         this._changeSegmentState(WebInspector.ReplayManager.SegmentState.Dispatching);
+ 
+         this.dispatchEventToListeners(WebInspector.ReplayManager.Event.PlaybackStarted);
+     },
+ 
+-    playbackHitPosition: function(replayPosition, timestamp)
++    playbackHitPosition: function(replayPosition)
+     {
+         if (!this._initialized)
+-            return this.waitUntilInitialized().then(this.playbackHitPosition.bind(this, replayPosition, timestamp));
++            return this.waitUntilInitialized().then(this.playbackHitPosition.bind(this, replayPosition));
+ 
+         console.assert(this.sessionState === WebInspector.ReplayManager.SessionState.Replaying);
+         console.assert(this.segmentState === WebInspector.ReplayManager.SegmentState.Dispatching);
+         console.assert(replayPosition instanceof WebInspector.ReplayPosition);
+ 
+         this._currentPosition = replayPosition;
+         this.dispatchEventToListeners(WebInspector.ReplayManager.Event.PlaybackPositionChanged);
+     },
+ 
+     playbackPaused: function(position)
+diff --git a/Source/WebInspectorUI/UserInterface/Protocol/ReplayObserver.js b/Source/WebInspectorUI/UserInterface/Protocol/ReplayObserver.js
+index 9166db7..36bd03c 100644
+--- a/Source/WebInspectorUI/UserInterface/Protocol/ReplayObserver.js
++++ b/Source/WebInspectorUI/UserInterface/Protocol/ReplayObserver.js
+@@ -52,23 +52,23 @@ WebInspector.ReplayObserver.prototype = {
+     captureStopped: function()
+     {
+         WebInspector.replayManager.captureStopped();
+     },
+ 
+     playbackStarted: function()
+     {
+         WebInspector.replayManager.playbackStarted();
+     },
+ 
+-    playbackHitPosition: function(replayPosition, timestamp)
++    playbackHitPosition: function(replayPosition)
+     {
+-        WebInspector.replayManager.playbackHitPosition(WebInspector.ReplayPosition.fromProtocol(replayPosition), timestamp);
++        WebInspector.replayManager.playbackHitPosition(WebInspector.ReplayPosition.fromProtocol(replayPosition));
+     },
+ 
+     playbackPaused: function(replayPosition)
+     {
+         WebInspector.replayManager.playbackPaused(WebInspector.ReplayPosition.fromProtocol(replayPosition));
+     },
+ 
+     playbackFinished: function()
+     {
+         WebInspector.replayManager.playbackFinished();
+-- 
+2.0.1
+

@@ -1,0 +1,358 @@
+From 7023806911708b8ae21415078b17ddd22e1dc09a Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Tue, 19 Aug 2014 15:54:36 -0700
+Subject: [PATCH] WK2 Replay: EventLoopInputBase::dispatch should take a Page&
+
+---
+ .../replay/scripts/CodeGeneratorReplayInputs.py    |  2 +-
+ ...enerate-enum-with-guard.json-TestReplayInputs.h |  2 +-
+ Source/WebCore/replay/EventLoopInput.h             |  5 +-
+ .../WebCore/replay/ReplayInputDispatchMethods.cpp  | 94 +++++++++++-----------
+ .../WebProcess/WebCoreSupport/WebReplayClient.cpp  |  2 +-
+ 5 files changed, 53 insertions(+), 52 deletions(-)
+
+diff --git a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
+index df9b967..8991966 100644
+--- a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
++++ b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
+@@ -691,21 +691,21 @@ class Generator:
+             lines.append("")
+ 
+         return "\n".join(lines)
+ 
+     def generate_class_declaration(self, _input):
+         extra_declarations = []
+         if _input.queue == InputQueues.EVENT_LOOP:
+             extra_declarations.extend([
+                 "",
+                 "    // EventLoopInput API",
+-                "    virtual void dispatch(ReplayController&) override final;",
++                "    virtual void dispatch(Page&) override final;",
+             ])
+ 
+             if _input.setting('CREATE_FROM_PAGE'):
+                 extra_declarations.extend([
+                     "    static std::unique_ptr<%s> createFromPage(const Page&);" % _input.name
+                 ])
+ 
+         member_getters = [self.generate_input_member_getter(_member) for _member in _input.members]
+ 
+         member_declarations = [self.generate_input_member_declaration(_member) for _member in _input.members]
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h
+index 37129c4..634b197 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h
+@@ -62,21 +62,21 @@ template<> struct EncodingTraits<WebCore::PlatformWheelEventPhase> {
+ #endif // ENABLE(DUMMY_FEATURE)
+ } // namespace JSC
+ 
+ namespace Test {
+ class HandleWheelEvent : public EventLoopInput<HandleWheelEvent> {
+ public:
+     HandleWheelEvent(std::unique_ptr<PlatformWheelEvent> platformEvent);
+     virtual ~HandleWheelEvent();
+ 
+     // EventLoopInput API
+-    virtual void dispatch(ReplayController&) override final;
++    virtual void dispatch(Page&) override final;
+     const PlatformWheelEvent& platformEvent() const { return *m_platformEvent; }
+ private:
+     std::unique_ptr<PlatformWheelEvent> m_platformEvent;
+ };
+ } // namespace Test
+ 
+ #define TEST_REPLAY_INPUT_NAMES_FOR_EACH(macro) \
+     macro(HandleWheelEvent) \
+     \
+ // end of TEST_REPLAY_INPUT_NAMES_FOR_EACH
+diff --git a/Source/WebCore/replay/EventLoopInput.h b/Source/WebCore/replay/EventLoopInput.h
+index 3b4743f..228055b 100644
+--- a/Source/WebCore/replay/EventLoopInput.h
++++ b/Source/WebCore/replay/EventLoopInput.h
+@@ -33,46 +33,47 @@
+ #include <replay/NondeterministicInput.h>
+ #include <wtf/CurrentTime.h>
+ 
+ namespace JSC {
+ class InputCursor;
+ };
+ 
+ namespace WebCore {
+ 
+ class EventLoopInputBase;
++class Page;
+ class ReplayController;
+ 
+ // This is an RAII helper used during capturing which sets a flag on the input cursor
+ // to track the dynamic extent of a captured event loop input. This extent approximates
+ // the interval in which EventLoopInputDispatcher::dispatching() is true.
+ class EventLoopInputExtent {
+     WTF_MAKE_NONCOPYABLE(EventLoopInputExtent);
+ public:
+     EventLoopInputExtent(JSC::InputCursor&);
+     EventLoopInputExtent(JSC::InputCursor*);
+     ~EventLoopInputExtent();
+ private:
+     JSC::InputCursor* m_cursor;
+ };
+ 
+ struct EventLoopInputData {
+     EventLoopInputBase* input;
+     double timestamp;
+ };
+-    
++
+ class EventLoopInputBase : public NondeterministicInputBase {
+ public:
+     virtual ~EventLoopInputBase() { }
+     virtual InputQueue queue() const override final { return InputQueue::EventLoopInput; }
+ 
+-    virtual void dispatch(ReplayController&) = 0;
++    virtual void dispatch(Page&) = 0;
+ };
+ 
+ template <typename InputType>
+ class EventLoopInput : public EventLoopInputBase {
+     virtual const String& type() const override final
+     {
+         return InputTraits<InputType>::type();
+     }
+ };
+ 
+diff --git a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
+index 4c8d8ae..29508c8 100644
+--- a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
++++ b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
+@@ -57,160 +57,160 @@ static ResourceLoader* resourceLoaderForOrdinal(Page& page, unsigned long ordina
+     ASSERT(frame);
+ 
+     const Vector<unsigned long>& usedIdentifiers = frame->mainFrame().loader().activeDocumentLoader()->usedIdentifiers();
+     ASSERT(ordinal < usedIdentifiers.size());
+ 
+     RefPtr<ResourceLoader> loader = frame->loader().activeDocumentLoader()->loaderForIdentifier(usedIdentifiers.at(ordinal));
+     return loader ? loader.get() : nullptr;
+ }
+ 
+ // Sentinel inputs.
+-void BeginSegmentSentinel::dispatch(ReplayController&)
++void BeginSegmentSentinel::dispatch(Page&)
+ {
+ }
+ 
+-void EndSegmentSentinel::dispatch(ReplayController&)
++void EndSegmentSentinel::dispatch(Page&)
+ {
+ }
+ 
+ // Navigation inputs.
+-void InitialNavigation::dispatch(ReplayController& controller)
++void InitialNavigation::dispatch(Page& page)
+ {
+-    controller.page().mainFrame().navigationScheduler().scheduleLocationChange(m_securityOrigin.get(), m_url, m_referrer);
++    page.mainFrame().navigationScheduler().scheduleLocationChange(m_securityOrigin.get(), m_url, m_referrer);
+ }
+ 
+-void LoadURLRequest::dispatch(ReplayController& controller)
++void LoadURLRequest::dispatch(Page& page)
+ {
+-    controller.page().userInputBridge().loadRequest(*m_loadRequest);
++    page.userInputBridge().loadRequest(*m_loadRequest);
+ }
+ 
+-void ReloadFrame::dispatch(ReplayController& controller)
++void ReloadFrame::dispatch(Page& page)
+ {
+-    Frame* frame = frameFromFrameIndex(&controller.page(), m_frameIndex);
++    Frame* frame = frameFromFrameIndex(&page, m_frameIndex);
+     ASSERT(frame);
+ 
+-    controller.page().userInputBridge().reloadFrame(frame, m_endToEndReload, InputSource::Synthetic);
++    page.userInputBridge().reloadFrame(frame, m_endToEndReload, InputSource::Synthetic);
+ }
+ 
+-void StopLoadingFrame::dispatch(ReplayController& controller)
++void StopLoadingFrame::dispatch(Page& page)
+ {
+-    Frame* frame = frameFromFrameIndex(&controller.page(), m_frameIndex);
++    Frame* frame = frameFromFrameIndex(&page, m_frameIndex);
+     ASSERT(frame);
+ 
+-    controller.page().userInputBridge().stopLoadingFrame(frame, InputSource::Synthetic);
++    page.userInputBridge().stopLoadingFrame(frame, InputSource::Synthetic);
+ }
+ 
+-void TryClosePage::dispatch(ReplayController& controller)
++void TryClosePage::dispatch(Page& page)
+ {
+-    controller.page().userInputBridge().tryClosePage(InputSource::Synthetic);
++    page.userInputBridge().tryClosePage(InputSource::Synthetic);
+ }
+ 
+-void InitializeHistory::dispatch(ReplayController& controller)
++void InitializeHistory::dispatch(Page& page)
+ {
+     return; // HACK
+ 
+     // FIXME: Load the empty document, so that when we prune the back-forward list it
+     // is the single remaining entry. <https://webkit.org/b/131989>
+-    controller.page().backForward().clear();
++    page.backForward().clear();
+ 
+     for (RefPtr<HistoryItem> historyEntry : m_entries)
+-        controller.page().backForward().addItem(historyEntry->copy());
++        page.backForward().addItem(historyEntry->copy());
+ 
+-    controller.page().mainFrame().loader().history().setCurrentItem(controller.page().backForward().currentItem());
++    page.mainFrame().loader().history().setCurrentItem(page.backForward().currentItem());
+ }
+ 
+-void HandleKeyPress::dispatch(ReplayController& controller)
++void HandleKeyPress::dispatch(Page& page)
+ {
+-    controller.page().userInputBridge().handleKeyEvent(platformEvent(), InputSource::Synthetic);
++    page.userInputBridge().handleKeyEvent(platformEvent(), InputSource::Synthetic);
+ }
+ 
+ // User interaction inputs.
+-void HandleMouseMove::dispatch(ReplayController& controller)
++void HandleMouseMove::dispatch(Page& page)
+ {
+     if (m_scrollbarTargeted)
+-        controller.page().userInputBridge().handleMouseMoveOnScrollbarEvent(platformEvent(), InputSource::Synthetic);
++        page.userInputBridge().handleMouseMoveOnScrollbarEvent(platformEvent(), InputSource::Synthetic);
+     else
+-        controller.page().userInputBridge().handleMouseMoveEvent(platformEvent(), InputSource::Synthetic);
++        page.userInputBridge().handleMouseMoveEvent(platformEvent(), InputSource::Synthetic);
+ }
+ 
+-void HandleMousePress::dispatch(ReplayController& controller)
++void HandleMousePress::dispatch(Page& page)
+ {
+-    controller.page().userInputBridge().handleMousePressEvent(platformEvent(), InputSource::Synthetic);
++    page.userInputBridge().handleMousePressEvent(platformEvent(), InputSource::Synthetic);
+ }
+ 
+-void HandleMouseRelease::dispatch(ReplayController& controller)
++void HandleMouseRelease::dispatch(Page& page)
+ {
+-    controller.page().userInputBridge().handleMouseReleaseEvent(platformEvent(), InputSource::Synthetic);
++    page.userInputBridge().handleMouseReleaseEvent(platformEvent(), InputSource::Synthetic);
+ }
+ 
+-void HandleWheelEvent::dispatch(ReplayController& controller)
++void HandleWheelEvent::dispatch(Page& page)
+ {
+-    controller.page().userInputBridge().handleWheelEvent(platformEvent(), InputSource::Synthetic);
++    page.userInputBridge().handleWheelEvent(platformEvent(), InputSource::Synthetic);
+ }
+ 
+-void LogicalScrollPage::dispatch(ReplayController& controller)
++void LogicalScrollPage::dispatch(Page& page)
+ {
+-    controller.page().userInputBridge().logicalScrollRecursively(direction(), granularity(), InputSource::Synthetic);
++    page.userInputBridge().logicalScrollRecursively(direction(), granularity(), InputSource::Synthetic);
+ }
+ 
+-void ScrollPage::dispatch(ReplayController& controller)
++void ScrollPage::dispatch(Page& page)
+ {
+-    controller.page().userInputBridge().scrollRecursively(direction(), granularity(), InputSource::Synthetic);
++    page.userInputBridge().scrollRecursively(direction(), granularity(), InputSource::Synthetic);
+ }
+ 
+ // Network inputs.
+-void ResourceLoaderDidFail::dispatch(ReplayController& controller)
++void ResourceLoaderDidFail::dispatch(Page& page)
+ {
+-    if (ResourceLoader* loader = resourceLoaderForOrdinal(controller.page(), ordinal(), frameIndex()))
++    if (ResourceLoader* loader = resourceLoaderForOrdinal(page, ordinal(), frameIndex()))
+         loader->didFail(m_error->copy());
+     // FIXME: signal error if the callback couldn't be fired.
+ }
+ 
+-void ResourceLoaderDidFinishLoading::dispatch(ReplayController& controller)
++void ResourceLoaderDidFinishLoading::dispatch(Page& page)
+ {
+-    if (ResourceLoader* loader = resourceLoaderForOrdinal(controller.page(), ordinal(), frameIndex()))
++    if (ResourceLoader* loader = resourceLoaderForOrdinal(page, ordinal(), frameIndex()))
+         loader->didFinishLoading(m_finishTime);
+     // FIXME: signal error if the callback couldn't be fired.
+ }
+ 
+-void ResourceLoaderDidReceiveData::dispatch(ReplayController& controller)
++void ResourceLoaderDidReceiveData::dispatch(Page& page)
+ {
+-    if (ResourceLoader* loader = resourceLoaderForOrdinal(controller.page(), ordinal(), frameIndex()))
++    if (ResourceLoader* loader = resourceLoaderForOrdinal(page, ordinal(), frameIndex()))
+         loader->didReceiveData(buffer()->data(), buffer()->size(), encodedLength(), DataPayloadBytes);
+     // FIXME: signal error if the callback couldn't be fired.
+ }
+ 
+-void ResourceLoaderDidReceiveResponse::dispatch(ReplayController& controller)
++void ResourceLoaderDidReceiveResponse::dispatch(Page& page)
+ {
+-    if (ResourceLoader* loader = resourceLoaderForOrdinal(controller.page(), ordinal(), frameIndex()))
++    if (ResourceLoader* loader = resourceLoaderForOrdinal(page, ordinal(), frameIndex()))
+         loader->didReceiveResponse(*m_response);
+     // FIXME: signal error if the callback couldn't be fired.
+ }
+ 
+-void ResourceLoaderDidSendData::dispatch(ReplayController& controller)
++void ResourceLoaderDidSendData::dispatch(Page& page)
+ {
+-    if (ResourceLoader* loader = resourceLoaderForOrdinal(controller.page(), ordinal(), frameIndex()))
++    if (ResourceLoader* loader = resourceLoaderForOrdinal(page, ordinal(), frameIndex()))
+         loader->didSendData(m_bytesSent, m_totalBytesToBeSent);
+     // FIXME: signal error if the callback couldn't be fired.
+ }
+ 
+ // Other event loop inputs.
+-void AsyncTimerFired::dispatch(ReplayController& controller)
++void AsyncTimerFired::dispatch(Page& page)
+ {
+-    Document* document = documentFromFrameIndex(&controller.page(), m_frameIndex);
++    Document* document = documentFromFrameIndex(&page, m_frameIndex);
+     if (!document || !document->replayableTimers().fireTimer(m_ordinal))
+         LOG_ERROR("%-30s REPLAY DIVERGENCE! Couldn't find async timer %d/%" PRIu64 ".\n", "[ReplayController]", m_frameIndex, m_ordinal);
+ }
+ 
+-void DOMTimerFired::dispatch(ReplayController& controller)
++void DOMTimerFired::dispatch(Page& page)
+ {
+-    Document* document = documentFromFrameIndex(&controller.page(), m_frameIndex);
++    Document* document = documentFromFrameIndex(&page, m_frameIndex);
+     DOMTimer* timer = document->findTimeout(m_timerIdentifier);
+     if (timer)
+         timer->fired();
+     else
+        LOG_ERROR("REPLAY DIVERGENCE! Couldn't find and fire DOM timer %" PRIu32 "/%" PRIu32 ".\n", m_frameIndex, m_timerIdentifier);
+ }
+ 
+ } // namespace WebCore
+ 
+ #endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.cpp b/Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.cpp
+index df0d05b..87c6a2b 100644
+--- a/Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.cpp
++++ b/Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.cpp
+@@ -29,16 +29,16 @@
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include "WebPage.h"
+ #include <WebCore/EventLoopInput.h>
+ #include <WebCore/ReplayController.h>
+ 
+ namespace WebKit {
+ 
+ void WebReplayClient::dispatchInput(WebCore::EventLoopInputBase& input)
+ {
+-    input.dispatch(m_page->corePage()->replayController());
++    input.dispatch(*m_page->corePage());
+ }
+ 
+ } // namespace WebKit
+ 
+ #endif // ENABLE(WEB_REPLAY)
+-- 
+2.0.1
+

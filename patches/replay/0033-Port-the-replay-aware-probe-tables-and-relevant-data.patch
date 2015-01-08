@@ -1,0 +1,827 @@
+From 46e88a88e5c816db111a9d53e6a016ec2b47f45f Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Sat, 20 Sep 2014 23:46:25 -0700
+Subject: [PATCH] Port the replay-aware probe tables and relevant data grid
+ changes.
+
+---
+ Source/WebInspectorUI/UserInterface/Base/Main.js   |  2 -
+ .../UserInterface/Controllers/ReplayManager.js     |  2 +-
+ Source/WebInspectorUI/UserInterface/Main.html      |  2 +
+ .../UserInterface/Models/ProbeSet.js               | 67 +++++++++++++---
+ .../UserInterface/Models/ProbeSetDataFrame.js      |  2 +-
+ .../UserInterface/Models/ProbeSetDataTable.js      |  2 +
+ ...eSetDataFrame.js => ProbeSetReplayDataFrame.js} | 74 +++++-------------
+ .../Models/ProbeSetReplayDataTable.js              | 91 ++++++++++++++++++++++
+ .../UserInterface/Models/ReplayPosition.js         | 18 +++++
+ .../UserInterface/Models/ReplaySession.js          |  2 +
+ .../UserInterface/Views/ProbeSetDataGrid.css       |  5 ++
+ .../UserInterface/Views/ProbeSetDataGrid.js        | 59 +++++++++++---
+ .../UserInterface/Views/ProbeSetDataGridNode.js    |  2 +-
+ 13 files changed, 246 insertions(+), 82 deletions(-)
+ copy Source/WebInspectorUI/UserInterface/Models/{ProbeSetDataFrame.js => ProbeSetReplayDataFrame.js} (51%)
+ create mode 100644 Source/WebInspectorUI/UserInterface/Models/ProbeSetReplayDataTable.js
+
+diff --git a/Source/WebInspectorUI/UserInterface/Base/Main.js b/Source/WebInspectorUI/UserInterface/Base/Main.js
+index 3aad79a..2b52a70 100644
+--- a/Source/WebInspectorUI/UserInterface/Base/Main.js
++++ b/Source/WebInspectorUI/UserInterface/Base/Main.js
+@@ -742,26 +742,24 @@ WebInspector._dragOver = function(event)
+ 
+     // Allow dropping into editable areas.
+     if (WebInspector.isEventTargetAnEditableField(event))
+         return;
+ 
+     // Prevent the drop from being accepted.
+     event.dataTransfer.dropEffect = "none";
+     event.preventDefault();
+ }
+ 
+-/*
+ WebInspector._captureDidStart = function(event)
+ {
+     this.dashboardContainer.showDashboardViewForRepresentedObject(this.dashboardManager.dashboards.replay);
+ }
+-*/
+ 
+ WebInspector._debuggerDidPause = function(event)
+ {
+     this.debuggerSidebarPanel.show();
+     this.dashboardContainer.showDashboardViewForRepresentedObject(this.dashboardManager.dashboards.debugger);
+ 
+     // Since the Scope Chain details sidebar panel might not be in the sidebar yet,
+     // set a flag to select and show it when it does become available.
+     this._selectAndShowScopeChainDetailsSidebarPanelWhenAvailable = true;
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
+index be7faa9..884df35 100644
+--- a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
++++ b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
+@@ -151,21 +151,21 @@ WebInspector.ReplayManager.prototype = {
+     },
+ 
+     set playbackSpeed(value)
+     {
+         console.assert(this.sessionState !== WebInspector.ReplayManager.SessionState.Capturing);
+         this._playbackSpeed = value;
+     },
+ 
+     get playbackSession()
+     {
+-        console.assert(this.sessionState === WebInspector.ReplayManager.SessionState.Replaying);
++        console.assert(this.sessionState !== WebInspector.ReplayManager.SessionState.Capturing);
+         return this._sessions.get(this.activeSessionIdentifier);
+     },
+ 
+     get playbackPosition()
+     {
+         console.assert(this.sessionState === WebInspector.ReplayManager.SessionState.Replaying);
+         return this._playbackPosition;
+     },
+ 
+     // These return promises even if the relevant instance is already created.
+diff --git a/Source/WebInspectorUI/UserInterface/Main.html b/Source/WebInspectorUI/UserInterface/Main.html
+index 2b82171..89442f0 100644
+--- a/Source/WebInspectorUI/UserInterface/Main.html
++++ b/Source/WebInspectorUI/UserInterface/Main.html
+@@ -238,21 +238,23 @@
+     <script src="Models/IndexedDatabaseObjectStoreIndex.js"></script>
+     <script src="Models/IssueMessage.js"></script>
+     <script src="Models/KeyboardShortcut.js"></script>
+     <script src="Models/LayoutTimelineRecord.js"></script>
+     <script src="Models/LazySourceCodeLocation.js"></script>
+     <script src="Models/LogObject.js"></script>
+     <script src="Models/NetworkTimeline.js"></script>
+     <script src="Models/Probe.js"></script>
+     <script src="Models/ProbeSet.js"></script>
+     <script src="Models/ProbeSetDataFrame.js"></script>
++    <script src="Models/ProbeSetReplayDataFrame.js"></script>
+     <script src="Models/ProbeSetDataTable.js"></script>
++    <script src="Models/ProbeSetReplayDataTable.js"></script>
+     <script src="Models/Profile.js"></script>
+     <script src="Models/ProfileNode.js"></script>
+     <script src="Models/ProfileNodeCall.js"></script>
+     <script src="Models/ReplayDashboard.js"></script>
+     <script src="Models/ReplayPosition.js"></script>
+     <script src="Models/ReplaySession.js"></script>
+     <script src="Models/ReplaySessionSegment.js"></script>
+     <script src="Models/Resource.js"></script>
+     <script src="Models/ResourceCollection.js"></script>
+     <script src="Models/ResourceSearchMatchObject.js"></script>
+diff --git a/Source/WebInspectorUI/UserInterface/Models/ProbeSet.js b/Source/WebInspectorUI/UserInterface/Models/ProbeSet.js
+index edaf77e..769bec4 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/ProbeSet.js
++++ b/Source/WebInspectorUI/UserInterface/Models/ProbeSet.js
+@@ -28,25 +28,35 @@
+ 
+ WebInspector.ProbeSet = function(breakpoint)
+ {
+     console.assert(breakpoint instanceof WebInspector.Breakpoint, "Unknown breakpoint argument: ", breakpoint);
+ 
+     WebInspector.Object.call(this);
+     this._breakpoint = breakpoint;
+     this._probes = [];
+     this._probesByIdentifier = new Map;
+ 
+-    this._createDataTable();
++    this._dataTable = new WebInspector.ProbeSetDataTable(this);
+ 
+-    WebInspector.Frame.addEventListener(WebInspector.Frame.Event.MainResourceDidChange, this._mainResourceChanged, this);
+-    WebInspector.Probe.addEventListener(WebInspector.Probe.Event.SampleAdded, this._sampleCollected, this);
+-    WebInspector.Breakpoint.addEventListener(WebInspector.Breakpoint.Event.ResolvedStateDidChange, this._breakpointResolvedStateDidChange, this);
++    this._listeners = new WebInspector.EventListenerSet(this, "ProbeSet listeners");
++    this._listeners.register(WebInspector.Frame, WebInspector.Frame.Event.MainResourceDidChange, this._mainResourceChanged);
++    this._listeners.register(WebInspector.Probe, WebInspector.Probe.Event.SampleAdded, this._sampleCollected);
++    this._listeners.register(WebInspector.Breakpoint, WebInspector.Breakpoint.Event.ResolvedStateDidChange, this._breakpointResolvedStateDidChange);
++    this._listeners.register(WebInspector.replayManager, WebInspector.ReplayManager.Event.CaptureStopped, this._replayCaptureStopped);
++    this._listeners.register(WebInspector.replayManager, WebInspector.ReplayManager.Event.ActiveSessionChanged, this._playbackSessionChanged);
++    this._listeners.register(WebInspector.ReplaySession, WebInspector.ReplaySession.Event.SegmentsChanged, this._playbackSessionSegmentsChanged);
++
++    this._listeners.install();
++
++    // Start with a normal data table, and upgrade to a replay data table if a non-empty session is active. The
++    // replay manager may not be synchronized with the backend yet if the probe set is restored from cookie.
++    WebInspector.replayManager.waitUntilInitialized().then(this._playbackSessionChanged.bind(this));
+ }
+ 
+ WebInspector.Object.addConstructorFunctions(WebInspector.ProbeSet);
+ 
+ WebInspector.ProbeSet.Event = {
+     ProbeAdded: "probe-set-probe-added",
+     ProbeRemoved: "probe-set-probe-removed",
+     ResolvedStateDidChange: "probe-set-resolved-state-did-change",
+     SamplesCleared: "probe-set-samples-cleared",
+ };
+@@ -115,48 +125,85 @@ WebInspector.ProbeSet.prototype = {
+         this._probes.splice(this._probes.indexOf(probe), 1);
+         this._probesByIdentifier.delete(probe.id);
+         this.dataTable.removeProbe(probe);
+         this.dispatchEventToListeners(WebInspector.ProbeSet.Event.ProbeRemoved, probe);
+     },
+ 
+     willRemove: function()
+     {
+         console.assert(!this._probes.length, "ProbeSet.willRemove called, but probes still associated with group: ", this._probes);
+ 
+-        WebInspector.Frame.removeEventListener(WebInspector.Frame.Event.MainResourceDidChange, this._mainResourceChanged, this);
+-        WebInspector.Probe.removeEventListener(WebInspector.Probe.Event.SampleAdded, this._sampleCollected, this);
+-        WebInspector.Breakpoint.removeEventListener(WebInspector.Breakpoint.Event.ResolvedStateDidChange, this._breakpointResolvedStateDidChange, this);
++        this._listeners.uninstall(true);
+     },
+ 
+     // Private
+ 
+     _mainResourceChanged: function()
+     {
+         this.dataTable.mainResourceChanged();
+     },
+ 
+     _createDataTable: function()
+     {
+-        if (this.dataTable)
+-            this.dataTable.willRemove();
++        if (this._dataTable)
++            this._dataTable.willRemove();
+ 
+-        this._dataTable = new WebInspector.ProbeSetDataTable(this);
++        if (WebInspector.replayManager.sessionState !== WebInspector.ReplayManager.SessionState.Capturing && WebInspector.replayManager.playbackSession.segments.length)
++            this._dataTable = new WebInspector.ProbeSetReplayDataTable(this);
++        else
++            this._dataTable = new WebInspector.ProbeSetDataTable(this);
+     },
+ 
+     _sampleCollected: function(event)
+     {
+         var sample = event.data;
+         console.assert(sample instanceof WebInspector.ProbeSample, "Tried to add non-sample to probe group: ", sample);
+ 
+         var probe = event.target;
+         if (!this._probesByIdentifier.has(probe.id))
+             return;
+ 
+         console.assert(this.dataTable);
+         this.dataTable.addSampleForProbe(probe, sample);
+     },
+ 
++    _replayCaptureStopped: function(event)
++    {
++        if (WebInspector.ReplaySession.sessionState === WebInspector.ReplayManager.SessionState.Capturing)
++            return;
++
++        if (!WebInspector.replayManager.playbackSession.segments.length)
++            return;
++
++        this.clearSamples();
++    },
++
++    _playbackSessionChanged: function(event)
++    {
++        if (WebInspector.ReplaySession.sessionState === WebInspector.ReplayManager.SessionState.Capturing)
++            return;
++
++        if (!WebInspector.replayManager.playbackSession.segments.length)
++            return;
++
++        this.clearSamples();
++    },
++
++    _playbackSessionSegmentsChanged: function(event)
++    {
++        if (event.target !== WebInspector.replayManager.playbackSession)
++            return;
++
++        if (WebInspector.ReplaySession.sessionState === WebInspector.ReplayManager.SessionState.Capturing)
++            return;
++
++        if (!WebInspector.replayManager.playbackSession.segments.length)
++            return;
++
++        this.clearSamples();
++    },
++
+     _breakpointResolvedStateDidChange: function(event)
+     {
+         this.dispatchEventToListeners(WebInspector.ProbeSet.Event.ResolvedStateDidChange);
+     }
+ };
+diff --git a/Source/WebInspectorUI/UserInterface/Models/ProbeSetDataFrame.js b/Source/WebInspectorUI/UserInterface/Models/ProbeSetDataFrame.js
+index 9e116d2..1048607 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/ProbeSetDataFrame.js
++++ b/Source/WebInspectorUI/UserInterface/Models/ProbeSetDataFrame.js
+@@ -24,21 +24,21 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ WebInspector.ProbeSetDataFrame = function(index)
+ {
+     this._count = 0;
+     this._index = index;
+     this._separator = false;
+ };
+ 
+-WebInspector.ProbeSetDataFrame.compare = function(a, b) {
++WebInspector.ProbeSetDataFrame.comparator = function(a, b) {
+     console.assert(a instanceof WebInspector.ProbeSetDataFrame, a);
+     console.assert(b instanceof WebInspector.ProbeSetDataFrame, b);
+ 
+     return a.index - b.index;
+ }
+ 
+ WebInspector.ProbeSetDataFrame.MissingValue = "?";
+ 
+ WebInspector.ProbeSetDataFrame.prototype = {
+     constructor: WebInspector.ProbeSetDataFrame,
+diff --git a/Source/WebInspectorUI/UserInterface/Models/ProbeSetDataTable.js b/Source/WebInspectorUI/UserInterface/Models/ProbeSetDataTable.js
+index c538143..81e0ac1 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/ProbeSetDataTable.js
++++ b/Source/WebInspectorUI/UserInterface/Models/ProbeSetDataTable.js
+@@ -28,21 +28,23 @@ WebInspector.ProbeSetDataTable = function(probeSet)
+ {
+     WebInspector.Object.call(this);
+ 
+     this._probeSet = probeSet;
+     this._frames = [];
+     this._previousBatchIdentifier = WebInspector.ProbeSetDataTable.SentinelValue;
+ };
+ 
+ WebInspector.ProbeSetDataTable.Event = {
+     FrameInserted: "probe-set-data-table-frame-inserted",
++    FrameReplaced: "probe-set-data-table-frame-replaced",
+     SeparatorInserted: "probe-set-data-table-separator-inserted",
++    SeparatorReplaced: "probe-set-data-table-separator-replaced",
+     WillRemove: "probe-set-data-table-will-remove"
+ };
+ 
+ WebInspector.ProbeSetDataTable.SentinelValue = -1;
+ WebInspector.ProbeSetDataTable.UnknownValue = "?";
+ 
+ WebInspector.ProbeSetDataTable.prototype = {
+     constructor: WebInspector.ProbeSetDataTable,
+     __proto__: WebInspector.Object.prototype,
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Models/ProbeSetDataFrame.js b/Source/WebInspectorUI/UserInterface/Models/ProbeSetReplayDataFrame.js
+similarity index 51%
+copy from Source/WebInspectorUI/UserInterface/Models/ProbeSetDataFrame.js
+copy to Source/WebInspectorUI/UserInterface/Models/ProbeSetReplayDataFrame.js
+index 9e116d2..dcda35e 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/ProbeSetDataFrame.js
++++ b/Source/WebInspectorUI/UserInterface/Models/ProbeSetReplayDataFrame.js
+@@ -17,81 +17,45 @@
+  * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+  * HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+  * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+  * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+  * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+-WebInspector.ProbeSetDataFrame = function(index)
++WebInspector.ProbeSetReplayDataFrame = function(position, counterValue)
+ {
+-    this._count = 0;
+-    this._index = index;
+-    this._separator = false;
++    WebInspector.ProbeSetDataFrame.call(this, 0);
++    this.position = position;
++    this.counterValue = counterValue;
+ };
+ 
+-WebInspector.ProbeSetDataFrame.compare = function(a, b) {
+-    console.assert(a instanceof WebInspector.ProbeSetDataFrame, a);
+-    console.assert(b instanceof WebInspector.ProbeSetDataFrame, b);
++WebInspector.ProbeSetReplayDataFrame.comparator = function(a, b)
++{
++    console.assert(a instanceof WebInspector.ProbeSetReplayDataFrame, a);
++    console.assert(b instanceof WebInspector.ProbeSetReplayDataFrame, b);
+ 
+-    return a.index - b.index;
+-}
++    var positionRelation = WebInspector.ReplayPosition.comparator(a.position, b.position);
++    if (positionRelation !== 0)
++        return positionRelation;
+ 
+-WebInspector.ProbeSetDataFrame.MissingValue = "?";
++    return a.counterValue - b.counterValue;
++}
+ 
+-WebInspector.ProbeSetDataFrame.prototype = {
+-    constructor: WebInspector.ProbeSetDataFrame,
++WebInspector.ProbeSetReplayDataFrame.prototype = {
++    constructor: WebInspector.ProbeSetReplayDataFrame,
++    __proto__: WebInspector.ProbeSetDataFrame.prototype,
+ 
+     // Public
+ 
+     get key()
+     {
+-        return String(this._index);
+-    },
+-
+-    get count()
+-    {
+-        return this._count;
+-    },
+-
+-    get index()
+-    {
+-        return this._index;
+-    },
+-
+-    get isSeparator()
+-    {
+-        return this._separator;
+-    },
+-
+-    // The last data frame before a main frame navigation is marked as a "separator" frame.
+-    set isSeparator(value)
+-    {
+-        this._separator = !!value;
+-    },
+-
+-    addSampleForProbe: function(probe, sample)
+-    {
+-        this[probe.id] = sample;
+-        this._count++;
+-    },
+-
+-    missingKeys: function(probeSet)
+-    {
+-        return probeSet.probes.filter(function(probe) {
+-            return !this.hasOwnProperty(probe.id);
+-        }, this);
+-    },
+-
+-    isComplete: function(probeSet)
+-    {
+-        return !this.missingKeys(probeSet).length;
++        return "%d,%d,%d".format(this.position.segmentOffset, this.position.inputOffset, this.counterValue);
+     },
+ 
+-    fillMissingValues: function(probeSet)
++    get compareFunction()
+     {
+-        for (var key of this.missingKeys(probeSet))
+-            this[key] = WebInspector.ProbeSetDataFrame.MissingValue;
++        return WebInspector.ProbeSetReplayDataFrame.comparator;
+     }
+ };
+diff --git a/Source/WebInspectorUI/UserInterface/Models/ProbeSetReplayDataTable.js b/Source/WebInspectorUI/UserInterface/Models/ProbeSetReplayDataTable.js
+new file mode 100644
+index 0000000..ff289d0
+--- /dev/null
++++ b/Source/WebInspectorUI/UserInterface/Models/ProbeSetReplayDataTable.js
+@@ -0,0 +1,91 @@
++/*
++ * Copyright (C) 2013 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. ``AS IS'' AND ANY
++ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE INC. OR
++ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++WebInspector.ProbeSetReplayDataTable = function(probeSet)
++{
++    WebInspector.ProbeSetDataTable.call(this, probeSet);
++
++    this._counterValue = WebInspector.ProbeSetDataTable.SentinelValue;
++    this._previousFrame = null;
++
++
++    WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.PlaybackPositionChanged, this._playbackPositionChanged, this);
++};
++
++WebInspector.ProbeSetReplayDataTable.prototype = {
++    constructor: WebInspector.ProbeSetReplayDataTable,
++    __proto__: WebInspector.ProbeSetDataTable.prototype,
++
++    willRemove: function()
++    {
++        WebInspector.replayManager.removeEventListener(WebInspector.ReplayManager.Event.PlaybackPositionChanged, this._playbackPositionChanged, this);
++
++        WebInspector.ProbeSetDataTable.prototype.willRemove.call(this);
++    },
++
++    // Protected
++
++    createFrame: function()
++    {
++        this._counterValue = (this._counterValue === WebInspector.ProbeSetDataTable.SentinelValue) ? 0 : this._counterValue + 1;
++        return new WebInspector.ProbeSetReplayDataFrame(WebInspector.replayManager.playbackPosition, this._counterValue);
++    },
++
++    addFrame: function(frame)
++    {
++        var insertionIndex = insertionIndexForObjectInListSortedByFunction(frame, this._frames, WebInspector.ProbeSetReplayDataFrame.comparator);
++        if (this._frames.hasOwnProperty(insertionIndex)) {
++            this._frames.splice(insertionIndex, 1, frame);
++            this.dispatchEventToListeners(WebInspector.ProbeSetDataTable.Event.FrameReplaced, frame);
++        } else {
++            this._frames.splice(insertionIndex, 0, frame);
++            this.dispatchEventToListeners(WebInspector.ProbeSetDataTable.Event.FrameInserted, frame);
++        }
++
++        // Save the previous frame so the separator can be placed there.
++        this._previousFrame = frame;
++    },
++
++    addSeparator: function()
++    {
++        // Separators must be associated with a frame.
++        if (!this._previousFrame)
++            return;
++
++        if (this._previousFrame.isSeparator)
++            this.dispatchEventToListeners(WebInspector.ProbeSetDataTable.Event.SeparatorReplaced, this._previousFrame);
++        else {
++            this._previousFrame.isSeparator = true;
++            this.dispatchEventToListeners(WebInspector.ProbeSetDataTable.Event.SeparatorInserted, this._previousFrame);
++        }
++    },
++
++    // Private
++
++    _playbackPositionChanged: function(event)
++    {
++        this._counterValue = WebInspector.ProbeSetDataTable.SentinelValue;
++    }
++};
+diff --git a/Source/WebInspectorUI/UserInterface/Models/ReplayPosition.js b/Source/WebInspectorUI/UserInterface/Models/ReplayPosition.js
+index 2ac0c24..c3df336 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/ReplayPosition.js
++++ b/Source/WebInspectorUI/UserInterface/Models/ReplayPosition.js
+@@ -29,20 +29,38 @@ WebInspector.ReplayPosition = function(segmentOffset, inputOffset)
+ {
+     this.segmentOffset = segmentOffset;
+     this.inputOffset = inputOffset;
+ };
+ 
+ WebInspector.ReplayPosition.fromProtocol = function(payload)
+ {
+     return new WebInspector.ReplayPosition(payload.segmentOffset, payload.inputOffset);
+ };
+ 
++WebInspector.ReplayPosition.comparator = function(a, b)
++{
++    console.assert(a instanceof WebInspector.ReplayPosition, a);
++    console.assert(b instanceof WebInspector.ReplayPosition, b);
++
++    if (a.segmentOffset < b.segmentOffset)
++        return -1;
++    if (a.segmentOffset > b.segmentOffset)
++        return 1;
++
++    if (a.inputOffset < b.inputOffset)
++        return -1;
++    if (a.inputOffset > b.inputOffset)
++        return 1;
++
++    return 0;
++}
++
+ WebInspector.ReplayPosition.prototype = {
+     constructor: WebInspector.ReplayPosition,
+     __proto__: WebInspector.Object.prototype,
+ 
+     elapsedTimeWithinSession: function(session)
+     {
+         console.assert(session instanceof WebInspector.ReplaySession, session);
+         console.assert(this.segmentOffset < session.segments.length);
+         console.assert(this.inputOffset <= session.segments[this.segmentOffset].eventLoopInputs.length);
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Models/ReplaySession.js b/Source/WebInspectorUI/UserInterface/Models/ReplaySession.js
+index 1431d5d..b1130fb 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/ReplaySession.js
++++ b/Source/WebInspectorUI/UserInterface/Models/ReplaySession.js
+@@ -27,20 +27,22 @@
+ 
+ WebInspector.ReplaySession = function(identifier)
+ {
+     WebInspector.Object.call(this);
+ 
+     this.identifier = identifier;
+     this._segments = [];
+     this._timestamp = null;
+ };
+ 
++WebInspector.Object.addConstructorFunctions(WebInspector.ReplaySession);
++
+ WebInspector.ReplaySession.fromPayload = function(identifier, payload)
+ {
+     var session = new WebInspector.ReplaySession(identifier);
+     session._updateFromPayload(payload);
+     return session;
+ }
+ 
+ WebInspector.ReplaySession.Event = {
+     SegmentsChanged: "replay-session-segments-changed",
+ };
+diff --git a/Source/WebInspectorUI/UserInterface/Views/ProbeSetDataGrid.css b/Source/WebInspectorUI/UserInterface/Views/ProbeSetDataGrid.css
+index 4fce26f..acf6505 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/ProbeSetDataGrid.css
++++ b/Source/WebInspectorUI/UserInterface/Views/ProbeSetDataGrid.css
+@@ -22,20 +22,25 @@
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ .details-section.probe-set .data-grid tr.past-value td {
+     background-color: rgba(100, 100, 100, 0.2);
+     font-style: italic;
+     color: #777;
+ }
+ 
++.details-section.probe-set .data-grid .data-container tr.future-value td {
++    background-color: rgba(255, 255, 255, 0.3);
++    color: #aaa;
++}
++
+ .details-section.probe-set .data-grid > td.unknown-value {
+     background-color: rgba(230, 230, 230, 0.8);
+     background-image: repeating-linear-gradient(-45deg, transparent, transparent 7px, rgba(255, 255, 255, .5) 7px, rgba(255, 255, 255, .5) 14px);
+ }
+ 
+ .details-section.probe-set .data-grid tr.revealed.highlighted {
+     -webkit-animation-duration: 2s;
+     animation-timing-function: ease;
+     -webkit-animation-iteration-count: infinite;
+     -webkit-animation-name: blink-frame-highlight;
+diff --git a/Source/WebInspectorUI/UserInterface/Views/ProbeSetDataGrid.js b/Source/WebInspectorUI/UserInterface/Views/ProbeSetDataGrid.js
+index 1cb7ebc..3505478 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/ProbeSetDataGrid.js
++++ b/Source/WebInspectorUI/UserInterface/Views/ProbeSetDataGrid.js
+@@ -32,35 +32,37 @@ WebInspector.ProbeSetDataGrid = function(probeSet)
+     var columnsData = {};
+     for (var probe of probeSet.probes) {
+         var probeTitle = probe.expression || WebInspector.UIString("(uninitialized)");
+         columnsData[probe.id] = { title: probeTitle };
+     }
+ 
+     WebInspector.DataGrid.call(this, columnsData);
+ 
+     this.element.classList.add("inline");
+ 
+-    this._frameNodes = new Map;
++    this._frameKeyToNodesMap = new Map;
+     this._nodesSinceLastNavigation = [];
+ 
+     this._listeners = new WebInspector.EventListenerSet(this, "ProbeSetDataGrid instance listeners");
+     this._listeners.register(probeSet, WebInspector.ProbeSet.Event.ProbeAdded, this._setupProbe);
+     this._listeners.register(probeSet, WebInspector.ProbeSet.Event.ProbeRemoved, this._teardownProbe);
+     this._listeners.register(probeSet, WebInspector.ProbeSet.Event.SamplesCleared, this._setupData);
+-    this._listeners.register(WebInspector.Probe, WebInspector.Probe.Event.ExpressionChanged, this._probeExpressionChanged)
++    this._listeners.register(WebInspector.Probe, WebInspector.Probe.Event.ExpressionChanged, this._probeExpressionChanged);
++    this._listeners.register(WebInspector.replayManager, WebInspector.ReplayManager.Event.ActiveSegmentChanged, this._activeSegmentChanged);
+     this._listeners.install();
+ 
+     this._setupData();
+ }
+ 
+ WebInspector.ProbeSetDataGrid.DataUpdatedStyleClassName = "data-updated";
+ WebInspector.ProbeSetDataGrid.PastFrameStyleClassName = "past-value";
++WebInspector.ProbeSetDataGrid.FutureFrameStyleClassName = "future-value";
+ WebInspector.ProbeSetDataGrid.HighlightedFrameStyleClassName = "highlighted";
+ 
+ WebInspector.ProbeSetDataGrid.DataUpdatedAnimationDuration = 300; // milliseconds
+ 
+ WebInspector.ProbeSetDataGrid.prototype = {
+     constructor: WebInspector.ProbeSetDataGrid,
+     __proto__: WebInspector.DataGrid.prototype,
+ 
+     // Public
+ 
+@@ -93,103 +95,136 @@ WebInspector.ProbeSetDataGrid.prototype = {
+     },
+ 
+     _setupData: function()
+     {
+         this._data = this.probeSet.dataTable;
+         for (var frame of this._data.frames)
+             this._updateNodeForFrame(frame);
+ 
+         this._dataListeners = new WebInspector.EventListenerSet(this, "ProbeSetDataGrid data table listeners");
+         this._dataListeners.register(this._data, WebInspector.ProbeSetDataTable.Event.FrameInserted, this._dataFrameInserted);
++        this._dataListeners.register(this._data, WebInspector.ProbeSetDataTable.Event.FrameReplaced, this._dataFrameReplaced);
+         this._dataListeners.register(this._data, WebInspector.ProbeSetDataTable.Event.SeparatorInserted, this._dataSeparatorInserted);
++        this._dataListeners.register(this._data, WebInspector.ProbeSetDataTable.Event.SeparatorReplaced, this._dataSeparatorReplaced);
+         this._dataListeners.register(this._data, WebInspector.ProbeSetDataTable.Event.WillRemove, this._teardownData);
+         this._dataListeners.install();
+     },
+ 
+     _teardownData: function()
+     {
+         this._dataListeners.uninstall(true);
+         this.removeChildren();
+-        this._frameNodes = new Map;
++        this._frameKeyToNodesMap = new Map;
+         this._separators = new Map;
+         delete this._lastUpdatedFrame;
+     },
+ 
+     _updateNodeForFrame: function(frame)
+     {
+         console.assert(frame instanceof WebInspector.ProbeSetDataFrame, "Invalid ProbeSetDataFrame argument: ", frame);
+         var node = null;
+-        if (this._frameNodes.has(frame)) {
+-            node = this._frameNodes.get(frame);
++        if (this._frameKeyToNodesMap.has(frame.key)) {
++            node = this._frameKeyToNodesMap.get(frame.key);
+             node.frame = frame;
+             node.refresh();
+         } else {
+             node = new WebInspector.ProbeSetDataGridNode(this);
+             node.frame = frame;
+-            this._frameNodes.set(frame, node);
++            this._frameKeyToNodesMap.set(frame.key, node);
+             node.createCells();
+ 
+-            var sortFunction = function(a, b) {
+-                return WebInspector.ProbeSetDataFrame.compare(a.frame, b.frame);
+-            };
+-            var insertionIndex = insertionIndexForObjectInListSortedByFunction(node, this.children, sortFunction);
++            var frameComparator = frame.constructor.comparator;
++            console.assert(frameComparator instanceof Function);
++            function nodeComparator(a, b) {
++                // Dynamically find the right comparator for this frame subclass.
++                return frameComparator(a.frame, b.frame);
++            }
++
++            var insertionIndex = insertionIndexForObjectInListSortedByFunction(node, this.children, nodeComparator);
+             if (insertionIndex === this.children.length)
+                 this.appendChild(node);
+             else if (this.children[insertionIndex].frame.key === frame.key) {
+                 this.removeChild(this.children[insertionIndex]);
+                 this.insertChild(node, insertionIndex);
+             } else
+                 this.insertChild(node, insertionIndex);
+         }
+         console.assert(node);
+ 
+         node.element.classList.add(WebInspector.ProbeSetDataGrid.DataUpdatedStyleClassName);
+         window.setTimeout(function() {
+             node.element.classList.remove(WebInspector.ProbeSetDataGrid.DataUpdatedStyleClassName);
+         }, WebInspector.ProbeSetDataGrid.DataUpdatedAnimationDuration);
+ 
++        node.element.classList.remove(WebInspector.ProbeSetDataGrid.FutureFrameStyleClassName);
+         this._nodesSinceLastNavigation.push(node);
+     },
+ 
+     _updateNodeForSeparator: function(frame)
+     {
+-        console.assert(this._frameNodes.has(frame), "Tried to add separator for unknown data frame: ", frame);
+-        this._frameNodes.get(frame).updateCellsForSeparator(frame, this.probeSet);
++        console.assert(this._frameKeyToNodesMap.has(frame.key), "Tried to add separator for unknown data frame: ", frame);
++        this._frameKeyToNodesMap.get(frame.key).updateCellsForSeparator(frame, this.probeSet);
+ 
+         for (var node of this._nodesSinceLastNavigation)
+             node.element.classList.add(WebInspector.ProbeSetDataGrid.PastFrameStyleClassName);
+ 
+         this._nodesSinceLastNavigation = [];
+     },
+ 
+     _dataFrameInserted: function(event)
+     {
+         var frame = event.data;
+         this._lastUpdatedFrame = frame;
+         this._updateNodeForFrame(frame);
+     },
+ 
++    _dataFrameReplaced: function(event)
++    {
++        var frame = event.data;
++        this._lastUpdatedFrame = frame;
++        this._updateNodeForFrame(frame);
++    },
++
+     _dataSeparatorInserted: function(event)
+     {
+         var frame = event.data;
+         this._updateNodeForSeparator(frame);
+     },
+ 
++    _dataSeparatorReplaced: function(event)
++    {
++        var frame = event.data;
++        this._updateNodeForSeparator(frame);
++    },
++
+     _probeExpressionChanged: function(event)
+     {
+         var probe = event.target;
+         if (probe.breakpoint !== this.probeSet.breakpoint)
+             return;
+ 
+         if (!this.columns.has(probe.id))
+             return;
+ 
+         var oldColumn = this.columns.get(probe.id);
+         this.removeColumn(probe.id);
+         var ordinal = oldColumn["ordinal"];
+         var newColumn = {title: event.data.newValue};
+         this.insertColumn(probe.id, newColumn, ordinal);
+ 
+         for (var frame of this._data.frames)
+             this._updateNodeForFrame(frame);
++    },
++
++    _activeSegmentChanged: function(event)
++    {
++        // Don't clear samples if the final segment was unloaded.
++        if (!WebInspector.replayManager.activeSegmentIdentifier)
++            return;
++
++        this._nodesSinceLastNavigation = [];
++        for (var [frameKey, node] of this._frameKeyToNodesMap) {
++            node.element.classList.add(WebInspector.ProbeSetDataGrid.FutureFrameStyleClassName);
++            node.element.classList.remove(WebInspector.ProbeSetDataGrid.PastFrameStyleClassName);
++        }
+     }
+ }
+diff --git a/Source/WebInspectorUI/UserInterface/Views/ProbeSetDataGridNode.js b/Source/WebInspectorUI/UserInterface/Views/ProbeSetDataGridNode.js
+index e62e24d..ce89a50 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/ProbeSetDataGridNode.js
++++ b/Source/WebInspectorUI/UserInterface/Views/ProbeSetDataGridNode.js
+@@ -26,21 +26,21 @@
+ 
+ WebInspector.ProbeSetDataGridNode = function(dataGrid)
+ {
+     console.assert(dataGrid instanceof WebInspector.ProbeSetDataGrid, "Invalid ProbeSetDataGrid argument:", dataGrid);
+ 
+     WebInspector.DataGridNode.call(this, this.data);
+     this.dataGrid = dataGrid; // This is set to null in DataGridNode's constructor.
+     this._data = {};
+ 
+     this._element = document.createElement("tr");
+-    this._element.dataGridNode = this;
++    this._element._dataGridNode = this;
+     this._element.classList.add("revealed");
+ };
+ 
+ WebInspector.ProbeSetDataGridNode.SeparatorStyleClassName = "separator";
+ WebInspector.ProbeSetDataGridNode.UnknownValueStyleClassName = "unknown-value";
+ 
+ WebInspector.ProbeSetDataGridNode.prototype = {
+     constructor: WebInspector.ProbeSetDataGridNode,
+     __proto__: WebInspector.DataGridNode.prototype,
+ 
+-- 
+2.0.1
+

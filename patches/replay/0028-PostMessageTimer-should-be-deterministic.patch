@@ -1,0 +1,84 @@
+From 79e1abddef15f5845354d81895cfa79a39c65892 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Thu, 18 Sep 2014 21:43:41 -0700
+Subject: [PATCH] PostMessageTimer should be deterministic.
+
+---
+ Source/WebCore/page/DOMWindow.cpp | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/Source/WebCore/page/DOMWindow.cpp b/Source/WebCore/page/DOMWindow.cpp
+index 08bf909..dc80ef25 100644
+--- a/Source/WebCore/page/DOMWindow.cpp
++++ b/Source/WebCore/page/DOMWindow.cpp
+@@ -74,20 +74,21 @@
+ #include "MediaQueryList.h"
+ #include "MediaQueryMatcher.h"
+ #include "MessageEvent.h"
+ #include "Navigator.h"
+ #include "Page.h"
+ #include "PageConsoleClient.h"
+ #include "PageGroup.h"
+ #include "PageTransitionEvent.h"
+ #include "Performance.h"
+ #include "PlatformScreen.h"
++#include "ReplayableTimer.h"
+ #include "RuntimeEnabledFeatures.h"
+ #include "ScheduledAction.h"
+ #include "Screen.h"
+ #include "ScriptController.h"
+ #include "SecurityOrigin.h"
+ #include "SecurityPolicy.h"
+ #include "SerializedScriptValue.h"
+ #include "Settings.h"
+ #include "Storage.h"
+ #include "StorageArea.h"
+@@ -132,21 +133,21 @@
+ #if ENABLE(GEOLOCATION)
+ #include "NavigatorGeolocation.h"
+ #endif
+ #include "WKContentObservation.h"
+ #endif
+ 
+ using namespace Inspector;
+ 
+ namespace WebCore {
+ 
+-class PostMessageTimer : public TimerBase {
++class PostMessageTimer : public ReplayableTimerBase {
+ public:
+     PostMessageTimer(DOMWindow* window, PassRefPtr<SerializedScriptValue> message, const String& sourceOrigin, PassRefPtr<DOMWindow> source, std::unique_ptr<MessagePortChannelArray> channels, SecurityOrigin* targetOrigin, PassRefPtr<ScriptCallStack> stackTrace)
+         : m_window(window)
+         , m_message(message)
+         , m_origin(sourceOrigin)
+         , m_source(source)
+         , m_channels(WTF::move(channels))
+         , m_targetOrigin(targetOrigin)
+         , m_stackTrace(stackTrace)
+     {
+@@ -912,21 +913,21 @@ void DOMWindow::postMessage(PassRefPtr<SerializedScriptValue> message, const Mes
+         return;
+     String sourceOrigin = sourceDocument->securityOrigin()->toString();
+ 
+     // Capture stack trace only when inspector front-end is loaded as it may be time consuming.
+     RefPtr<ScriptCallStack> stackTrace;
+     if (InspectorInstrumentation::consoleAgentEnabled(sourceDocument))
+         stackTrace = createScriptCallStack(JSMainThreadExecState::currentState(), ScriptCallStack::maxCallStackSizeToCapture);
+ 
+     // Schedule the message.
+     PostMessageTimer* timer = new PostMessageTimer(this, message, sourceOrigin, &source, WTF::move(channels), target.get(), stackTrace.release());
+-    timer->startOneShot(0);
++    timer->startOneShot(0, sourceDocument);
+ }
+ 
+ void DOMWindow::postMessageTimerFired(PostMessageTimer& timer)
+ {
+     if (!document() || !isCurrentlyDisplayedInFrame())
+         return;
+ 
+     dispatchMessageEventWithOriginCheck(timer.targetOrigin(), timer.event(document()), timer.stackTrace());
+ }
+ 
+-- 
+2.0.1
+

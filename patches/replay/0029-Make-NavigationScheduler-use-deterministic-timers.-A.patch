@@ -1,0 +1,323 @@
+From bf8309e2f6024e61d387d65fa176d51eac5e3e21 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Thu, 18 Sep 2014 22:17:34 -0700
+Subject: [PATCH] Make NavigationScheduler use deterministic timers. Add
+ support for a memoized ReplayableTimer::nextFireInterval.
+
+---
+ Source/WebCore/WebCore.exp.in                 |  3 +++
+ Source/WebCore/loader/NavigationScheduler.cpp | 10 +++++-----
+ Source/WebCore/loader/NavigationScheduler.h   |  6 +++---
+ Source/WebCore/replay/ReplayableTimer.cpp     | 27 +++++++++++++++++++++++++++
+ Source/WebCore/replay/ReplayableTimer.h       |  2 ++
+ Source/WebCore/replay/WebInputs.json          |  8 ++++++++
+ 6 files changed, 48 insertions(+), 8 deletions(-)
+
+diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
+index 967587e..74f6ffb 100644
+--- a/Source/WebCore/WebCore.exp.in
++++ b/Source/WebCore/WebCore.exp.in
+@@ -3514,20 +3514,23 @@ __ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6decodeERNS_12EncodedValueE
+ __ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore21MemoizedDOMResultBaseEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore21MemoizedDOMResultBaseEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore21MemoizedDOMResultBaseEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore21ResourceLoaderDidFailEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore21ResourceLoaderDidFailEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore21ResourceLoaderDidFailEE6encodeERNS_12EncodedValueERKS2_
++__ZN3JSC11InputTraitsIN7WebCore22AsyncTimerNextIntervalEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore22AsyncTimerNextIntervalEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
++__ZN3JSC11InputTraitsIN7WebCore22AsyncTimerNextIntervalEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore24DocumentLastModifiedDateEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore24DocumentLastModifiedDateEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore24DocumentLastModifiedDateEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE4typeEv
+ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
+ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6encodeERNS_12EncodedValueERKS2_
+ __ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE4typeEv
+diff --git a/Source/WebCore/loader/NavigationScheduler.cpp b/Source/WebCore/loader/NavigationScheduler.cpp
+index 21c3804..1fc984a 100644
+--- a/Source/WebCore/loader/NavigationScheduler.cpp
++++ b/Source/WebCore/loader/NavigationScheduler.cpp
+@@ -67,21 +67,21 @@ public:
+         , m_wasDuringLoad(wasDuringLoad)
+         , m_isLocationChange(isLocationChange)
+         , m_wasUserGesture(ScriptController::processingUserGesture())
+     {
+     }
+     virtual ~ScheduledNavigation() { }
+ 
+     virtual void fire(Frame&) = 0;
+ 
+     virtual bool shouldStartTimer(Frame&) { return true; }
+-    virtual void didStartTimer(Frame&, Timer<NavigationScheduler>&) { }
++    virtual void didStartTimer(Frame&, ReplayableTimer<NavigationScheduler>&) { }
+     virtual void didStopTimer(Frame&, bool /* newLoadInProgress */) { }
+ 
+     double delay() const { return m_delay; }
+     LockHistory lockHistory() const { return m_lockHistory; }
+     LockBackForwardList lockBackForwardList() const { return m_lockBackForwardList; }
+     bool wasDuringLoad() const { return m_wasDuringLoad; }
+     bool isLocationChange() const { return m_isLocationChange; }
+     bool wasUserGesture() const { return m_wasUserGesture; }
+ 
+ protected:
+@@ -106,21 +106,21 @@ protected:
+         , m_haveToldClient(false)
+     {
+     }
+ 
+     virtual void fire(Frame& frame) override
+     {
+         UserGestureIndicator gestureIndicator(wasUserGesture() ? DefinitelyProcessingUserGesture : DefinitelyNotProcessingUserGesture);
+         frame.loader().changeLocation(m_securityOrigin.get(), m_url, m_referrer, lockHistory(), lockBackForwardList(), false);
+     }
+ 
+-    virtual void didStartTimer(Frame& frame, Timer<NavigationScheduler>& timer) override
++    virtual void didStartTimer(Frame& frame, ReplayableTimer<NavigationScheduler>& timer) override
+     {
+         if (m_haveToldClient)
+             return;
+         m_haveToldClient = true;
+ 
+         UserGestureIndicator gestureIndicator(wasUserGesture() ? DefinitelyProcessingUserGesture : DefinitelyNotProcessingUserGesture);
+         frame.loader().clientRedirected(m_url, delay(), currentTime() + timer.nextFireInterval(), lockBackForwardList());
+     }
+ 
+     virtual void didStopTimer(Frame& frame, bool newLoadInProgress) override
+@@ -242,21 +242,21 @@ public:
+         // selecting a target, in case conditions have changed. Other code paths avoid this by targeting
+         // without leaving a time window. If we fail the check just silently drop the form submission.
+         Document* requestingDocument = m_submission->state()->sourceDocument();
+         if (!requestingDocument->canNavigate(&frame))
+             return;
+         FrameLoadRequest frameRequest(requestingDocument->securityOrigin());
+         m_submission->populateFrameLoadRequest(frameRequest);
+         frame.loader().loadFrameRequest(frameRequest, lockHistory(), lockBackForwardList(), m_submission->event(), m_submission->state(), MaybeSendReferrer, AllowNavigationToInvalidURL::Yes);
+     }
+     
+-    virtual void didStartTimer(Frame& frame, Timer<NavigationScheduler>& timer) override
++    virtual void didStartTimer(Frame& frame, ReplayableTimer<NavigationScheduler>& timer) override
+     {
+         if (m_haveToldClient)
+             return;
+         m_haveToldClient = true;
+ 
+         UserGestureIndicator gestureIndicator(wasUserGesture() ? DefinitelyProcessingUserGesture : DefinitelyNotProcessingUserGesture);
+         frame.loader().clientRedirected(m_submission->requestURL(), delay(), currentTime() + timer.nextFireInterval(), lockBackForwardList());
+     }
+ 
+     virtual void didStopTimer(Frame& frame, bool newLoadInProgress) override
+@@ -423,21 +423,21 @@ void NavigationScheduler::scheduleHistoryNavigation(int steps)
+     BackForwardController& backForward = m_frame.page()->backForward();
+     if (steps > backForward.forwardCount() || -steps > backForward.backCount()) {
+         cancel();
+         return;
+     }
+ 
+     // In all other cases, schedule the history traversal to occur asynchronously.
+     schedule(std::make_unique<ScheduledHistoryNavigation>(steps));
+ }
+ 
+-void NavigationScheduler::timerFired(Timer<NavigationScheduler>&)
++void NavigationScheduler::timerFired(ReplayableTimer<NavigationScheduler>&)
+ {
+     if (!m_frame.page())
+         return;
+     if (m_frame.page()->defersLoading()) {
+         InspectorInstrumentation::frameClearedScheduledNavigation(m_frame);
+         return;
+     }
+ 
+     Ref<Frame> protect(m_frame);
+ 
+@@ -478,21 +478,21 @@ void NavigationScheduler::startTimer()
+     if (!m_redirect)
+         return;
+ 
+     ASSERT(m_frame.page());
+     if (m_timer.isActive())
+         return;
+     if (!m_redirect->shouldStartTimer(m_frame))
+         return;
+ 
+     double delay = m_redirect->delay();
+-    m_timer.startOneShot(delay);
++    m_timer.startOneShot(delay, m_frame.document());
+     InspectorInstrumentation::frameScheduledNavigation(m_frame, delay);
+     m_redirect->didStartTimer(m_frame, m_timer); // m_redirect may be null on return (e.g. the client canceled the load)
+ }
+ 
+ void NavigationScheduler::cancel(bool newLoadInProgress)
+ {
+     if (m_timer.isActive())
+         InspectorInstrumentation::frameClearedScheduledNavigation(m_frame);
+     m_timer.stop();
+ 
+diff --git a/Source/WebCore/loader/NavigationScheduler.h b/Source/WebCore/loader/NavigationScheduler.h
+index 7db21a7..be22e1c 100644
+--- a/Source/WebCore/loader/NavigationScheduler.h
++++ b/Source/WebCore/loader/NavigationScheduler.h
+@@ -25,21 +25,21 @@
+  * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+  * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #ifndef NavigationScheduler_h
+ #define NavigationScheduler_h
+ 
+ #include "FrameLoaderTypes.h"
+-#include "Timer.h"
++#include "ReplayableTimer.h"
+ #include <wtf/Forward.h>
+ 
+ namespace WebCore {
+ 
+ class FormSubmission;
+ class Frame;
+ class ScheduledNavigation;
+ class SecurityOrigin;
+ class URL;
+ 
+@@ -76,23 +76,23 @@ public:
+ 
+     void startTimer();
+ 
+     void cancel(bool newLoadInProgress = false);
+     void clear();
+ 
+ private:
+     bool shouldScheduleNavigation() const;
+     bool shouldScheduleNavigation(const URL&) const;
+ 
+-    void timerFired(Timer<NavigationScheduler>&);
++    void timerFired(ReplayableTimer<NavigationScheduler>&);
+     void schedule(std::unique_ptr<ScheduledNavigation>);
+ 
+     static LockBackForwardList mustLockBackForwardList(Frame& targetFrame);
+ 
+     Frame& m_frame;
+-    Timer<NavigationScheduler> m_timer;
++    ReplayableTimer<NavigationScheduler> m_timer;
+     std::unique_ptr<ScheduledNavigation> m_redirect;
+ };
+ 
+ } // namespace WebCore
+ 
+ #endif // NavigationScheduler_h
+diff --git a/Source/WebCore/replay/ReplayableTimer.cpp b/Source/WebCore/replay/ReplayableTimer.cpp
+index df1f7fd..4637c09 100644
+--- a/Source/WebCore/replay/ReplayableTimer.cpp
++++ b/Source/WebCore/replay/ReplayableTimer.cpp
+@@ -95,13 +95,40 @@ void ReplayableTimerBase::stop()
+ #if !LOG_DISABLED
+     if (cursor.isCapturing() || cursor.isReplaying())
+         LOG(WebReplay, "ReplayableTimer(%p)::stop m_document=%p, ordinal=%" PRIu64, this, m_document, m_ordinal);
+ #endif
+     if (!cursor.isReplaying())
+         m_timer.stop();
+ 
+     m_document = nullptr;
+ }
+ 
++double ReplayableTimerBase::nextFireInterval()
++{
++    ASSERT(m_document);
++
++    InputCursor& cursor = m_document->inputCursor();
++
++    double interval = NAN;
++    if (cursor.isReplaying()) {
++        if (AsyncTimerNextInterval* input = cursor.fetchInput<AsyncTimerNextInterval>())
++            interval = input->nextInterval();
++        else // TODO: error handling
++            interval = 0;
++    } else {
++        interval = m_timer.nextFireInterval();
++        if (cursor.isCapturing())
++            cursor.appendInput<AsyncTimerNextInterval>(interval);
++    }
++
++#if !LOG_DISABLED
++    if (cursor.isCapturing() || cursor.isReplaying())
++        LOG(WebReplay, "ReplayableTimer(%p)::nextFireInterval m_document=%p, ordinal=%" PRIu64 ", interval=%f", this, m_document, m_ordinal, interval);
++#endif
++
++    ASSERT(!isnan(interval));
++    return interval;
++}
++
+ } // namespace WebCore
+ 
+ #endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/WebCore/replay/ReplayableTimer.h b/Source/WebCore/replay/ReplayableTimer.h
+index e1c3e45..fc2b627 100644
+--- a/Source/WebCore/replay/ReplayableTimer.h
++++ b/Source/WebCore/replay/ReplayableTimer.h
+@@ -44,20 +44,22 @@ friend class ReplayableTimers;
+ 
+ public:
+     ReplayableTimerBase();
+     virtual ~ReplayableTimerBase();
+ 
+     void startOneShot(double interval, Document*);
+ 
+     void stop();
+     bool isActive() const { return m_document; }
+ 
++    double nextFireInterval();
++
+     uint64_t ordinal() const { return m_ordinal; }
+ protected:
+     virtual void fired() =0;
+ private:
+     void timerFired(Timer<ReplayableTimerBase>&);
+ 
+     Timer<ReplayableTimerBase> m_timer;
+     Document* m_document;
+     // Timers are often initialized without an associated document, but are always
+     // always fired when one is available. Assign timer ordinals on first fire.
+diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
+index e975a1a..1606b8f 100644
+--- a/Source/WebCore/replay/WebInputs.json
++++ b/Source/WebCore/replay/WebInputs.json
+@@ -192,20 +192,28 @@
+         {
+             "name": "AsyncTimerFired",
+             "description": "A ReplayableTimer instance fired that was associated with the specified frame.",
+             "queue": "EVENT_LOOP",
+             "members": [
+                 { "name": "frameIndex", "type": "uint32_t" },
+                 { "name": "ordinal", "type": "uint64_t" }
+             ]
+         },
+         {
++            "name": "AsyncTimerNextInterval",
++            "description": "The time until the next fire interval for a timer.",
++            "queue": "SCRIPT_MEMOIZED",
++            "members": [
++                { "name": "nextInterval", "type": "double" }
++            ]
++        },
++        {
+             "name": "BeginSegmentSentinel",
+             "description": "A sentinel input to signal the start of a segment.",
+             "queue": "EVENT_LOOP",
+             "members": [ ]
+         },
+         {
+             "name": "DocumentLastModifiedDate",
+             "description": "A fallback value used for the document's last modified date if the Last-Modified header can't be found or used.",
+             "queue": "SCRIPT_MEMOIZED",
+             "members": [
+-- 
+2.0.1
+

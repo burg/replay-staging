@@ -1,0 +1,1172 @@
+From ab4c1b345fc53eac60d6103d7abc39ec307d95f4 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Tue, 15 Jul 2014 11:45:23 -0700
+Subject: [PATCH] Source/WebCore: [WIP] Web Replay: capture and replay Reload,
+ Navigate, and Stop commands https://bugs.webkit.org/show_bug.cgi?id=129447
+
+Reviewed by NOBODY (OOPS!).
+
+Add support for capturing and replaying basic navigation commands that
+come to WebCore from WK1/WK2 WebProcess. This handles most UI-driven
+navigation commands, such as clicking the stop or reload buttons, or
+loading a bookmarked page by clicking on the bookmark during capturing.
+
+This patch mostly consists of a lot of new serialization methods, since
+frame load requests use the large ResourceRequest and FormData classes.
+
+WIP NOTE: there are still some outstanding bugs in the serialization
+code, and a performance problem in the inspector timelines which prevent
+me from debugging the issue quickly. I'll finish this patch once I'm
+able to debug remaining issues.
+
+WIP NOTE: this should be tested somehow, perhaps with API tests?
+
+No new tests (OOPS!).
+
+* loader/FrameLoadRequest.h:
+(WebCore::FrameLoadRequest::hasSubstituteData): Make it const.
+
+* loader/cache/CachedResourceLoader.cpp: Update logging to match new
+explicit storage sizes for resource request enums.
+(WebCore::CachedResourceLoader::requestResource):
+
+* platform/network/FormData.h: Make the default constructor protected,
+so that a we can create a subclass for deserialization purposes.
+
+* platform/network/ResourceLoadPriority.h: Add explicit storage size to
+ResourceLoadPriority.
+
+* platform/network/ResourceRequestBase.h: Add explicit storage stize to
+ResourceRequestCachePolicy.
+
+* replay/ReplayInputDispatchMethods.cpp: Add new dispatch methods.
+(WebCore::LoadURLRequest::dispatch): Added.
+(WebCore::ReloadFrame::dispatch): Added.
+(WebCore::StopLoadingFrame::dispatch): Added.
+(WebCore::TryClosePage::dispatch): Added.
+
+* replay/SerializationMethods.cpp: Added serialization methods for
+data structures used transitively by FrameLoadRequest and FormData.
+(JSC::EncodingTraits<FormData>::encodeValue): Added.
+(JSC::DeserializedFormData::DeserializedFormData): Added.
+(JSC::EncodingTraits<FormData>::decodeValue): Added.
+(JSC::EncodingTraits<FormDataElement>::encodeValue): Added.
+(JSC::EncodingTraits<FormDataElement>::decodeValue): Added.
+(JSC::EncodingTraits<FrameLoadRequest>::encodeValue): Added.
+(JSC::EncodingTraits<FrameLoadRequest>::decodeValue): Added.
+(JSC::EncodingTraits<ResourceRequest>::encodeValue): Added.
+(JSC::DeserializedResourceRequest::DeserializedResourceRequest): Added.
+(JSC::EncodingTraits<ResourceRequest>::decodeValue): Added.
+(JSC::EncodingTraits<SubstituteData>::encodeValue): Added.
+(JSC::EncodingTraits<SubstituteData>::decodeValue): Added.
+* replay/SerializationMethods.h:
+
+* replay/UserInputBridge.cpp: Fill in the bridge implementations
+for the new navigation inputs handled by this patch.
+(WebCore::UserInputBridge::loadRequest):
+(WebCore::UserInputBridge::reloadFrame):
+(WebCore::UserInputBridge::stopLoadingFrame):
+(WebCore::UserInputBridge::tryClosePage):
+
+* replay/WebInputs.json: Added new definitions for types FrameLoadRequest,
+ResourceLoadPriority, ResourceRequest, ResourceRequestCachePolicy. Add
+new inputs LoadURLRequest, ReloadFrame, StopLoadingFrame.
+
+Source/WebKit2:
+Web Replay: capture and replay Reload, Navigate, and Stop commands
+https://bugs.webkit.org/show_bug.cgi?id=129447
+
+Reviewed by NOBODY (OOPS!).
+
+Update resource logging formatters for ResourceLoadPriority. It is now
+an enum with uint64_t-sized storage rather than int.
+
+* NetworkProcess/NetworkResourceLoadScheduler.cpp:
+(WebKit::NetworkResourceLoadScheduler::servePendingRequests):
+* WebProcess/Network/WebResourceLoadScheduler.cpp:
+(WebKit::WebResourceLoadScheduler::scheduleLoad):
+---
+ Source/WebCore/ChangeLog                           |  73 +++++++
+ Source/WebCore/loader/FrameLoadRequest.h           |   2 +-
+ .../WebCore/loader/cache/CachedResourceLoader.cpp  |   2 +-
+ Source/WebCore/platform/network/FormData.h         |   4 +-
+ .../platform/network/ResourceLoadPriority.h        |   2 +-
+ .../WebCore/platform/network/ResourceRequestBase.h |   2 +-
+ .../WebCore/replay/ReplayInputDispatchMethods.cpp  |  26 +++
+ Source/WebCore/replay/SerializationMethods.cpp     | 227 +++++++++++++++++++++
+ Source/WebCore/replay/SerializationMethods.h       |  25 +++
+ Source/WebCore/replay/UserInputBridge.cpp          |  67 +++++-
+ Source/WebCore/replay/WebInputs.json               |  75 +++++++
+ Source/WebKit2/ChangeLog                           |  15 ++
+ 12 files changed, 511 insertions(+), 9 deletions(-)
+
+diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
+index a51cc95..14ff344 100644
+--- a/Source/WebCore/ChangeLog
++++ b/Source/WebCore/ChangeLog
+@@ -1,10 +1,83 @@
++2014-07-14  Brian J. Burg  <burg@cs.washington.edu>
++
++        [WIP] Web Replay: capture and replay Reload, Navigate, and Stop commands
++        https://bugs.webkit.org/show_bug.cgi?id=129447
++
++        Reviewed by NOBODY (OOPS!).
++
++        Add support for capturing and replaying basic navigation commands that
++        come to WebCore from WK1/WK2 WebProcess. This handles most UI-driven
++        navigation commands, such as clicking the stop or reload buttons, or
++        loading a bookmarked page by clicking on the bookmark during capturing.
++
++        This patch mostly consists of a lot of new serialization methods, since
++        frame load requests use the large ResourceRequest and FormData classes.
++
++        WIP NOTE: there are still some outstanding bugs in the serialization
++        code, and a performance problem in the inspector timelines which prevent
++        me from debugging the issue quickly. I'll finish this patch once I'm
++        able to debug remaining issues.
++
++        WIP NOTE: this should be tested somehow, perhaps with API tests?
++
++        No new tests (OOPS!).
++
++        * loader/FrameLoadRequest.h:
++        (WebCore::FrameLoadRequest::hasSubstituteData): Make it const.
++
++        * loader/cache/CachedResourceLoader.cpp: Update logging to match new
++        explicit storage sizes for resource request enums.
++        (WebCore::CachedResourceLoader::requestResource):
++
++        * platform/network/FormData.h: Make the default constructor protected,
++        so that a we can create a subclass for deserialization purposes.
++
++        * platform/network/ResourceLoadPriority.h: Add explicit storage size to
++        ResourceLoadPriority.
++
++        * platform/network/ResourceRequestBase.h: Add explicit storage stize to
++        ResourceRequestCachePolicy.
++
++        * replay/ReplayInputDispatchMethods.cpp: Add new dispatch methods.
++        (WebCore::LoadURLRequest::dispatch): Added.
++        (WebCore::ReloadFrame::dispatch): Added.
++        (WebCore::StopLoadingFrame::dispatch): Added.
++        (WebCore::TryClosePage::dispatch): Added.
++
++        * replay/SerializationMethods.cpp: Added serialization methods for 
++        data structures used transitively by FrameLoadRequest and FormData.
++        (JSC::EncodingTraits<FormData>::encodeValue): Added.
++        (JSC::DeserializedFormData::DeserializedFormData): Added.
++        (JSC::EncodingTraits<FormData>::decodeValue): Added.
++        (JSC::EncodingTraits<FormDataElement>::encodeValue): Added.
++        (JSC::EncodingTraits<FormDataElement>::decodeValue): Added.
++        (JSC::EncodingTraits<FrameLoadRequest>::encodeValue): Added.
++        (JSC::EncodingTraits<FrameLoadRequest>::decodeValue): Added.
++        (JSC::EncodingTraits<ResourceRequest>::encodeValue): Added.
++        (JSC::DeserializedResourceRequest::DeserializedResourceRequest): Added.
++        (JSC::EncodingTraits<ResourceRequest>::decodeValue): Added.
++        (JSC::EncodingTraits<SubstituteData>::encodeValue): Added.
++        (JSC::EncodingTraits<SubstituteData>::decodeValue): Added.
++        * replay/SerializationMethods.h:
++
++        * replay/UserInputBridge.cpp: Fill in the bridge implementations
++        for the new navigation inputs handled by this patch.
++        (WebCore::UserInputBridge::loadRequest):
++        (WebCore::UserInputBridge::reloadFrame):
++        (WebCore::UserInputBridge::stopLoadingFrame):
++        (WebCore::UserInputBridge::tryClosePage):
++
++        * replay/WebInputs.json: Added new definitions for types FrameLoadRequest,
++        ResourceLoadPriority, ResourceRequest, ResourceRequestCachePolicy. Add
++        new inputs LoadURLRequest, ReloadFrame, StopLoadingFrame.
++
+ 2014-06-12  Brian Burg  <burg@cs.washington.edu>
+ 
+         Web Replay: capture and replay ResourceLoader callbacks
+         https://bugs.webkit.org/show_bug.cgi?id=129391
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Our approach to ensuring deterministic page loading is to capture resource loader
+         callbacks during capturing, and then manually invoke loader callbacks during replay
+         in lieu of using the resource loader scheduler.
+diff --git a/Source/WebCore/loader/FrameLoadRequest.h b/Source/WebCore/loader/FrameLoadRequest.h
+index 81e3f65..e665e7a 100644
+--- a/Source/WebCore/loader/FrameLoadRequest.h
++++ b/Source/WebCore/loader/FrameLoadRequest.h
+@@ -66,21 +66,21 @@ public:
+     const ResourceRequest& resourceRequest() const { return m_resourceRequest; }
+ 
+     const String& frameName() const { return m_frameName; }
+     void setFrameName(const String& frameName) { m_frameName = frameName; }
+ 
+     void setShouldCheckNewWindowPolicy(bool checkPolicy) { m_shouldCheckNewWindowPolicy = checkPolicy; }
+     bool shouldCheckNewWindowPolicy() const { return m_shouldCheckNewWindowPolicy; }
+ 
+     const SubstituteData& substituteData() const { return m_substituteData; }
+     void setSubstituteData(const SubstituteData& data) { m_substituteData = data; }
+-    bool hasSubstituteData() { return m_substituteData.isValid(); }
++    bool hasSubstituteData() const { return m_substituteData.isValid(); }
+ 
+ private:
+     RefPtr<SecurityOrigin> m_requester;
+     ResourceRequest m_resourceRequest;
+     String m_frameName;
+     bool m_shouldCheckNewWindowPolicy;
+     SubstituteData m_substituteData;
+ };
+ 
+ }
+diff --git a/Source/WebCore/loader/cache/CachedResourceLoader.cpp b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
+index e6e8a0a..958e0c2 100644
+--- a/Source/WebCore/loader/cache/CachedResourceLoader.cpp
++++ b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
+@@ -414,21 +414,21 @@ bool CachedResourceLoader::shouldContinueAfterNotifyingLoadedFromMemoryCache(con
+     
+     // FIXME <http://webkit.org/b/113251>: If the delegate modifies the request's
+     // URL, it is no longer appropriate to use this CachedResource.
+     return !newRequest.isNull();
+ }
+ 
+ CachedResourceHandle<CachedResource> CachedResourceLoader::requestResource(CachedResource::Type type, CachedResourceRequest& request)
+ {
+     URL url = request.resourceRequest().url();
+     
+-    LOG(ResourceLoading, "CachedResourceLoader::requestResource '%s', charset '%s', priority=%d, forPreload=%u", url.stringCenterEllipsizedToLength().latin1().data(), request.charset().latin1().data(), request.priority(), request.forPreload());
++    LOG(ResourceLoading, "CachedResourceLoader::requestResource '%s', charset '%s', priority=%lld, forPreload=%u", url.stringCenterEllipsizedToLength().latin1().data(), request.charset().latin1().data(), request.priority(), request.forPreload());
+     
+     // If only the fragment identifiers differ, it is the same resource.
+     url = MemoryCache::removeFragmentIdentifierIfNeeded(url);
+ 
+     if (!url.isValid())
+         return 0;
+ 
+     if (!canRequest(type, url, request.options(), request.forPreload()))
+         return 0;
+ 
+diff --git a/Source/WebCore/platform/network/FormData.h b/Source/WebCore/platform/network/FormData.h
+index c5e7f0f..f07f358 100644
+--- a/Source/WebCore/platform/network/FormData.h
++++ b/Source/WebCore/platform/network/FormData.h
+@@ -245,28 +245,30 @@ public:
+     static EncodingType parseEncodingType(const String& type)
+     {
+         if (equalIgnoringCase(type, "text/plain"))
+             return TextPlain;
+         if (equalIgnoringCase(type, "multipart/form-data"))
+             return MultipartFormData;
+         return FormURLEncoded;
+     }
+ 
+ private:
+-    FormData();
+     FormData(const FormData&);
+ 
+     void appendKeyValuePairItems(const FormDataList&, const TextEncoding&, bool isMultiPartForm, Document*, EncodingType = FormURLEncoded);
+ 
+     bool hasGeneratedFiles() const;
+     bool hasOwnedGeneratedFiles() const;
+ 
++protected:
++    FormData();
++
+     Vector<FormDataElement> m_elements;
+ 
+     int64_t m_identifier;
+     bool m_alwaysStream;
+     Vector<char> m_boundary;
+     bool m_containsPasswordData;
+ };
+ 
+ inline bool operator==(const FormData& a, const FormData& b)
+ {
+diff --git a/Source/WebCore/platform/network/ResourceLoadPriority.h b/Source/WebCore/platform/network/ResourceLoadPriority.h
+index 5a7104f..94e722e 100644
+--- a/Source/WebCore/platform/network/ResourceLoadPriority.h
++++ b/Source/WebCore/platform/network/ResourceLoadPriority.h
+@@ -21,21 +21,21 @@
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #ifndef ResourceLoadPriority_h
+ #define ResourceLoadPriority_h
+ 
+ namespace WebCore {
+ 
+-enum ResourceLoadPriority {
++enum ResourceLoadPriority : int64_t {
+     // The unresolved priority is here for the convenience of the clients. It should not be passed to the ResourceLoadScheduler.
+     ResourceLoadPriorityUnresolved = -1,
+     ResourceLoadPriorityVeryLow = 0,
+     ResourceLoadPriorityLow,
+     ResourceLoadPriorityMedium,
+     ResourceLoadPriorityHigh,
+     ResourceLoadPriorityVeryHigh,
+     ResourceLoadPriorityLowest = ResourceLoadPriorityVeryLow,
+     ResourceLoadPriorityHighest = ResourceLoadPriorityVeryHigh,
+ };
+diff --git a/Source/WebCore/platform/network/ResourceRequestBase.h b/Source/WebCore/platform/network/ResourceRequestBase.h
+index c2c134e..268898d 100644
+--- a/Source/WebCore/platform/network/ResourceRequestBase.h
++++ b/Source/WebCore/platform/network/ResourceRequestBase.h
+@@ -28,21 +28,21 @@
+ #ifndef ResourceRequestBase_h
+ #define ResourceRequestBase_h
+ 
+ #include "FormData.h"
+ #include "HTTPHeaderMap.h"
+ #include "URL.h"
+ #include "ResourceLoadPriority.h"
+ 
+ namespace WebCore {
+ 
+-    enum ResourceRequestCachePolicy {
++    enum ResourceRequestCachePolicy : uint64_t {
+         UseProtocolCachePolicy, // normal load
+         ReloadIgnoringCacheData, // reload
+         ReturnCacheDataElseLoad, // back/forward or encoding change - allow stale data
+         ReturnCacheDataDontLoad  // results of a post - allow stale data and only use cache
+     };
+ 
+     enum HTTPBodyUpdatePolicy {
+         DoNotUpdateHTTPBody,
+         UpdateHTTPBody
+     };
+diff --git a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
+index 97daede..cd67cf0 100644
+--- a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
++++ b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
+@@ -65,20 +65,46 @@ void BeginSegmentSentinel::dispatch(ReplayController&)
+ void EndSegmentSentinel::dispatch(ReplayController&)
+ {
+ }
+ 
+ // Navigation inputs.
+ void InitialNavigation::dispatch(ReplayController& controller)
+ {
+     controller.page().mainFrame().navigationScheduler().scheduleLocationChange(m_securityOrigin.get(), m_url, m_referrer);
+ }
+ 
++void LoadURLRequest::dispatch(ReplayController& controller)
++{
++    controller.page().userInputBridge().loadRequest(*m_loadRequest);
++}
++
++void ReloadFrame::dispatch(ReplayController& controller)
++{
++    Frame* frame = frameFromFrameIndex(&controller.page(), m_frameIndex);
++    ASSERT(frame);
++
++    controller.page().userInputBridge().reloadFrame(frame, m_endToEndReload, InputSource::Synthetic);
++}
++
++void StopLoadingFrame::dispatch(ReplayController& controller)
++{
++    Frame* frame = frameFromFrameIndex(&controller.page(), m_frameIndex);
++    ASSERT(frame);
++
++    controller.page().userInputBridge().stopLoadingFrame(frame, InputSource::Synthetic);
++}
++
++void TryClosePage::dispatch(ReplayController& controller)
++{
++    controller.page().userInputBridge().tryClosePage(InputSource::Synthetic);
++}
++
+ void HandleKeyPress::dispatch(ReplayController& controller)
+ {
+     controller.page().userInputBridge().handleKeyEvent(platformEvent(), InputSource::Synthetic);
+ }
+ 
+ // User interaction inputs.
+ void HandleMouseMove::dispatch(ReplayController& controller)
+ {
+     if (m_scrollbarTargeted)
+         controller.page().userInputBridge().handleMouseMoveOnScrollbarEvent(platformEvent(), InputSource::Synthetic);
+diff --git a/Source/WebCore/replay/SerializationMethods.cpp b/Source/WebCore/replay/SerializationMethods.cpp
+index 92648d2..781ce35 100644
+--- a/Source/WebCore/replay/SerializationMethods.cpp
++++ b/Source/WebCore/replay/SerializationMethods.cpp
+@@ -25,54 +25,65 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #include "config.h"
+ #include "SerializationMethods.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include "AllReplayInputs.h"
+ #include "Document.h"
++#include "FormData.h"
+ #include "Frame.h"
++#include "FrameLoadRequest.h"
+ #include "FrameTree.h"
+ #include "HTTPHeaderMap.h"
+ #include "MainFrame.h"
+ #include "Page.h"
+ #include "PlatformKeyboardEvent.h"
+ #include "PlatformMouseEvent.h"
+ #include "PlatformWheelEvent.h"
+ #include "PluginData.h"
+ #include "ReplayInputTypes.h"
+ #include "ResourceError.h"
+ #include "ResourceLoadTiming.h"
++#include "ResourceRequest.h"
+ #include "ResourceResponse.h"
+ #include "SecurityOrigin.h"
+ #include "SharedBuffer.h"
++#include "SubstituteData.h"
+ #include "URL.h"
+ #include <wtf/text/Base64.h>
+ 
++using WebCore::FormData;
++using WebCore::FormDataElement;
++using WebCore::FrameLoadRequest;
+ using WebCore::HTTPHeaderMap;
+ using WebCore::IntPoint;
+ using WebCore::MimeClassInfo;
+ using WebCore::MouseButton;
+ using WebCore::PlatformEvent;
+ using WebCore::PlatformKeyboardEvent;
+ using WebCore::PlatformMouseEvent;
+ using WebCore::PlatformWheelEvent;
+ using WebCore::PlatformWheelEventGranularity;
+ using WebCore::PluginData;
+ using WebCore::PluginInfo;
+ using WebCore::ResourceError;
+ using WebCore::ResourceLoadTiming;
++using WebCore::ResourceLoadPriority;
++using WebCore::ResourceRequest;
++using WebCore::ResourceRequestCachePolicy;
+ using WebCore::ResourceResponse;
+ using WebCore::SecurityOrigin;
+ using WebCore::SharedBuffer;
++using WebCore::SubstituteData;
+ using WebCore::URL;
+ 
+ #if PLATFORM(COCOA)
+ using WebCore::KeypressCommand;
+ using WebCore::PlatformWheelEventPhase;
+ #endif
+ 
+ #define IMPORT_FROM_WEBCORE_NAMESPACE(name) \
+ using WebCore::name; \
+ 
+@@ -141,20 +152,134 @@ Frame* frameFromFrameIndex(Page* page, uint32_t frameIndex)
+ 
+ #define DECODE_OPTIONAL_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _lvalue) \
+     bool _key ## WasDecoded = _encodedValue.get<_type>(ASCIILiteral(#_key), _lvalue)
+ 
+ #define DECODE_OPTIONAL_TYPE_WITH_KEY(_encodedValue, _type, _key) \
+     EncodingTraits<_type>::DecodedType _key; \
+     DECODE_OPTIONAL_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _key)
+ 
+ namespace JSC {
+ 
++EncodedValue EncodingTraits<FormData>::encodeValue(RefPtr<FormData> data)
++{
++    EncodedValue encodedData = EncodedValue::createObject();
++
++    ENCODE_TYPE_WITH_KEY(encodedData, bool, alwaysStream, data->alwaysStream());
++    ENCODE_TYPE_WITH_KEY(encodedData, Vector<char>, boundary, data->boundary());
++    ENCODE_TYPE_WITH_KEY(encodedData, Vector<FormDataElement>, elements, data->elements());
++    ENCODE_TYPE_WITH_KEY(encodedData, int64_t, identifier, data->identifier());
++
++    return encodedData;
++}
++
++class DeserializedFormData : public FormData {
++public:
++    DeserializedFormData(bool alwaysStream, Vector<char> boundary, Vector<FormDataElement> elements, int64_t identifier)
++    {
++        m_alwaysStream = alwaysStream;
++        m_boundary = boundary;
++        m_elements = elements;
++        m_identifier = identifier;
++    }
++};
++
++bool EncodingTraits<FormData>::decodeValue(EncodedValue& encodedData, RefPtr<FormData>& formData)
++{
++    DECODE_TYPE_WITH_KEY(encodedData, bool, alwaysStream);
++    DECODE_TYPE_WITH_KEY(encodedData, Vector<char>, boundary);
++    DECODE_TYPE_WITH_KEY(encodedData, Vector<FormDataElement>, elements);
++    DECODE_TYPE_WITH_KEY(encodedData, int64_t, identifier);
++
++    formData = adoptRef(new DeserializedFormData(alwaysStream, boundary, elements, identifier));
++    return true;
++}
++
++template<>
++EncodedValue EncodingTraits<FormDataElement>::encodeValue(const FormDataElement& element)
++{
++    EncodedValue encodedData = EncodedValue::createObject();
++
++    ENCODE_TYPE_WITH_KEY(encodedData, FormDataElement::Type, type, element.m_type);
++    switch (element.m_type) {
++    case FormDataElement::Type::Data:
++        ENCODE_TYPE_WITH_KEY(encodedData, Vector<char>, data, element.m_data);
++        break;
++    case FormDataElement::Type::EncodedFile:
++        ENCODE_TYPE_WITH_KEY(encodedData, String, filename, element.m_filename);
++        ENCODE_TYPE_WITH_KEY(encodedData, bool, shouldGenerateFile, element.m_shouldGenerateFile);
++        ENCODE_TYPE_WITH_KEY(encodedData, long long, fileStart, element.m_fileStart);
++        ENCODE_TYPE_WITH_KEY(encodedData, long long, fileLength, element.m_fileLength);
++        ENCODE_TYPE_WITH_KEY(encodedData, double, expectedFileModificationTime, element.m_expectedFileModificationTime);
++        break;
++    case FormDataElement::Type::EncodedBlob:
++        ENCODE_TYPE_WITH_KEY(encodedData, URL, blobURL, element.m_url);
++        break;
++    }
++
++    return encodedData;
++}
++
++template<>
++bool EncodingTraits<FormDataElement>::decodeValue(EncodedValue& encodedData, FormDataElement& element)
++{
++    DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, FormDataElement::Type, type, element.m_type);
++    switch (element.m_type) {
++    case FormDataElement::Type::Data:
++        DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, Vector<char>, data, element.m_data);
++        break;
++    case FormDataElement::Type::EncodedFile:
++        DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, String, filename, element.m_filename);
++        DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, bool, shouldGenerateFile, element.m_shouldGenerateFile);
++        DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, long long, fileStart, element.m_fileStart);
++        DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, long long, fileLength, element.m_fileLength);
++        DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, double, expectedFileModificationTime, element.m_expectedFileModificationTime);
++        break;
++    case FormDataElement::Type::EncodedBlob:
++        DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, URL, blobURL, element.m_url);
++        break;
++    }
++
++    return true;
++}
++
++EncodedValue EncodingTraits<FrameLoadRequest>::encodeValue(const FrameLoadRequest& request)
++{
++    EncodedValue encodedData = EncodedValue::createObject();
++
++    ENCODE_TYPE_WITH_KEY(encodedData, String, securityOrigin, request.requester() ? request.requester()->toString() : "");
++    ENCODE_TYPE_WITH_KEY(encodedData, ResourceRequest, resourceRequest, request.resourceRequest());
++    ENCODE_TYPE_WITH_KEY(encodedData, String, frameName, request.frameName());
++    ENCODE_TYPE_WITH_KEY(encodedData, bool, shouldCheckNewWindowPolicy, request.shouldCheckNewWindowPolicy());
++    ENCODE_OPTIONAL_TYPE_WITH_KEY(encodedData, SubstituteData, substituteData, request.substituteData(), request.hasSubstituteData());
++
++    return encodedData;
++}
++
++bool EncodingTraits<FrameLoadRequest>::decodeValue(EncodedValue& encodedData, std::unique_ptr<FrameLoadRequest>& decodedRequest)
++{
++    DECODE_TYPE_WITH_KEY(encodedData, SecurityOrigin, securityOrigin);
++    std::unique_ptr<ResourceRequest> resourceRequest;
++    DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, ResourceRequest, resourceRequest, resourceRequest);
++    DECODE_TYPE_WITH_KEY(encodedData, String, frameName);
++    DECODE_TYPE_WITH_KEY(encodedData, bool, shouldCheckNewWindowPolicy);
++    DECODE_OPTIONAL_TYPE_WITH_KEY(encodedData, SubstituteData, substituteData);
++
++    decodedRequest = std::make_unique<FrameLoadRequest>(securityOrigin.get(), *resourceRequest);
++    decodedRequest->setFrameName(frameName);
++    decodedRequest->setShouldCheckNewWindowPolicy(shouldCheckNewWindowPolicy);
++
++    if (substituteDataWasDecoded)
++        decodedRequest->setSubstituteData(substituteData);
++
++    return true;
++}
++
+ EncodedValue EncodingTraits<HTTPHeaderMap>::encodeValue(const HTTPHeaderMap& headerMap)
+ {
+     EncodedValue encodedData = EncodedValue::createObject();
+     EncodedValue encodedKeys = EncodedValue::createArray();
+     EncodedValue encodedValues = EncodedValue::createArray();
+ 
+     for (auto it = headerMap.begin(); it != headerMap.end(); ++it) {
+         encodedKeys.append<String>(it->key);
+         encodedValues.append<String>(it->value);
+     }
+@@ -598,20 +723,92 @@ bool EncodingTraits<ResourceLoadTiming>::decodeValue(EncodedValue& encodedData,
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, int, connectStart, timingData.connectStart);
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, int, connectEnd, timingData.connectEnd);
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, int, requestStart, timingData.requestStart);
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, int, responseStart, timingData.responseStart);
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, int, secureConnectionStart, timingData.secureConnectionStart);
+ 
+     decodedTimings = timingData;
+     return true;
+ }
+ 
++EncodedValue EncodingTraits<ResourceRequest>::encodeValue(const ResourceRequest& request)
++{
++    EncodedValue encodedData = EncodedValue::createObject();
++
++    ENCODE_TYPE_WITH_KEY(encodedData, URL, url, request.url());
++    ENCODE_TYPE_WITH_KEY(encodedData, ResourceRequestCachePolicy, cachePolicy, request.cachePolicy());
++    ENCODE_TYPE_WITH_KEY(encodedData, double, timeoutInterval, request.timeoutInterval());
++    ENCODE_TYPE_WITH_KEY(encodedData, URL, firstPartyForCookies, request.firstPartyForCookies());
++    ENCODE_TYPE_WITH_KEY(encodedData, String, httpMethod, request.httpMethod());
++    ENCODE_TYPE_WITH_KEY(encodedData, HTTPHeaderMap, httpHeaders, request.httpHeaderFields());
++    ENCODE_TYPE_WITH_KEY(encodedData, Vector<String>, responseContentDispositionEncodingFallbackArray, request.responseContentDispositionEncodingFallbackArray());
++    ENCODE_OPTIONAL_TYPE_WITH_KEY(encodedData, FormData, httpBody, request.httpBody(), request.httpBody());
++    ENCODE_TYPE_WITH_KEY(encodedData, bool, allowCookies, request.allowCookies());
++    ENCODE_TYPE_WITH_KEY(encodedData, ResourceLoadPriority, loadPriority, request.priority());
++
++    return encodedData;
++}
++
++class DeserializedResourceRequest : public ResourceRequest {
++public:
++    DeserializedResourceRequest(const HTTPHeaderMap& headers)
++    {
++        m_httpHeaderFields = headers;
++    }
++};
++
++bool EncodingTraits<ResourceRequest>::decodeValue(EncodedValue& encodedData, std::unique_ptr<ResourceRequest>& decodedRequest)
++{
++    DECODE_TYPE_WITH_KEY(encodedData, URL, url);
++    DECODE_TYPE_WITH_KEY(encodedData, ResourceRequestCachePolicy, cachePolicy);
++    DECODE_TYPE_WITH_KEY(encodedData, double, timeoutInterval);
++    DECODE_TYPE_WITH_KEY(encodedData, URL, firstPartyForCookies);
++    DECODE_TYPE_WITH_KEY(encodedData, String, httpMethod);
++    std::unique_ptr<HTTPHeaderMap> httpHeaders;
++    DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, HTTPHeaderMap, httpHeaders, httpHeaders);
++    DECODE_TYPE_WITH_KEY(encodedData, Vector<String>, responseContentDispositionEncodingFallbackArray);
++    DECODE_OPTIONAL_TYPE_WITH_KEY(encodedData, FormData, httpBody);
++    DECODE_TYPE_WITH_KEY(encodedData, bool, allowCookies);
++    DECODE_TYPE_WITH_KEY(encodedData, ResourceLoadPriority, loadPriority);
++
++    std::unique_ptr<ResourceRequest> request = std::make_unique<ResourceRequest>();
++    request->setHTTPHeaderFields(*httpHeaders);
++    request->setCachePolicy(cachePolicy);
++    request->setTimeoutInterval(timeoutInterval);
++    request->setFirstPartyForCookies(firstPartyForCookies);
++    request->setHTTPMethod(httpMethod);
++    request->setPriority(loadPriority);
++    request->setAllowCookies(allowCookies);
++
++    int fallbackEncodingCount = responseContentDispositionEncodingFallbackArray.size();
++    if (fallbackEncodingCount < 0 || fallbackEncodingCount > 3)
++        return false;
++
++    String encoding1;
++    String encoding2;
++    String encoding3;
++    if (fallbackEncodingCount >= 1)
++        encoding1 = responseContentDispositionEncodingFallbackArray[0];
++    if (fallbackEncodingCount >= 2)
++        encoding2 = responseContentDispositionEncodingFallbackArray[1];
++    if (fallbackEncodingCount >= 3)
++        encoding3 = responseContentDispositionEncodingFallbackArray[2];
++    if (fallbackEncodingCount > 0)
++        request->setResponseContentDispositionEncodingFallbackArray(encoding1, encoding2, encoding3);
++
++    if (httpBodyWasDecoded)
++        request->setHTTPBody(httpBody);
++
++    decodedRequest = std::move(request);
++    return true;
++}
++
+ EncodedValue EncodingTraits<ResourceResponse>::encodeValue(const ResourceResponse& response)
+ {
+     EncodedValue encodedData = EncodedValue::createObject();
+ 
+     ENCODE_TYPE_WITH_KEY(encodedData, URL, url, response.url());
+     ENCODE_TYPE_WITH_KEY(encodedData, String, mimeType, response.mimeType());
+     ENCODE_TYPE_WITH_KEY(encodedData, long long, expectedContentLength, response.expectedContentLength());
+     ENCODE_TYPE_WITH_KEY(encodedData, String, textEncodingName, response.textEncodingName());
+     ENCODE_TYPE_WITH_KEY(encodedData, int, httpStatusCode, response.httpStatusCode());
+     ENCODE_TYPE_WITH_KEY(encodedData, String, httpStatusText, response.httpStatusText());
+@@ -676,20 +873,50 @@ EncodedValue EncodingTraits<SharedBuffer>::encodeValue(RefPtr<SharedBuffer> buff
+ bool EncodingTraits<SharedBuffer>::decodeValue(EncodedValue& encodedBuffer, RefPtr<SharedBuffer>& decodedBuffer)
+ {
+     Vector<char, 0> data;
+     if (!base64Decode(encodedBuffer.convertTo<String>(), data))
+         return false;
+ 
+     decodedBuffer = SharedBuffer::adoptVector(data);
+     return true;
+ }
+ 
++template<>
++EncodedValue EncodingTraits<SubstituteData>::encodeValue(const SubstituteData& data)
++{
++    EncodedValue encodedData = EncodedValue::createObject();
++
++    ENCODE_TYPE_WITH_KEY(encodedData, SharedBuffer, content, data.content()->copy());
++    ENCODE_TYPE_WITH_KEY(encodedData, String, mimeType, data.mimeType());
++    ENCODE_TYPE_WITH_KEY(encodedData, String, textEncoding, data.textEncoding());
++    ENCODE_TYPE_WITH_KEY(encodedData, URL, failingURL, data.failingURL());
++    ENCODE_TYPE_WITH_KEY(encodedData, URL, responseURL, data.responseURL());
++    ENCODE_TYPE_WITH_KEY(encodedData, bool, shouldRevealToSessionHistory, data.shouldRevealToSessionHistory());
++
++    return encodedData;
++}
++
++template<>
++bool EncodingTraits<SubstituteData>::decodeValue(EncodedValue& encodedData, SubstituteData& decodedData)
++{
++
++    DECODE_TYPE_WITH_KEY(encodedData, SharedBuffer, content);
++    DECODE_TYPE_WITH_KEY(encodedData, String, mimeType);
++    DECODE_TYPE_WITH_KEY(encodedData, String, textEncoding);
++    DECODE_TYPE_WITH_KEY(encodedData, URL, failingURL);
++    DECODE_TYPE_WITH_KEY(encodedData, URL, responseURL);
++    DECODE_TYPE_WITH_KEY(encodedData, bool, shouldRevealToSessionHistory);
++
++    decodedData = SubstituteData(content, mimeType, textEncoding, failingURL, responseURL, shouldRevealToSessionHistory);
++    return true;
++}
++
+ EncodedValue EncodingTraits<URL>::encodeValue(const URL& input)
+ {
+     return EncodedValue::createString(input.string());
+ }
+ 
+ bool EncodingTraits<URL>::decodeValue(EncodedValue& encodedValue, URL& input)
+ {
+     input = URL(WebCore::ParsedURLString, encodedValue.convertTo<String>());
+     return true;
+ }
+diff --git a/Source/WebCore/replay/SerializationMethods.h b/Source/WebCore/replay/SerializationMethods.h
+index 38a1d50..df16473 100644
+--- a/Source/WebCore/replay/SerializationMethods.h
++++ b/Source/WebCore/replay/SerializationMethods.h
+@@ -29,48 +29,66 @@
+ #define SerializationMethods_h
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include <replay/EncodedValue.h>
+ #include <replay/NondeterministicInput.h>
+ #include <wtf/Vector.h>
+ 
+ namespace WebCore {
+ 
++struct FrameLoadRequest;
++
+ class Document;
++class FormData;
+ class Frame;
+ class HTTPHeaderMap;
+ class Page;
+ class PlatformKeyboardEvent;
+ class PlatformMouseEvent;
+ class PlatformWheelEvent;
+ class PluginData;
+ class ResourceError;
++class ResourceRequest;
+ class ResourceResponse;
+ class SecurityOrigin;
+ class SharedBuffer;
+ class URL;
+ 
+ #if USE(APPKIT)
+ struct KeypressCommand;
+ #endif
+ 
+ uint32_t frameIndexFromDocument(const Document*);
+ uint32_t frameIndexFromFrame(const Frame*);
+ Document* documentFromFrameIndex(Page*, uint32_t frameIndex);
+ Frame* frameFromFrameIndex(Page*, uint32_t frameIndex);
+ 
+ } // namespace WebCore
+ 
+ // Template specializations must be defined in the same namespace as the template declaration.
+ namespace JSC {
+ 
++template<> struct EncodingTraits<WebCore::FormData> {
++    typedef RefPtr<WebCore::FormData> DecodedType;
++
++    static EncodedValue encodeValue(RefPtr<WebCore::FormData>);
++    static bool decodeValue(EncodedValue&, RefPtr<WebCore::FormData>&);
++};
++
++template<> struct EncodingTraits<WebCore::FrameLoadRequest> {
++    typedef WebCore::FrameLoadRequest DecodedType;
++
++    static EncodedValue encodeValue(const WebCore::FrameLoadRequest& value);
++    static bool decodeValue(EncodedValue&, std::unique_ptr<WebCore::FrameLoadRequest>& value);
++};
++
+ template<> struct EncodingTraits<WebCore::HTTPHeaderMap> {
+     typedef WebCore::HTTPHeaderMap DecodedType;
+ 
+     static EncodedValue encodeValue(const WebCore::HTTPHeaderMap& value);
+     static bool decodeValue(EncodedValue&, std::unique_ptr<WebCore::HTTPHeaderMap>& value);
+ };
+ 
+ #if USE(APPKIT)
+ template<> struct EncodingTraits<WebCore::KeypressCommand> {
+     typedef WebCore::KeypressCommand DecodedType;
+@@ -115,20 +133,27 @@ template<> struct EncodingTraits<WebCore::PluginData> {
+     static bool decodeValue(EncodedValue&, RefPtr<WebCore::PluginData>& value);
+ };
+ 
+ template<> struct EncodingTraits<WebCore::ResourceError> {
+     typedef WebCore::ResourceError DecodedType;
+ 
+     static EncodedValue encodeValue(const WebCore::ResourceError& value);
+     static bool decodeValue(EncodedValue&, std::unique_ptr<WebCore::ResourceError>& value);
+ };
+ 
++template<> struct EncodingTraits<WebCore::ResourceRequest> {
++    typedef WebCore::ResourceRequest DecodedType;
++
++    static EncodedValue encodeValue(const WebCore::ResourceRequest& value);
++    static bool decodeValue(EncodedValue&, std::unique_ptr<WebCore::ResourceRequest>& value);
++};
++
+ template<> struct EncodingTraits<WebCore::ResourceResponse> {
+     typedef WebCore::ResourceResponse DecodedType;
+ 
+     static EncodedValue encodeValue(const WebCore::ResourceResponse& value);
+     static bool decodeValue(EncodedValue&, std::unique_ptr<WebCore::ResourceResponse>& value);
+ };
+ 
+ template<> struct EncodingTraits<WebCore::SecurityOrigin> {
+     typedef RefPtr<WebCore::SecurityOrigin> DecodedType;
+ 
+diff --git a/Source/WebCore/replay/UserInputBridge.cpp b/Source/WebCore/replay/UserInputBridge.cpp
+index 45845af..bc8145b 100644
+--- a/Source/WebCore/replay/UserInputBridge.cpp
++++ b/Source/WebCore/replay/UserInputBridge.cpp
+@@ -44,20 +44,27 @@
+ #include "WebReplayInputs.h"
+ #include <replay/InputCursor.h>
+ #endif
+ 
+ #define EARLY_RETURN_IF_SHOULD_IGNORE_INPUT \
+     do { \
+         if (inputSource == InputSource::User && m_state == UserInputBridge::State::Replaying) \
+             return true; \
+     } while (false)
+ 
++#define EARLY_VOID_RETURN_IF_SHOULD_IGNORE_INPUT \
++do { \
++if (inputSource == InputSource::User && m_state == UserInputBridge::State::Replaying) \
++return; \
++} while (false)
++
++
+ namespace WebCore {
+ 
+ UserInputBridge::UserInputBridge(Page& page)
+     : m_page(page)
+ #if ENABLE(WEB_REPLAY)
+     , m_state(UserInputBridge::State::Open)
+ #endif
+ {
+ }
+ 
+@@ -225,31 +232,83 @@ bool UserInputBridge::logicalScrollRecursively(ScrollLogicalDirection direction,
+         cursor.appendInput<LogicalScrollPage>(direction, granularity);
+ 
+     EventLoopInputExtent extent(cursor);
+ #else
+     UNUSED_PARAM(inputSource);
+ #endif
+ 
+     return m_page.focusController().focusedOrMainFrame().eventHandler().logicalScrollRecursively(direction, granularity, nullptr);
+ }
+ 
+-void UserInputBridge::loadRequest(const FrameLoadRequest& request, InputSource)
++void UserInputBridge::loadRequest(const FrameLoadRequest& request, InputSource inputSource)
+ {
++#if ENABLE(WEB_REPLAY)
++    EARLY_VOID_RETURN_IF_SHOULD_IGNORE_INPUT;
++
++    InputCursor& cursor = activeCursor();
++    if (cursor.isCapturing()) {
++        std::unique_ptr<FrameLoadRequest> ownedRequest = std::make_unique<FrameLoadRequest>(request);
++        cursor.appendInput<LoadURLRequest>(std::move(ownedRequest));
++    }
++
++    EventLoopInputExtent extent(cursor);
++#else
++    UNUSED_PARAM(inputSource);
++#endif
++
+     m_page.mainFrame().loader().load(request);
+ }
+ 
+-void UserInputBridge::reloadFrame(Frame* frame, bool endToEndReload, InputSource)
++void UserInputBridge::reloadFrame(Frame* frame, bool endToEndReload, InputSource inputSource)
+ {
++#if ENABLE(WEB_REPLAY)
++    EARLY_VOID_RETURN_IF_SHOULD_IGNORE_INPUT;
++
++    InputCursor& cursor = activeCursor();
++    if (cursor.isCapturing()) {
++        unsigned long frameIndex = frameIndexFromFrame(frame);
++        cursor.appendInput<ReloadFrame>(frameIndex, endToEndReload);
++    }
++    EventLoopInputExtent extent(cursor);
++#else
++    UNUSED_PARAM(inputSource);
++#endif
++
+     frame->loader().reload(endToEndReload);
+ }
+ 
+-void UserInputBridge::stopLoadingFrame(Frame* frame, InputSource)
++void UserInputBridge::stopLoadingFrame(Frame* frame, InputSource inputSource)
+ {
++#if ENABLE(WEB_REPLAY)
++    EARLY_VOID_RETURN_IF_SHOULD_IGNORE_INPUT;
++
++    InputCursor& cursor = activeCursor();
++    if (cursor.isCapturing()) {
++        unsigned long frameIndex = frameIndexFromFrame(frame);
++        cursor.appendInput<StopLoadingFrame>(frameIndex);
++    }
++    EventLoopInputExtent extent(cursor);
++#else
++    UNUSED_PARAM(inputSource);
++#endif
++
+     frame->loader().stopForUserCancel();
+ }
+ 
+-bool UserInputBridge::tryClosePage(InputSource)
++bool UserInputBridge::tryClosePage(InputSource inputSource)
+ {
++#if ENABLE(WEB_REPLAY)
++    EARLY_RETURN_IF_SHOULD_IGNORE_INPUT;
++
++    InputCursor& cursor = activeCursor();
++    if (cursor.isCapturing())
++        cursor.appendInput<TryClosePage>();
++
++    EventLoopInputExtent extent(cursor);
++#else
++    UNUSED_PARAM(inputSource);
++#endif
++
+     return m_page.mainFrame().loader().shouldClose();
+ }
+ 
+ } // namespace WebCore
+diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
+index 1dfa9be..6a63171 100644
+--- a/Source/WebCore/replay/WebInputs.json
++++ b/Source/WebCore/replay/WebInputs.json
+@@ -31,20 +31,25 @@
+                 "flags": ["ENUM_CLASS"],
+                 "values": [
+                     "Boolean",
+                     "Int",
+                     "String",
+                     "Unsigned"
+                 ],
+                 "header": "replay/MemoizedDOMResult.h"
+             },
+             {
++                "name": "FrameLoadRequest", "mode": "OWNED",
++                "flags": ["STRUCT"],
++                "header": "loader/FrameLoadRequest.h"
++            },
++            {
+                 "name": "Modifiers", "mode": "SCALAR", "storage": "uint8_t",
+                 "enclosing_class": "PlatformEvent",
+                 "flags": ["ENUM"],
+                 "values": ["AltKey", "CtrlKey", "MetaKey", "ShiftKey"],
+                 "header": "platform/PlatformEvent.h"
+             },
+             {
+                 "name": "MouseButton", "mode": "SCALAR", "storage": "int8_t",
+                 "flags": ["ENUM"],
+                 "values": ["NoButton", "LeftButton", "MiddleButton", "RightButton"],
+@@ -85,20 +90,48 @@
+                     "PlatformWheelEventPhaseCancelled",
+                     "PlatformWheelEventPhaseMayBegin"
+                 ],
+                 "header": "platform/PlatformWheelEvent.h"
+             },
+             {
+                 "name": "PluginData", "mode": "SHARED",
+                 "header": "plugins/PluginData.h"
+             },
+             {
++                "name": "ResourceLoadPriority", "mode": "SCALAR", "storage": "int64_t",
++                "flags": ["ENUM"],
++                "values": [
++                    "ResourceLoadPriorityUnresolved",
++                    "ResourceLoadPriorityVeryLow",
++                    "ResourceLoadPriorityLow",
++                    "ResourceLoadPriorityMedium",
++                    "ResourceLoadPriorityHigh",
++                    "ResourceLoadPriorityVeryHigh"
++                ],
++                "header": "platform/network/ResourceLoadPriority.h"
++            },
++            {
++                "name": "ResourceRequest", "mode": "OWNED",
++                "header": "platform/network/ResourceRequest.h"
++            },
++            {
++                "name": "ResourceRequestCachePolicy", "mode": "SCALAR", "storage": "uint64_t",
++                "flags": ["ENUM"],
++                "values": [
++                    "UseProtocolCachePolicy",
++                    "ReloadIgnoringCacheData",
++                    "ReturnCacheDataElseLoad",
++                    "ReturnCacheDataDontLoad"
++                ],
++                "header": "platform/network/ResourceRequest.h"
++            },
++            {
+                 "name": "ScrollDirection", "mode": "SCALAR", "storage": "uint8_t",
+                 "flags": ["ENUM"],
+                 "values": ["ScrollUp", "ScrollDown", "ScrollLeft", "ScrollRight"],
+                 "header": "platform/ScrollTypes.h"
+             },
+             {
+                 "name": "ScrollGranularity", "mode": "SCALAR", "storage": "uint8_t",
+                 "flags": ["ENUM"],
+                 "values": [
+                     "ScrollByLine",
+@@ -129,20 +162,31 @@
+                 "header": "platform/network/ResourceResponse.h"
+             },
+             {
+                 "name": "SecurityOrigin", "mode": "SHARED",
+                 "header": "page/SecurityOrigin.h"
+             },
+             {
+                 "name": "SharedBuffer", "mode": "SHARED",
+                 "header": "platform/SharedBuffer.h"
+             },
++             {
++                "name": "Type", "mode": "SCALAR",
++                "enclosing_class": "FormDataElement",
++                "flags": ["ENUM_CLASS"],
++                "values": [
++                    "Data",
++                    "EncodedFile",
++                    "EncodedBlob"
++                ],
++                "header": "platform/network/FormData.h"
++            },
+             {
+                 "name": "Type", "mode": "SCALAR", "storage": "uint8_t",
+                 "enclosing_class": "PlatformEvent",
+                 "flags": ["ENUM"],
+                 "values": [
+                     "NoType",
+                     "KeyDown",
+                     "KeyUp",
+                     "RawKeyDown",
+                     "Char",
+@@ -253,29 +297,46 @@
+         },
+         {
+             "name": "FetchPluginData",
+             "description": "Plugin data was requested through DOMPluginArray or DOMMimeTypeArray.",
+             "queue": "SCRIPT_MEMOIZED",
+             "members": [
+                 { "name": "pluginData", "type": "PluginData" }
+             ]
+         },
+         {
++            "name": "LoadURLRequest",
++            "description": "The embedder requested that the specified frame start a new load.",
++            "queue": "EVENT_LOOP",
++            "members": [
++                { "name": "loadRequest", "type": "FrameLoadRequest" }
++            ]
++        },
++        {
+             "name": "LogicalScrollPage",
+             "description": "The embedder signalled a logical scroll event.",
+             "queue": "EVENT_LOOP",
+             "members": [
+                 { "name": "direction", "type": "ScrollLogicalDirection" },
+                 { "name": "granularity", "type": "ScrollGranularity" }
+             ]
+         },
+         {
++            "name": "ReloadFrame",
++            "description": "The embedder requested that the specified frame should reload.",
++            "queue": "EVENT_LOOP",
++            "members": [
++                { "name": "frameIndex", "type": "uint32_t" },
++                { "name": "endToEndReload", "type": "bool" }
++            ]
++        },
++        {
+             "name": "ScrollPage",
+             "description": "The embedder signalled a scroll event.",
+             "queue": "EVENT_LOOP",
+             "members": [
+                 { "name": "direction", "type": "ScrollDirection" },
+                 { "name": "granularity", "type": "ScrollGranularity" }
+             ]
+         },
+         {
+             "name": "ResourceLoaderDidFail",
+@@ -321,13 +382,27 @@
+         {
+             "name": "ResourceLoaderDidReceiveData",
+             "description": "A resource loader received some data.",
+             "queue": "EVENT_LOOP",
+             "members": [
+                 { "name": "ordinal", "type": "uint64_t" },
+                 { "name": "frameIndex", "type": "uint32_t" },
+                 { "name": "buffer", "type": "SharedBuffer" },
+                 { "name": "encodedLength", "type": "int32_t" }
+             ]
++        },
++        {
++            "name": "StopLoadingFrame",
++            "description": "The embedder requested that the specified frame should stop loading.",
++            "queue": "EVENT_LOOP",
++            "members": [
++                { "name": "frameIndex", "type": "uint32_t" }
++            ]
++        },
++        {
++            "name": "TryClosePage",
++            "description": "The embedder requested that the page should be closed (subject to beforeunload cancellation).",
++            "queue": "EVENT_LOOP",
++            "members": [ ]
+         }
+     ]
+ }
+diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
+index 811ee78..e8fa645 100644
+--- a/Source/WebKit2/ChangeLog
++++ b/Source/WebKit2/ChangeLog
+@@ -1,10 +1,25 @@
++2014-07-14  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Replay: capture and replay Reload, Navigate, and Stop commands
++        https://bugs.webkit.org/show_bug.cgi?id=129447
++
++        Reviewed by NOBODY (OOPS!).
++
++        Update resource logging formatters for ResourceLoadPriority. It is now
++        an enum with uint64_t-sized storage rather than int.
++
++        * NetworkProcess/NetworkResourceLoadScheduler.cpp:
++        (WebKit::NetworkResourceLoadScheduler::servePendingRequests):
++        * WebProcess/Network/WebResourceLoadScheduler.cpp:
++        (WebKit::WebResourceLoadScheduler::scheduleLoad):
++
+ 2014-06-12  Brian Burg  <burg@cs.washington.edu>
+ 
+         Web Replay: capture and replay ResourceLoader callbacks
+         https://bugs.webkit.org/show_bug.cgi?id=129391
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         During playback, don't schedule resource loaders. This prevents the NetworkProcess
+         from taking over and fulfilling the loads nondeterministically.
+ 
+-- 
+2.0.1
+
