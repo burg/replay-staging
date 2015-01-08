@@ -66,18 +66,14 @@ necessarily clobber the submodule working copy's build state.
 # Updating the WebKit base commit
 
 To update the merge-base commit of the submodule---say, you want to
-incorporate new WebKit commit changes---you must manually move the
-HEAD pointer in the submodule and commit the change in the staging
-repository (after rebasing your commits to the new merge-base and
-exporting them as patches, of course).
+incorporate new WebKit commit changes---you must rebase patches in the submodule and update the submodule commit hash to point to the new merge-base commit. This is done automatically by the `export-patches` script.
 
 To update to a newer WebKit, do the following from the submodule:
 
 1. (Commit any outstanding changes)
 2. `git pull --rebase`
 3. `../scripts/export-patches`
-4. `git checkout $(git merge-base origin/master head)`
-5. (Go to staging repository; make commit)
+4. (Go to staging repository; make commit)
 
 It is recommended that you update the base commit by first applying
 all patches and using `git rebase` rather than trying to apply patches

@@ -24,9 +24,16 @@ echo "Using merge-base commit: $BASE_COMMIT"
 # modified to tell apart the commit ranges and export directories.
 
 EXPORT_DIR=$(cd "$TOPLEVEL/patches/replay/";pwd)
+echo "Deleting old patches in $EXPORT_DIR..."
+rm $EXPORT_DIR/*.patch
 echo "Exporting the following commits as patches to $EXPORT_DIR..."
 cd $WEBKIT_PATH && git log --oneline $BASE_COMMIT...HEAD || exit
 
 git format-patch -U10 -N -o $EXPORT_DIR $BASE_COMMIT...HEAD || exit
+
+echo "Updating submodule commit hash to $BASE_COMMIT..."
+cd $TOPLEVEL && git update-index --cacheinfo 160000 $BASE_COMMIT "OpenSource" || exit
+echo "Updating replay-staging git index with new patches..."
+git add -A $EXPORT_DIR
 
 echo "Export complete!"
