@@ -1,0 +1,123 @@
+From 9741e51b5fdd2158539a82ddff956b6c3e3cd2c1 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Fri, 9 Jan 2015 21:36:25 -0800
+Subject: [PATCH] FIXUP downcast of DOMTimer
+
+---
+ Source/WebCore/page/DOMTimer.cpp | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/Source/WebCore/page/DOMTimer.cpp b/Source/WebCore/page/DOMTimer.cpp
+index 5988d12..3e1b0ac 100644
+--- a/Source/WebCore/page/DOMTimer.cpp
++++ b/Source/WebCore/page/DOMTimer.cpp
+@@ -20,20 +20,21 @@
+  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  *
+  */
+ 
+ #include "config.h"
+ #include "DOMTimer.h"
+ 
++#include "Document.h"
+ #include "FrameView.h"
+ #include "HTMLPlugInElement.h"
+ #include "InspectorInstrumentation.h"
+ #include "Logging.h"
+ #include "Page.h"
+ #include "PluginViewBase.h"
+ #include "ScheduledAction.h"
+ #include "ScriptExecutionContext.h"
+ #include "Settings.h"
+ #include "UserGestureIndicator.h"
+@@ -212,36 +213,36 @@ InstrumentedDOMTimer::InstrumentedDOMTimer(ScriptExecutionContext& context, std:
+ {
+ }
+ 
+ void InstrumentedDOMTimer::start(bool singleShot)
+ {
+     // Schedule the timer normally, then save the timeoutId assigned by the execution context.
+     DOMTimer::start(singleShot);
+     if (!scriptExecutionContext()->isDocument())
+         return;
+ 
+-    Document& document = downcast<Document&>(*scriptExecutionContext());
++    Document& document = downcast<Document>(*scriptExecutionContext());
+     InputCursor& cursor = document.inputCursor();
+     ASSERT(cursor.isCapturing());
+ 
+     cursor.appendInput<DOMTimerCreated>(frameIndexFromDocument(&document), m_timeoutId);
+ }
+ 
+ void InstrumentedDOMTimer::fired()
+ {
+     ASSERT(scriptExecutionContext());
+     if (!scriptExecutionContext()->isDocument()) {
+         DOMTimer::fired();
+         return;
+     }
+ 
+-    Document& document = downcast<Document&>(*scriptExecutionContext());
++    Document& document = downcast<Document>(*scriptExecutionContext());
+     InputCursor& cursor = document.inputCursor();
+     // The timer could fire after capturing has stopped, since we don't replace
+     // instrumented DOM timers with normal DOM timers.
+     if (!cursor.isCapturing()) {
+         DOMTimer::fired();
+         return;
+     }
+ 
+     cursor.appendInput<DOMTimerFired>(frameIndexFromDocument(&document), m_timeoutId);
+ 
+@@ -254,21 +255,21 @@ DeterministicDOMTimer::DeterministicDOMTimer(ScriptExecutionContext& context, st
+ {
+     // override the default behavior set in DOMTimer constructor.
+     m_shouldScheduleNormally = false;
+ }
+ 
+ void DeterministicDOMTimer::start(bool singleShot)
+ {
+     if (!scriptExecutionContext()->isDocument())
+         return;
+ 
+-    Document& document = downcast<Document&>(*scriptExecutionContext());
++    Document& document = downcast<Document>(*scriptExecutionContext());
+     InputCursor& cursor = document.inputCursor();
+     ASSERT(cursor.isReplaying());
+ 
+     DOMTimerCreated* input = cursor.fetchInput<DOMTimerCreated>();
+     // Error handling case: if fetch failed, schedule normally.
+     if (!input) {
+         DOMTimer::start(singleShot);
+         return;
+     }
+ 
+@@ -319,21 +320,21 @@ int DOMTimer::install(ScriptExecutionContext& context, std::unique_ptr<Scheduled
+ {
+     // DOMTimer constructor passes ownership of the initial ref on the object to the constructor.
+     // This reference will be released automatically when a one-shot timer fires, when the context
+     // is destroyed, or if explicitly cancelled by removeById.
+     DOMTimer* timer = nullptr;
+ #if ENABLE(WEB_REPLAY)
+     do {
+         if (!is<Document>(context))
+             break;
+ 
+-        InputCursor& cursor = downcast<Document&>(context).inputCursor();
++        InputCursor& cursor = downcast<Document>(context).inputCursor();
+         if (cursor.isCapturing())
+             timer = new InstrumentedDOMTimer(context, WTF::move(action), timeout);
+         if (cursor.isReplaying())
+             timer = new DeterministicDOMTimer(context, WTF::move(action), timeout);
+     } while (0);
+     if (!timer)
+ #endif
+     timer = new DOMTimer(context, WTF::move(action), timeout);
+ 
+ #if PLATFORM(IOS)
+-- 
+2.0.1
+

@@ -1,4 +1,4 @@
-From b64e49b9889fef92c980afd0678743ecbc3d71c8 Mon Sep 17 00:00:00 2001
+From 8608178378528006c6d8f83187d47967046a65af Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 12 Jun 2014 09:30:20 -0700
 Subject: [PATCH] Move createUniqueIdentifier() from ProgressTracker to
@@ -8,9 +8,9 @@ Reviewed by NOBODY (OOPS!).
 
 In preparation for supporting replay of resource loader callbacks, this patch
 moves vending of resource load identifiers to the main frame's document loader.
-This will enable tracking of vended identifiers on a per-main frame basis.
+This will enable tracking of resource load identifiers on a per-Page basis.
 
-No new tests. No behavior was changed.
+No new tests, no behavior was changed.
 
 * Modules/websockets/WebSocketChannel.cpp:
 (WebCore::WebSocketChannel::WebSocketChannel):
@@ -43,12 +43,14 @@ No new tests. No behavior was changed.
  Source/WebCore/loader/PingLoader.cpp               |  6 ++--
  Source/WebCore/loader/ProgressTracker.cpp          |  7 -----
  Source/WebCore/loader/ProgressTracker.h            |  2 --
- Source/WebCore/loader/ResourceLoader.cpp           |  6 ++--
+ Source/WebCore/loader/ResourceLoader.cpp           |  5 ++-
  .../loader/appcache/ApplicationCacheGroup.cpp      |  7 ++---
- 12 files changed, 66 insertions(+), 37 deletions(-)
+ .../WebCore/loader/cache/CachedResourceLoader.cpp  |  2 +-
+ Source/WebCore/page/Settings.cpp                   |  2 +-
+ 14 files changed, 67 insertions(+), 39 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 01179b7..240bff9 100644
+index 0192e0c..0a6d7fa 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,11 +1,45 @@
@@ -62,9 +64,9 @@ index 01179b7..240bff9 100644
 +
 +        In preparation for supporting replay of resource loader callbacks, this patch
 +        moves vending of resource load identifiers to the main frame's document loader.
-+        This will enable tracking of vended identifiers on a per-main frame basis.
++        This will enable tracking of resource load identifiers on a per-Page basis.
 +
-+        No new tests. No behavior was changed.
++        No new tests, no behavior was changed.
 +
 +        * Modules/websockets/WebSocketChannel.cpp:
 +        (WebCore::WebSocketChannel::WebSocketChannel):
@@ -99,7 +101,7 @@ index 01179b7..240bff9 100644
          being saved in the MemoryCache.
  
 diff --git a/Source/WebCore/Modules/websockets/WebSocketChannel.cpp b/Source/WebCore/Modules/websockets/WebSocketChannel.cpp
-index 932c840..7a4c9c8 100644
+index b0498af..6e0ae8f 100644
 --- a/Source/WebCore/Modules/websockets/WebSocketChannel.cpp
 +++ b/Source/WebCore/Modules/websockets/WebSocketChannel.cpp
 @@ -30,28 +30,28 @@
@@ -133,8 +135,8 @@ index 932c840..7a4c9c8 100644
  #include <runtime/ArrayBuffer.h>
  #include <wtf/Deque.h>
  #include <wtf/FastMalloc.h>
-@@ -76,22 +76,22 @@ WebSocketChannel::WebSocketChannel(Document* document, WebSocketChannelClient* c
-     , m_closingTimer(this, &WebSocketChannel::closingTimerFired)
+@@ -74,22 +74,22 @@ WebSocketChannel::WebSocketChannel(Document* document, WebSocketChannelClient* c
+     , m_closingTimer(*this, &WebSocketChannel::closingTimerFired)
      , m_closed(false)
      , m_shouldDiscardReceivedData(false)
      , m_unhandledBufferedAmount(0)
@@ -159,10 +161,11 @@ index 932c840..7a4c9c8 100644
  
  void WebSocketChannel::connect(const URL& url, const String& protocol)
 diff --git a/Source/WebCore/html/HTMLMediaElement.cpp b/Source/WebCore/html/HTMLMediaElement.cpp
-index 13b3150..2fe82bc 100644
+index 87b3610..6cf29e9 100644
 --- a/Source/WebCore/html/HTMLMediaElement.cpp
 +++ b/Source/WebCore/html/HTMLMediaElement.cpp
-@@ -61,21 +61,20 @@
+@@ -62,21 +62,20 @@
+ #include "MediaError.h"
  #include "MediaFragmentURIParser.h"
  #include "MediaKeyEvent.h"
  #include "MediaList.h"
@@ -170,7 +173,6 @@ index 13b3150..2fe82bc 100644
  #include "MediaResourceLoader.h"
  #include "MediaSessionManager.h"
  #include "NetworkingContext.h"
- #include "PageActivityAssertionToken.h"
  #include "PageGroup.h"
  #include "PageThrottler.h"
 -#include "ProgressTracker.h"
@@ -184,7 +186,7 @@ index 13b3150..2fe82bc 100644
  #include "Settings.h"
  #include "ShadowRoot.h"
  #include "TimeRanges.h"
-@@ -5695,21 +5694,21 @@ bool HTMLMediaElement::mediaPlayerShouldWaitForResponseToAuthenticationChallenge
+@@ -5728,21 +5727,21 @@ bool HTMLMediaElement::mediaPlayerShouldWaitForResponseToAuthenticationChallenge
      if (!frame)
          return false;
  
@@ -208,7 +210,7 @@ index 13b3150..2fe82bc 100644
  {
      if (Frame* frame = document().frame()) {
 diff --git a/Source/WebCore/inspector/InspectorResourceAgent.cpp b/Source/WebCore/inspector/InspectorResourceAgent.cpp
-index 1c57a4f..84576bf 100644
+index b00226e..0de3d35 100644
 --- a/Source/WebCore/inspector/InspectorResourceAgent.cpp
 +++ b/Source/WebCore/inspector/InspectorResourceAgent.cpp
 @@ -43,24 +43,24 @@
@@ -227,7 +229,6 @@ index 1c57a4f..84576bf 100644
  #include "NetworkResourcesData.h"
  #include "Page.h"
 -#include "ProgressTracker.h"
- #include "ResourceBuffer.h"
  #include "ResourceError.h"
  #include "ResourceLoader.h"
  #include "ResourceRequest.h"
@@ -237,31 +238,32 @@ index 1c57a4f..84576bf 100644
  #include "ThreadableLoaderClient.h"
  #include "URL.h"
  #include "WebSocketFrame.h"
-@@ -441,21 +441,21 @@ void InspectorResourceAgent::didFailLoading(unsigned long identifier, DocumentLo
+ #include "XMLHttpRequest.h"
+@@ -439,21 +439,21 @@ void InspectorResourceAgent::didFailLoading(unsigned long identifier, DocumentLo
      }
  
      bool canceled = error.isCancellation();
      m_frontendDispatcher->loadingFailed(requestId, timestamp(), error.localizedDescription(), canceled ? &canceled : nullptr);
  }
  
- void InspectorResourceAgent::didLoadResourceFromMemoryCache(DocumentLoader* loader, CachedResource* resource)
+ void InspectorResourceAgent::didLoadResourceFromMemoryCache(DocumentLoader& loader, CachedResource& resource)
  {
-     String loaderId = m_pageAgent->loaderId(loader);
-     String frameId = m_pageAgent->frameId(loader->frame());
--    unsigned long identifier = loader->frame()->page()->progress().createUniqueIdentifier();
-+    unsigned long identifier = loader->frame()->mainFrame().loader().activeDocumentLoader()->createUniqueIdentifier();
+     String loaderId = m_pageAgent->loaderId(&loader);
+     String frameId = m_pageAgent->frameId(loader.frame());
+-    unsigned long identifier = loader.frame()->page()->progress().createUniqueIdentifier();
++    unsigned long identifier = loader.frame()->mainFrame().loader().activeDocumentLoader()->createUniqueIdentifier();
      String requestId = IdentifiersFactory::requestId(identifier);
      m_resourcesData->resourceCreated(requestId, loaderId);
-     m_resourcesData->addCachedResource(requestId, resource);
-     if (resource->type() == CachedResource::RawResource) {
-         String rawRequestId = IdentifiersFactory::requestId(downcast<CachedRawResource>(*resource).identifier());
+     m_resourcesData->addCachedResource(requestId, &resource);
+     if (resource.type() == CachedResource::RawResource) {
+         String rawRequestId = IdentifiersFactory::requestId(downcast<CachedRawResource>(resource).identifier());
          m_resourcesData->reuseXHRReplayData(requestId, rawRequestId);
      }
  
-     RefPtr<Inspector::Protocol::Network::Initiator> initiatorObject = buildInitiatorObject(loader->frame() ? loader->frame()->document() : nullptr);
+     RefPtr<Inspector::Protocol::Network::Initiator> initiatorObject = buildInitiatorObject(loader.frame() ? loader.frame()->document() : nullptr);
  
 diff --git a/Source/WebCore/loader/DocumentLoader.cpp b/Source/WebCore/loader/DocumentLoader.cpp
-index 40ae594..b78be3b 100644
+index 1bbc36b..ac711a7 100644
 --- a/Source/WebCore/loader/DocumentLoader.cpp
 +++ b/Source/WebCore/loader/DocumentLoader.cpp
 @@ -48,21 +48,20 @@
@@ -276,7 +278,6 @@ index 40ae594..b78be3b 100644
  #include "Page.h"
  #include "PolicyChecker.h"
 -#include "ProgressTracker.h"
- #include "ResourceBuffer.h"
  #include "ResourceHandle.h"
  #include "SchemeRegistry.h"
  #include "SecurityPolicy.h"
@@ -286,7 +287,8 @@ index 40ae594..b78be3b 100644
  #include <wtf/Assertions.h>
  #include <wtf/NeverDestroyed.h>
  #include <wtf/Ref.h>
-@@ -111,20 +110,22 @@ static bool areAllLoadersPageCacheAcceptable(const ResourceLoaderMap& loaders)
+ #include <wtf/text/CString.h>
+@@ -110,20 +109,22 @@ static bool areAllLoadersPageCacheAcceptable(const ResourceLoaderMap& loaders)
          if (!cachedResource)
              return false;
  
@@ -309,7 +311,7 @@ index 40ae594..b78be3b 100644
      , m_originalRequestCopy(req)
      , m_request(req)
      , m_originalSubstituteDataWasValid(substituteData.isValid())
-@@ -1321,20 +1322,26 @@ void DocumentLoader::setMainResourceDataBufferingPolicy(DataBufferingPolicy data
+@@ -1324,20 +1325,26 @@ void DocumentLoader::setMainResourceDataBufferingPolicy(DataBufferingPolicy data
  void DocumentLoader::stopLoadingPlugIns()
  {
      cancelAll(m_plugInStreamLoaders);
@@ -336,7 +338,7 @@ index 40ae594..b78be3b 100644
      if (!m_gotFirstByte)
          return;
      ASSERT(loader->identifier());
-@@ -1413,21 +1420,21 @@ void DocumentLoader::startLoadingMainResource()
+@@ -1416,21 +1423,21 @@ void DocumentLoader::startLoadingMainResource()
      timing()->markFetchStart();
      willSendRequest(m_request, ResourceResponse());
  
@@ -359,7 +361,7 @@ index 40ae594..b78be3b 100644
      // FIXME: Remove PLATFORM(IOS)-guard once we upstream the iOS changes to ResourceRequest.h.
      m_request.deprecatedSetMainResourceRequest(true);
  #endif
-@@ -1440,21 +1447,21 @@ void DocumentLoader::startLoadingMainResource()
+@@ -1443,21 +1450,21 @@ void DocumentLoader::startLoadingMainResource()
          setRequest(ResourceRequest());
          // If the load was aborted by clearing m_request, it's possible the ApplicationCacheHost
          // is now in a state where starting an empty load will be inconsistent. Replace it with
@@ -383,10 +385,10 @@ index 40ae594..b78be3b 100644
      // If there was a fragment identifier on m_request, the cache will have stripped it. m_request should include
      // the fragment identifier, so add that back in.
 diff --git a/Source/WebCore/loader/DocumentLoader.h b/Source/WebCore/loader/DocumentLoader.h
-index 403e195..396fffb 100644
+index 188e9ba..aa585f9 100644
 --- a/Source/WebCore/loader/DocumentLoader.h
 +++ b/Source/WebCore/loader/DocumentLoader.h
-@@ -218,20 +218,22 @@ namespace WebCore {
+@@ -217,20 +217,22 @@ namespace WebCore {
          void continueIconLoadWithDecision(IconLoadDecision);
          void getIconLoadDecisionForIconURL(const String&);
          void getIconDataForIconURL(const String&);
@@ -409,14 +411,14 @@ index 403e195..396fffb 100644
          void setDeferMainResourceDataLoad(bool defer) { m_deferMainResourceDataLoad = defer; }
          
          void didTellClientAboutLoad(const String& url)
-@@ -318,20 +320,22 @@ namespace WebCore {
+@@ -317,20 +319,22 @@ namespace WebCore {
  #endif
          void handleSubstituteDataLoadSoon();
-         void handleSubstituteDataLoadNow(DocumentLoaderTimer*);
+         void handleSubstituteDataLoadNow();
          void startDataLoadTimer();
  
          void deliverSubstituteResourcesAfterDelay();
-         void substituteResourceDeliveryTimerFired(Timer<DocumentLoader>&);
+         void substituteResourceDeliveryTimerFired();
  
          void clearMainResource();
  
@@ -433,11 +435,11 @@ index 403e195..396fffb 100644
          mutable DocumentWriter m_writer;
  
 diff --git a/Source/WebCore/loader/FrameLoader.cpp b/Source/WebCore/loader/FrameLoader.cpp
-index d1a1518..958b5ad 100644
+index e688c38..d4173fd 100644
 --- a/Source/WebCore/loader/FrameLoader.cpp
 +++ b/Source/WebCore/loader/FrameLoader.cpp
-@@ -2967,25 +2967,22 @@ void FrameLoader::continueLoadAfterNewWindowPolicy(const ResourceRequest& reques
-         mainFrame->loader().setOpener(&frame.get());
+@@ -2997,25 +2997,22 @@ void FrameLoader::continueLoadAfterNewWindowPolicy(const ResourceRequest& reques
+         mainFrame->loader().setOpener(frame.ptr());
          mainFrame->document()->setReferrerPolicy(frame->document()->referrerPolicy());
      }
      mainFrame->loader().loadWithNavigationAction(request, NavigationAction(request), LockHistory::No, FrameLoadType::Standard, formState, allowNavigationToInvalidURL);
@@ -465,7 +467,7 @@ index d1a1518..958b5ad 100644
  
      request = newRequest;
 diff --git a/Source/WebCore/loader/PingLoader.cpp b/Source/WebCore/loader/PingLoader.cpp
-index fb69a75..224b9a1 100644
+index 04a68b1..3a50fd4 100644
 --- a/Source/WebCore/loader/PingLoader.cpp
 +++ b/Source/WebCore/loader/PingLoader.cpp
 @@ -26,28 +26,28 @@
@@ -508,7 +510,7 @@ index fb69a75..224b9a1 100644
  }
  
  PingLoader::PingLoader(Frame& frame, ResourceRequest& request)
-     : m_timeout(this, &PingLoader::timeoutTimerFired)
+     : m_timeout(*this, &PingLoader::timeoutTimerFired)
  {
 -    unsigned long identifier = frame.page()->progress().createUniqueIdentifier();
 +    unsigned long identifier = frame.mainFrame().loader().activeDocumentLoader()->createUniqueIdentifier();
@@ -523,7 +525,7 @@ index fb69a75..224b9a1 100644
      InspectorInstrumentation::continueAfterPingLoader(frame, identifier, frame.loader().activeDocumentLoader(), request, ResourceResponse());
  
 diff --git a/Source/WebCore/loader/ProgressTracker.cpp b/Source/WebCore/loader/ProgressTracker.cpp
-index 20d4461..7207d20 100644
+index 04054de..8a61f73 100644
 --- a/Source/WebCore/loader/ProgressTracker.cpp
 +++ b/Source/WebCore/loader/ProgressTracker.cpp
 @@ -68,22 +68,20 @@ public:
@@ -547,7 +549,7 @@ index 20d4461..7207d20 100644
      , m_finalProgressChangedSent(false)
      , m_progressValue(0)
      , m_numProgressTrackedFrames(0)
-     , m_progressHeartbeatTimer(this, &ProgressTracker::progressHeartbeatTimerFired)
+     , m_progressHeartbeatTimer(*this, &ProgressTracker::progressHeartbeatTimerFired)
      , m_heartbeatsWithNoProgress(0)
 @@ -282,25 +280,20 @@ void ProgressTracker::completeProgress(unsigned long identifier)
  
@@ -576,7 +578,7 @@ index 20d4461..7207d20 100644
      return m_progressValue && m_progressValue < finalProgressValue && m_heartbeatsWithNoProgress < loadStalledHeartbeatCount;
  }
 diff --git a/Source/WebCore/loader/ProgressTracker.h b/Source/WebCore/loader/ProgressTracker.h
-index 4403b4d..fc426ee 100644
+index 7d9dca4..894d888 100644
 --- a/Source/WebCore/loader/ProgressTracker.h
 +++ b/Source/WebCore/loader/ProgressTracker.h
 @@ -61,22 +61,20 @@ public:
@@ -588,7 +590,7 @@ index 4403b4d..fc426ee 100644
      void reset();
      void finalProgressComplete();
  
-     void progressHeartbeatTimerFired(Timer<ProgressTracker>&);
+     void progressHeartbeatTimerFired();
      
 -    static unsigned long s_uniqueIdentifier;
 -    
@@ -603,13 +605,13 @@ index 4403b4d..fc426ee 100644
      
      int m_numProgressTrackedFrames;
 diff --git a/Source/WebCore/loader/ResourceLoader.cpp b/Source/WebCore/loader/ResourceLoader.cpp
-index 2c81fa3..1b08c5d 100644
+index 61ffb65..2b85bb2 100644
 --- a/Source/WebCore/loader/ResourceLoader.cpp
 +++ b/Source/WebCore/loader/ResourceLoader.cpp
-@@ -32,23 +32,23 @@
+@@ -31,23 +31,23 @@
+ #include "ResourceLoader.h"
  
  #include "ApplicationCacheHost.h"
- #include "AsyncFileStream.h"
  #include "AuthenticationChallenge.h"
  #include "DocumentLoader.h"
  #include "Frame.h"
@@ -621,7 +623,6 @@ index 2c81fa3..1b08c5d 100644
  #include "Page.h"
  #include "PlatformStrategies.h"
 -#include "ProgressTracker.h"
- #include "ResourceBuffer.h"
  #include "ResourceError.h"
  #include "ResourceHandle.h"
  #include "ResourceLoadScheduler.h"
@@ -631,27 +632,19 @@ index 2c81fa3..1b08c5d 100644
  #include <wtf/Ref.h>
  
  namespace WebCore {
-@@ -253,33 +253,33 @@ void ResourceLoader::willSendRequest(ResourceRequest& request, const ResourceRes
+ 
+@@ -245,25 +245,24 @@ bool ResourceLoader::isSubresourceLoader()
+     return false;
+ }
+ 
+ void ResourceLoader::willSendRequest(ResourceRequest& request, const ResourceResponse& redirectResponse)
+ {
+     // Protect this in this delegate method since the additional processing can do
      // anything including possibly derefing this; one example of this is Radar 3266216.
      Ref<ResourceLoader> protect(*this);
  
      ASSERT(!m_reachedTerminalState);
-     
- #if PLATFORM(IOS)
-     // Ensure an identifier is always set. This ensures that this assetion is not hit:
-     // <rdar://problem/11059794> ASSERTION FAILED: !HashTranslator::equal(KeyTraits::emptyValue(), key) in WebFrameLoaderClient::canAuthenticateAgainstProtectionSpace loading the attached web archive
-     // This is not needed in WebKit2, as it doesn't use m_identifier in WebFrameLoaderClient::canAuthenticateAgainstProtectionSpace
-     if (!m_identifier) {
--        m_identifier = m_frame->page()->progress().createUniqueIdentifier();
-+        m_identifier = m_frame->mainFrame().loader().activeDocumentLoader()->createUniqueIdentifier();
-         frameLoader()->notifier().assignIdentifierToInitialRequest(m_identifier, documentLoader(), request);
- 
-         // If this ResourceLoader was stopped as a result of assignIdentifierToInitialRequest, bail out
-         if (m_reachedTerminalState)
-             return;
-     }
- #endif
- 
+-    
      // We need a resource identifier for all requests, even if FrameLoader is never going to see it (such as with CORS preflight requests).
      bool createdResourceIdentifier = false;
      if (!m_identifier) {
@@ -664,14 +657,14 @@ index 2c81fa3..1b08c5d 100644
          if (createdResourceIdentifier)
              frameLoader()->notifier().assignIdentifierToInitialRequest(m_identifier, documentLoader(), request);
  
-         frameLoader()->notifier().willSendRequest(this, request, redirectResponse);
-     }
- #if ENABLE(INSPECTOR)
+ #if PLATFORM(IOS)
+         // If this ResourceLoader was stopped as a result of assignIdentifierToInitialRequest, bail out
+         if (m_reachedTerminalState)
 diff --git a/Source/WebCore/loader/appcache/ApplicationCacheGroup.cpp b/Source/WebCore/loader/appcache/ApplicationCacheGroup.cpp
-index 6342194..bc7ede1 100644
+index c797109..5a3ef05 100644
 --- a/Source/WebCore/loader/appcache/ApplicationCacheGroup.cpp
 +++ b/Source/WebCore/loader/appcache/ApplicationCacheGroup.cpp
-@@ -32,33 +32,30 @@
+@@ -32,32 +32,29 @@
  #include "ApplicationCacheStorage.h"
  #include "Chrome.h"
  #include "ChromeClient.h"
@@ -685,7 +678,6 @@ index 6342194..bc7ede1 100644
 +#include "MainFrame.h"
  #include "ManifestParser.h"
  #include "Page.h"
- #include "ResourceBuffer.h"
  #include "ResourceHandle.h"
  #include "SecurityOrigin.h"
  #include "Settings.h"
@@ -706,7 +698,7 @@ index 6342194..bc7ede1 100644
      , m_progressTotal(0)
      , m_progressDone(0)
      , m_frame(0)
-@@ -491,21 +488,21 @@ PassRefPtr<ResourceHandle> ApplicationCacheGroup::createResourceHandle(const URL
+@@ -485,21 +482,21 @@ PassRefPtr<ResourceHandle> ApplicationCacheGroup::createResourceHandle(const URL
                  request.setHTTPHeaderField(HTTPHeaderName::IfModifiedSince, lastModified);
              if (!eTag.isEmpty())
                  request.setHTTPHeaderField(HTTPHeaderName::IfNoneMatch, eTag);
@@ -728,7 +720,61 @@ index 6342194..bc7ede1 100644
  void ApplicationCacheGroup::didReceiveResponse(ResourceHandle* handle, const ResourceResponse& response)
  {
  #if ENABLE(INSPECTOR)
-     DocumentLoader* loader = (handle == m_manifestHandle) ? 0 : m_frame->loader().documentLoader();
+     DocumentLoader* loader = (handle == m_manifestHandle) ? nullptr : m_frame->loader().documentLoader();
+diff --git a/Source/WebCore/loader/cache/CachedResourceLoader.cpp b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
+index f1ab0ba..0d3f666 100644
+--- a/Source/WebCore/loader/cache/CachedResourceLoader.cpp
++++ b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
+@@ -446,21 +446,21 @@ CachedResourceHandle<CachedResource> CachedResourceLoader::requestResource(Cache
+     
+     // If only the fragment identifiers differ, it is the same resource.
+     url = MemoryCache::removeFragmentIdentifierIfNeeded(url);
+ 
+     if (!url.isValid())
+         return 0;
+ 
+     if (!canRequest(type, url, request.options(), request.forPreload()))
+         return 0;
+ 
+-    if (memoryCache()->disabled() || sessionID() == SessionID::bypassCacheSessionID()) {
++    if (memoryCache().disabled() || sessionID() == SessionID::bypassCacheSessionID()) {
+         DocumentResourceMap::iterator it = m_documentResources.find(url.string());
+         if (it != m_documentResources.end()) {
+             it->value->setOwningCachedResourceLoader(0);
+             m_documentResources.remove(it);
+         }
+     }
+ 
+     // See if we can use an existing resource from the cache.
+     CachedResourceHandle<CachedResource> resource;
+ #if ENABLE(CACHE_PARTITIONING)
+diff --git a/Source/WebCore/page/Settings.cpp b/Source/WebCore/page/Settings.cpp
+index e8acc55..3e3c160 100644
+--- a/Source/WebCore/page/Settings.cpp
++++ b/Source/WebCore/page/Settings.cpp
+@@ -511,21 +511,21 @@ void Settings::setLayoutInterval(std::chrono::milliseconds layoutInterval)
+     m_layoutInterval = std::max(layoutInterval, layoutScheduleThreshold);
+ }
+ 
+ void Settings::setUsesMemoryCache(bool usesMemoryCache)
+ {
+     if (m_usesPageCache == usesMemoryCache)
+         return;
+ 
+     m_usesMemoryCache = usesMemoryCache;
+     if (!m_usesMemoryCache)
+-        memoryCache()->evictResources();
++        memoryCache().evictResources();
+ }
+ 
+ void Settings::setUsesPageCache(bool usesPageCache)
+ {
+     if (m_usesPageCache == usesPageCache)
+         return;
+         
+     m_usesPageCache = usesPageCache;
+ 
+     if (!m_page)
 -- 
 2.0.1
 

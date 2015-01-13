@@ -1,4 +1,4 @@
-From 30546c42675b0c27b83bcaede625b1c54194954e Mon Sep 17 00:00:00 2001
+From c8eaeef3a49054d535117127b43aed783f5a080e Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 27 Aug 2014 15:03:18 -0700
 Subject: [PATCH] Web Replay: code generator should be able to encode/decode
@@ -65,7 +65,7 @@ of each unchecked enum. This is used to construct the Phantom type argument.
  create mode 100644 Source/JavaScriptCore/replay/scripts/tests/generate-unchecked-enum.json
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index 66797ba..b68b3bb 100644
+index b5da802..1dc5e42 100644
 --- a/Source/JavaScriptCore/ChangeLog
 +++ b/Source/JavaScriptCore/ChangeLog
 @@ -1,12 +1,57 @@
@@ -127,7 +127,7 @@ index 66797ba..b68b3bb 100644
          Also use Type.encoding_type_argument in more places.
  
 diff --git a/Source/JavaScriptCore/replay/EncodedValue.h b/Source/JavaScriptCore/replay/EncodedValue.h
-index 3ed089f..b69fb9c 100644
+index 0057172..f56f085 100644
 --- a/Source/JavaScriptCore/replay/EncodedValue.h
 +++ b/Source/JavaScriptCore/replay/EncodedValue.h
 @@ -163,20 +163,24 @@ template<> struct EncodingTraits<int64_t> : public ScalarEncodingTraits<int64_t>
@@ -156,17 +156,17 @@ index 3ed089f..b69fb9c 100644
  bool EncodedValue::get<EncodedValue>(const String& key, typename EncodingTraits<EncodedValue>::DecodedType&);
  
 diff --git a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
-index aeaa560..f390444 100644
+index 6bfe7e1..0a19087 100644
 --- a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
 +++ b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
 @@ -359,21 +359,32 @@ class Type:
-             return "PassRefPtr<%s>" % self.type_name(qualified)
+             return "RefPtr<%s>" % self.type_name(qualified)
          else:
              return "const %s&" % self.type_name(qualified)
  
      def argument_type(self, qualified=False):
          if self.mode == TypeModes.SHARED:
-             return "PassRefPtr<%s>" % self.type_name(qualified)
+             return "RefPtr<%s>&&" % self.type_name(qualified)
          else:
              return self.storage_type(qualified)
  
@@ -247,7 +247,7 @@ index aeaa560..f390444 100644
                  extra_declarations.extend([
                      "",
                      "    // WebEventLoopInput API",
-                     "    virtual void dispatchOnWebPage(WebKit::WebPage&) override final;",
+                     "    virtual void dispatch(WebKit::WebPage&) override final;",
                  ])
              else:
 diff --git a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputsTemplates.py b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputsTemplates.py
@@ -329,7 +329,7 @@ index 5177f8b..390101a 100644
  template<> struct EncodingTraits<InputQueue> {
      typedef InputQueue DecodedType;
 diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h
-index 19cfb74..85e7c59 100644
+index ef0d1ab..0ff18fb 100644
 --- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h
 +++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h
 @@ -37,20 +37,21 @@

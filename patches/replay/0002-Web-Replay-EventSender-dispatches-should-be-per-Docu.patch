@@ -1,4 +1,4 @@
-From 5b9ffb90b694f95f855781bbb05b7f9b3f71a61b Mon Sep 17 00:00:00 2001
+From e2596f4de75bbcdb0d586377822dbd3010cc06d0 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Fri, 10 Oct 2014 15:07:22 -0700
 Subject: [PATCH] Web Replay: EventSender dispatches should be per-Document
@@ -30,12 +30,7 @@ Dispatch pending events for this document only. Rename local variable f to frame
 * dom/Document.h:
 (WebCore::Document::sharedEventSenders):
 * dom/EventSender.h:
-(WebCore::EventSender::EventSender):
-(WebCore::EventSender::hasPendingEvents):
-(WebCore::EventSender<T>::dispatchEventSoon):
-(WebCore::EventSender<T>::cancelEvent):
-(WebCore::EventSender<T>::dispatchPendingEvents):
-(WebCore::EventSender<T>::EventSender): Deleted. The type argument was not necessary.
+(WebCore::EventSender<T>::dispatchPendingEvents): Pass this by reference.
 * dom/SharedEventSenders.cpp: Added. Lazily creates event senders as they are requested.
 (WebCore::SharedEventSenders::linkLoadEventSender):
 (WebCore::SharedEventSenders::styleLoadEventSender):
@@ -76,15 +71,15 @@ beforeload events. This was a performance optimization, but is no longer safe si
 document (and thus the event sender) may not be available in a synchronous document write.
 ---
  Source/WebCore/CMakeLists.txt                      |  1 +
- Source/WebCore/ChangeLog                           | 76 ++++++++++++++++++++++
+ Source/WebCore/ChangeLog                           | 71 ++++++++++++++++++++
  Source/WebCore/WebCore.vcxproj/WebCore.vcxproj     | 15 +++++
  .../WebCore.vcxproj/WebCore.vcxproj.filters        |  6 ++
  Source/WebCore/WebCore.xcodeproj/project.pbxproj   | 10 +++
  Source/WebCore/dom/DOMAllInOne.cpp                 |  1 +
  Source/WebCore/dom/Document.cpp                    | 38 +++++------
  Source/WebCore/dom/Document.h                      |  5 ++
- Source/WebCore/dom/EventSender.h                   | 43 ++++++------
- Source/WebCore/dom/SharedEventSenders.cpp          | 75 +++++++++++++++++++++
+ Source/WebCore/dom/EventSender.h                   |  2 +-
+ Source/WebCore/dom/SharedEventSenders.cpp          | 75 ++++++++++++++++++++++
  Source/WebCore/dom/SharedEventSenders.h            | 58 +++++++++++++++++
  Source/WebCore/html/HTMLLinkElement.cpp            | 20 ++----
  Source/WebCore/html/HTMLLinkElement.h              |  4 +-
@@ -93,16 +88,15 @@ document (and thus the event sender) may not be available in a synchronous docum
  Source/WebCore/loader/ImageLoader.cpp              | 38 +++--------
  Source/WebCore/loader/ImageLoader.h                |  9 ++-
  Source/WebCore/xml/parser/XMLDocumentParser.cpp    |  3 -
- 18 files changed, 314 insertions(+), 111 deletions(-)
+ 18 files changed, 288 insertions(+), 91 deletions(-)
  create mode 100644 Source/WebCore/dom/SharedEventSenders.cpp
  create mode 100644 Source/WebCore/dom/SharedEventSenders.h
 
 diff --git a/Source/WebCore/CMakeLists.txt b/Source/WebCore/CMakeLists.txt
-index ea6cd8e..06faa05 100644
+index bea3d13..f7a0096 100644
 --- a/Source/WebCore/CMakeLists.txt
 +++ b/Source/WebCore/CMakeLists.txt
-@@ -1401,20 +1401,21 @@ set(WebCore_SOURCES
-     dom/RegisteredEventListener.cpp
+@@ -1403,20 +1403,21 @@ set(WebCore_SOURCES
      dom/ScopedEventQueue.cpp
      dom/ScriptElement.cpp
      dom/ScriptExecutionContext.cpp
@@ -110,6 +104,7 @@ index ea6cd8e..06faa05 100644
      dom/ScriptableDocumentParser.cpp
      dom/ScriptedAnimationController.cpp
      dom/SecurityContext.cpp
+     dom/SecurityOriginPolicy.cpp
      dom/SelectorQuery.cpp
      dom/ShadowRoot.cpp
 +    dom/SharedEventSenders.cpp
@@ -124,10 +119,10 @@ index ea6cd8e..06faa05 100644
      dom/Touch.cpp
      dom/TouchEvent.cpp
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index a3ef353..8d49b82 100644
+index 6e21c65..5584c46 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
-@@ -1,10 +1,86 @@
+@@ -1,10 +1,81 @@
 +2014-10-10  Brian J. Burg  <burg@cs.washington.edu>
 +
 +        Web Replay: EventSender dispatches should be per-Document
@@ -159,12 +154,7 @@ index a3ef353..8d49b82 100644
 +        * dom/Document.h:
 +        (WebCore::Document::sharedEventSenders):
 +        * dom/EventSender.h:
-+        (WebCore::EventSender::EventSender):
-+        (WebCore::EventSender::hasPendingEvents):
-+        (WebCore::EventSender<T>::dispatchEventSoon):
-+        (WebCore::EventSender<T>::cancelEvent):
-+        (WebCore::EventSender<T>::dispatchPendingEvents):
-+        (WebCore::EventSender<T>::EventSender): Deleted. The type argument was not necessary.
++        (WebCore::EventSender<T>::dispatchPendingEvents): Pass this by reference.
 +        * dom/SharedEventSenders.cpp: Added. Lazily creates event senders as they are requested.
 +        (WebCore::SharedEventSenders::linkLoadEventSender):
 +        (WebCore::SharedEventSenders::styleLoadEventSender):
@@ -215,10 +205,10 @@ index a3ef353..8d49b82 100644
          that originate from asynchronous Timer firings should be captured and replayed.
  
 diff --git a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
-index 97afd4f..7f9f8a4 100644
+index 376f327..bee4b41 100644
 --- a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
 +++ b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
-@@ -13772,20 +13772,34 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -13833,20 +13833,34 @@
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug_WinCairo|x64'">true</ExcludedFromBuild>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|Win32'">true</ExcludedFromBuild>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|x64'">true</ExcludedFromBuild>
@@ -253,8 +243,7 @@ index 97afd4f..7f9f8a4 100644
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release_WinCairo|Win32'">true</ExcludedFromBuild>
-@@ -20578,20 +20592,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
-     <ClInclude Include="..\dom\RenderedDocumentMarker.h" />
+@@ -20629,20 +20643,21 @@
      <ClInclude Include="..\dom\ScopedEventQueue.h" />
      <ClInclude Include="..\dom\ScriptableDocumentParser.h" />
      <ClInclude Include="..\dom\ScriptedAnimationController.h" />
@@ -262,6 +251,7 @@ index 97afd4f..7f9f8a4 100644
      <ClInclude Include="..\dom\ScriptExecutionContext.h" />
      <ClInclude Include="..\dom\ScriptRunner.h" />
      <ClInclude Include="..\dom\SecurityContext.h" />
+     <ClInclude Include="..\dom\SecurityOriginPolicy.h" />
      <ClInclude Include="..\dom\SelectorQuery.h" />
      <ClInclude Include="..\dom\SimulatedClickOptions.h" />
 +    <ClInclude Include="..\dom\SharedEventSenders.h" />
@@ -276,15 +266,15 @@ index 97afd4f..7f9f8a4 100644
      <ClInclude Include="..\dom\TextEvent.h" />
      <ClInclude Include="..\dom\TextNodeTraversal.h" />
 diff --git a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
-index 0159e7c..afcf57b 100644
+index ec7b6c0..7a7459b 100644
 --- a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
 +++ b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
-@@ -3353,20 +3353,23 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
-     </ClCompile>
-     <ClCompile Include="..\dom\ScriptRunner.cpp">
-       <Filter>dom</Filter>
+@@ -3359,20 +3359,23 @@
      </ClCompile>
      <ClCompile Include="..\dom\SecurityContext.cpp">
+       <Filter>dom</Filter>
+     </ClCompile>
+     <ClCompile Include="..\dom\SecurityOriginPolicy.cpp">
        <Filter>dom</Filter>
      </ClCompile>
      <ClCompile Include="..\dom\SelectorQuery.cpp">
@@ -303,12 +293,12 @@ index 0159e7c..afcf57b 100644
        <Filter>dom</Filter>
      </ClCompile>
      <ClCompile Include="..\dom\StringCallback.cpp">
-@@ -10457,20 +10460,23 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
-     </ClInclude>
-     <ClInclude Include="..\dom\ScriptRunner.h">
-       <Filter>dom</Filter>
+@@ -10463,20 +10466,23 @@
      </ClInclude>
      <ClInclude Include="..\dom\SecurityContext.h">
+       <Filter>dom</Filter>
+     </ClInclude>
+     <ClInclude Include="..\dom\SecurityOriginPolicy.h">
        <Filter>dom</Filter>
      </ClInclude>
      <ClInclude Include="..\dom\SelectorQuery.h">
@@ -328,10 +318,10 @@ index 0159e7c..afcf57b 100644
      </ClInclude>
      <ClInclude Include="..\dom\StaticNodeList.h">
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index f988eb9..a50f4cd 100644
+index 64db74b..2ff67c2 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -5536,20 +5536,23 @@
+@@ -5547,20 +5547,23 @@
  		C348612315FDE21E007A1CC9 /* InputTypeNames.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C348612115FDE21E007A1CC9 /* InputTypeNames.cpp */; };
  		C348612415FDE21E007A1CC9 /* InputTypeNames.h in Headers */ = {isa = PBXBuildFile; fileRef = C348612215FDE21E007A1CC9 /* InputTypeNames.h */; };
  		C375D7FD16639519006184AB /* TypeAhead.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C375D7FB16639519006184AB /* TypeAhead.cpp */; };
@@ -351,11 +341,11 @@ index f988eb9..a50f4cd 100644
  		C4D4F52C1975C88B003EF5BC /* ReplayableTimer.h in Headers */ = {isa = PBXBuildFile; fileRef = C4D4F5281975C88B003EF5BC /* ReplayableTimer.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		C4D4F52D1975C88B003EF5BC /* ReplayableTimers.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4D4F5291975C88B003EF5BC /* ReplayableTimers.cpp */; };
  		C4D4F52E1975C88B003EF5BC /* ReplayableTimers.h in Headers */ = {isa = PBXBuildFile; fileRef = C4D4F52A1975C88B003EF5BC /* ReplayableTimers.h */; settings = {ATTRIBUTES = (Private, ); }; };
- 		C50B561612119D23008B46E0 /* GroupSettings.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C50B561412119D23008B46E0 /* GroupSettings.cpp */; };
- 		C50B561712119D23008B46E0 /* GroupSettings.h in Headers */ = {isa = PBXBuildFile; fileRef = C50B561512119D23008B46E0 /* GroupSettings.h */; settings = {ATTRIBUTES = (Private, ); }; };
- 		C50D0E820FF4272900AC2644 /* StorageNamespace.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C50D0E800FF4272900AC2644 /* StorageNamespace.cpp */; };
  		C50D0E830FF4272900AC2644 /* StorageNamespace.h in Headers */ = {isa = PBXBuildFile; fileRef = C50D0E810FF4272900AC2644 /* StorageNamespace.h */; settings = {ATTRIBUTES = (Private, ); }; };
-@@ -12991,20 +12994,22 @@
+ 		C5137CF211A58378004ADB99 /* JSDOMStringList.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */; };
+ 		C5137CF311A58378004ADB99 /* JSDOMStringList.h in Headers */ = {isa = PBXBuildFile; fileRef = C5137CF111A58378004ADB99 /* JSDOMStringList.h */; };
+ 		C5278B0C17F212EA003A2998 /* PlatformPasteboardIOS.mm in Sources */ = {isa = PBXBuildFile; fileRef = C5278B0B17F212EA003A2998 /* PlatformPasteboardIOS.mm */; };
+@@ -13005,20 +13008,22 @@
  		C348612215FDE21E007A1CC9 /* InputTypeNames.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = InputTypeNames.h; sourceTree = "<group>"; };
  		C375D7FB16639519006184AB /* TypeAhead.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = TypeAhead.cpp; sourceTree = "<group>"; };
  		C375D7FC16639519006184AB /* TypeAhead.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TypeAhead.h; sourceTree = "<group>"; };
@@ -374,15 +364,15 @@ index f988eb9..a50f4cd 100644
  		C4D4F5281975C88B003EF5BC /* ReplayableTimer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ReplayableTimer.h; sourceTree = "<group>"; };
  		C4D4F5291975C88B003EF5BC /* ReplayableTimers.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReplayableTimers.cpp; sourceTree = "<group>"; };
  		C4D4F52A1975C88B003EF5BC /* ReplayableTimers.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ReplayableTimers.h; sourceTree = "<group>"; };
- 		C50B561412119D23008B46E0 /* GroupSettings.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GroupSettings.cpp; sourceTree = "<group>"; };
- 		C50B561512119D23008B46E0 /* GroupSettings.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GroupSettings.h; sourceTree = "<group>"; };
- 		C50D0E800FF4272900AC2644 /* StorageNamespace.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = StorageNamespace.cpp; sourceTree = "<group>"; };
  		C50D0E810FF4272900AC2644 /* StorageNamespace.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = StorageNamespace.h; sourceTree = "<group>"; };
-@@ -22904,20 +22909,22 @@
- 				8A413ADF1207BBA50082016E /* ScriptRunner.cpp */,
- 				8A413ADE1207BBA50082016E /* ScriptRunner.h */,
+ 		C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = JSDOMStringList.cpp; sourceTree = "<group>"; };
+ 		C5137CF111A58378004ADB99 /* JSDOMStringList.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSDOMStringList.h; sourceTree = "<group>"; };
+ 		C5278B0B17F212EA003A2998 /* PlatformPasteboardIOS.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = PlatformPasteboardIOS.mm; path = ios/PlatformPasteboardIOS.mm; sourceTree = "<group>"; };
+@@ -22929,20 +22934,22 @@
  				976F36E814686225005E93B4 /* SecurityContext.cpp */,
  				976F36E914686225005E93B4 /* SecurityContext.h */,
+ 				1AF7AFC51A48A8BC00C8E4E7 /* SecurityOriginPolicy.cpp */,
+ 				1AF7AFC61A48A8BC00C8E4E7 /* SecurityOriginPolicy.h */,
  				2D5BC42516F882BE007048D0 /* SecurityPolicyViolationEvent.h */,
  				2D5BC42616F882BE007048D0 /* SecurityPolicyViolationEvent.idl */,
  				E45322A9140CE267005A0F92 /* SelectorQuery.cpp */,
@@ -401,33 +391,33 @@ index f988eb9..a50f4cd 100644
  				81AC6C34131C57C20009A7E0 /* StringCallback.idl */,
  				A8C4A7EC09D563270003AC8D /* StyledElement.cpp */,
  				A8C4A7EB09D563270003AC8D /* StyledElement.h */,
-@@ -23501,20 +23508,21 @@
- 				073794E619EE2FF200E5A045 /* JSRTCConfiguration.h in Headers */,
- 				934F713A0D5A6F1000018D69 /* AuthenticationChallengeBase.h in Headers */,
+@@ -23523,20 +23530,21 @@
  				E124748410AA161D00B79493 /* AuthenticationClient.h in Headers */,
  				514C764C0CE9234E007EF3CD /* AuthenticationMac.h in Headers */,
  				A501920E132EBF2E008BFE55 /* Autocapitalize.h in Headers */,
+ 				760847CE19A6A27800428CCC /* AutocompleteErrorEvent.h in Headers */,
  				45830D4E1679B4F800ACF8C3 /* AutoscrollController.h in Headers */,
  				A8CFF04E0A154F09000A4234 /* AutoTableLayout.h in Headers */,
  				070363E0181A1CDC00C074A5 /* AVAudioCaptureSource.h in Headers */,
  				070363E2181A1CDC00C074A5 /* AVCaptureDeviceManager.h in Headers */,
+ 				CE12523F1A16AE1200864480 /* AVKitSPI.h in Headers */,
  				070363E4181A1CDC00C074A5 /* AVMediaCaptureSource.h in Headers */,
 +				C49474A819A2D612009B3DE8 /* EventSender.h in Headers */,
  				CD336F6217F9F64700DDDCD0 /* AVTrackPrivateAVFObjCImpl.h in Headers */,
  				070363E6181A1CDC00C074A5 /* AVVideoCaptureSource.h in Headers */,
+ 				F478755419983AFF0024A287 /* AxisScrollSnapAnimator.h in Headers */,
+ 				F45C231E1995B73B00A6E2E3 /* AxisScrollSnapOffsets.h in Headers */,
  				29A812380FBB9C1D00510293 /* AXObjectCache.h in Headers */,
  				51741D0F0B07259A00ED442C /* BackForwardClient.h in Headers */,
  				BCA8C81E11E3D36900812FB7 /* BackForwardController.h in Headers */,
- 				077AF14318F4B1BB0001ED61 /* SerializedPlatformRepresentationMac.h in Headers */,
  				BCA8CA6011E4E6D100812FB7 /* BackForwardList.h in Headers */,
  				BC124EE80C2641CD009E2349 /* BarProp.h in Headers */,
  				379E61CA126CA5C400B63E8D /* BaseButtonInputType.h in Headers */,
- 				379E61CC126CA5C400B63E8D /* BaseCheckableInputType.h in Headers */,
-@@ -26556,20 +26564,21 @@
+@@ -26599,20 +26607,21 @@
  				1419D2C50CEA6F6100FF507A /* TreeShared.h in Headers */,
  				854FE7390A2297BE0058D7AD /* TreeWalker.h in Headers */,
- 				2D76BB821945632400CFD29A /* RunLoopObserver.h in Headers */,
  				C375D7FE16639519006184AB /* TypeAhead.h in Headers */,
+ 				E46A2B1C17CA65B9000DBCD8 /* TypedElementDescendantIterator.h in Headers */,
  				37C28A6810F659CC008C7813 /* TypesettingFeatures.h in Headers */,
  				93309E1A099E64920056E581 /* TypingCommand.h in Headers */,
  				85031B4E0A44EFC700F992E0 /* UIEvent.h in Headers */,
@@ -445,8 +435,8 @@ index f988eb9..a50f4cd 100644
  				A72763BF16689BFB002FCACB /* UserActionElementSet.h in Headers */,
  				868160D618766A130021E79D /* UserActivity.h in Headers */,
  				26255F0318878E110006E1FD /* UserAgent.h in Headers */,
-@@ -28227,20 +28236,21 @@
- 				BE6DF713171CA2DA00DD52B8 /* JSAudioTrackListCustom.cpp in Sources */,
+@@ -28269,20 +28278,21 @@
+ 				76FB9FF819A73E3A00420562 /* JSAutocompleteErrorEvent.cpp in Sources */,
  				BC124EFF0C26447A009E2349 /* JSBarProp.cpp in Sources */,
  				BC946346107A934B00857193 /* JSBeforeLoadEvent.cpp in Sources */,
  				70F546E8B8B5D7DC54EE144E /* JSBeforeUnloadEvent.cpp in Sources */,
@@ -468,11 +458,10 @@ index f988eb9..a50f4cd 100644
  				FDA15EA112B03EE1003A583A /* JSChannelMergerNode.cpp in Sources */,
  				FDA15EA312B03EE1003A583A /* JSChannelSplitterNode.cpp in Sources */,
 diff --git a/Source/WebCore/dom/DOMAllInOne.cpp b/Source/WebCore/dom/DOMAllInOne.cpp
-index 66539ec..60d3a99 100644
+index 0d14eb4..41c6b57 100644
 --- a/Source/WebCore/dom/DOMAllInOne.cpp
 +++ b/Source/WebCore/dom/DOMAllInOne.cpp
-@@ -117,20 +117,21 @@
- #include "RangeException.cpp"
+@@ -118,20 +118,21 @@
  #include "RegisteredEventListener.cpp"
  #include "ScopedEventQueue.cpp"
  #include "ScriptElement.cpp"
@@ -480,6 +469,7 @@ index 66539ec..60d3a99 100644
  #include "ScriptRunner.cpp"
  #include "ScriptableDocumentParser.cpp"
  #include "SecurityContext.cpp"
+ #include "SecurityOriginPolicy.cpp"
  #include "SelectorQuery.cpp"
  #include "ShadowRoot.cpp"
 +#include "SharedEventSenders.cpp"
@@ -494,15 +484,15 @@ index 66539ec..60d3a99 100644
  #include "TouchEvent.cpp"
  #include "TouchList.cpp"
 diff --git a/Source/WebCore/dom/Document.cpp b/Source/WebCore/dom/Document.cpp
-index e9d6745..0be84e0 100644
+index 955fad0..b5a1782 100644
 --- a/Source/WebCore/dom/Document.cpp
 +++ b/Source/WebCore/dom/Document.cpp
-@@ -132,20 +132,21 @@
- #include "ScriptController.h"
+@@ -133,20 +133,21 @@
  #include "ScriptRunner.h"
  #include "ScriptSourceCode.h"
  #include "ScrollingCoordinator.h"
  #include "SecurityOrigin.h"
+ #include "SecurityOriginPolicy.h"
  #include "SecurityPolicy.h"
  #include "SegmentedString.h"
  #include "SelectorQuery.h"
@@ -519,7 +509,7 @@ index e9d6745..0be84e0 100644
  #include "VisitedLinkState.h"
  #include "XMLDocumentParser.h"
  #include "XMLNSNames.h"
-@@ -466,20 +467,21 @@ Document::Document(Frame* frame, const URL& url, unsigned documentClasses, unsig
+@@ -465,20 +466,21 @@ Document::Document(Frame* frame, const URL& url, unsigned documentClasses, unsig
  #endif
      , m_createRenderers(true)
      , m_inPageCache(false)
@@ -535,13 +525,13 @@ index e9d6745..0be84e0 100644
  #if ENABLE(FULLSCREEN_API)
      , m_areKeysEnabledInFullScreen(0)
      , m_fullScreenRenderer(nullptr)
-     , m_fullScreenChangeDelayTimer(this, &Document::fullScreenChangeDelayTimerFired)
+     , m_fullScreenChangeDelayTimer(*this, &Document::fullScreenChangeDelayTimerFired)
      , m_isAnimatingFullScreen(false)
  #endif
      , m_loadEventDelayCount(0)
-     , m_loadEventDelayTimer(this, &Document::loadEventDelayTimerFired)
+     , m_loadEventDelayTimer(*this, &Document::loadEventDelayTimerFired)
      , m_referrerPolicy(ReferrerPolicyDefault)
-@@ -2419,88 +2421,86 @@ void Document::implicitClose()
+@@ -2403,88 +2405,86 @@ void Document::implicitClose()
      // We have to clear the parser, in case someone document.write()s from the
      // onLoad event handler, as in Radar 3206524.
      detachParser();
@@ -648,7 +638,7 @@ index e9d6745..0be84e0 100644
          axObjectCache()->getOrCreate(renderView());
          if (this == &topDocument())
 diff --git a/Source/WebCore/dom/Document.h b/Source/WebCore/dom/Document.h
-index 7182591..53f3fae 100644
+index 5d34e86..8c75538 100644
 --- a/Source/WebCore/dom/Document.h
 +++ b/Source/WebCore/dom/Document.h
 @@ -138,20 +138,21 @@ class RenderView;
@@ -673,8 +663,8 @@ index 7182591..53f3fae 100644
  class TreeWalker;
  class VisitedLinkState;
  class WebKitNamedFlow;
-@@ -1119,20 +1120,22 @@ public:
-     void setContainsValidityStyleRules() { m_containsValidityStyleRules = true; }
+@@ -1106,20 +1107,22 @@ public:
+     virtual bool isJSExecutionForbidden() const override final { return false; }
  
      void enqueueWindowEvent(PassRefPtr<Event>);
      void enqueueDocumentEvent(PassRefPtr<Event>);
@@ -696,7 +686,7 @@ index 7182591..53f3fae 100644
      Element* webkitCurrentFullScreenElement() const { return m_fullScreenElement.get(); }
      
      enum FullScreenCheckType {
-@@ -1582,20 +1585,22 @@ private:
+@@ -1569,20 +1572,22 @@ private:
  
      bool m_isSynthesized;
      bool m_isNonRenderedPlaceholder;
@@ -718,127 +708,24 @@ index 7182591..53f3fae 100644
      RefPtr<Element> m_fullScreenElement;
      Vector<RefPtr<Element>> m_fullScreenElementStack;
      RenderFullScreen* m_fullScreenRenderer;
-     Timer<Document> m_fullScreenChangeDelayTimer;
+     Timer m_fullScreenChangeDelayTimer;
 diff --git a/Source/WebCore/dom/EventSender.h b/Source/WebCore/dom/EventSender.h
-index 04fe258..bd86c44 100644
+index 7cd82e1..97a91e7 100644
 --- a/Source/WebCore/dom/EventSender.h
 +++ b/Source/WebCore/dom/EventSender.h
-@@ -1,12 +1,13 @@
- /*
-  * Copyright (C) 2012 Apple Inc. All rights reserved.
-+ * Copyright (C) 2014 University of Washington. All rights reserved.
-  *
-  * Redistribution and use in source and binary forms, with or without
-  * modification, are permitted provided that the following conditions
-  * are met:
-  * 1. Redistributions of source code must retain the above copyright
-  *    notice, this list of conditions and the following disclaimer.
-  * 2. Redistributions in binary form must reproduce the above copyright
-  *    notice, this list of conditions and the following disclaimer in the
-  *    documentation and/or other materials provided with the distribution.
-  *
-@@ -24,88 +25,88 @@
-  */
- 
- #ifndef EventSender_h
- #define EventSender_h
- 
- #include "Timer.h"
- #include <wtf/Vector.h>
- 
- namespace WebCore {
- 
--template<typename T> class EventSender {
-+template <typename T>
-+class EventSender {
-     WTF_MAKE_NONCOPYABLE(EventSender); WTF_MAKE_FAST_ALLOCATED;
- public:
--    explicit EventSender(const AtomicString& eventType);
-+    EventSender(const AtomicString& eventType)
-+        : m_eventType(eventType)
-+        , m_timer(this, &EventSender::timerFired)
-+    {
-+    }
- 
-     const AtomicString& eventType() const { return m_eventType; }
-     void dispatchEventSoon(T&);
-     void cancelEvent(T&);
-     void dispatchPendingEvents();
- 
- #ifndef NDEBUG
--    bool hasPendingEvents(T& sender) const
-+    bool hasPendingEvents(T& client) const
-     {
--        return m_dispatchSoonList.find(&sender) != notFound || m_dispatchingList.find(&sender) != notFound;
-+        return m_dispatchSoonList.find(&client) != notFound || m_dispatchingList.find(&client) != notFound;
-     }
- #endif
- 
- private:
-     void timerFired(Timer<EventSender<T>>&) { dispatchPendingEvents(); }
- 
-     AtomicString m_eventType;
-     Timer<EventSender<T>> m_timer;
-     Vector<T*> m_dispatchSoonList;
-     Vector<T*> m_dispatchingList;
- };
- 
--template<typename T> EventSender<T>::EventSender(const AtomicString& eventType)
--    : m_eventType(eventType)
--    , m_timer(this, &EventSender::timerFired)
--{
--}
--
--template<typename T> void EventSender<T>::dispatchEventSoon(T& sender)
-+template <typename T>
-+void EventSender<T>::dispatchEventSoon(T& client)
- {
--    m_dispatchSoonList.append(&sender);
-+    m_dispatchSoonList.append(&client);
-     if (!m_timer.isActive())
-         m_timer.startOneShot(0);
- }
- 
--template<typename T> void EventSender<T>::cancelEvent(T& sender)
-+template<typename T>
-+void EventSender<T>::cancelEvent(T& client)
- {
--    // Remove instances of this sender from both lists.
-+    // Remove instances of this client from both lists.
-     // Use loops because we allow multiple instances to get into the lists.
-     for (auto& event : m_dispatchSoonList) {
--        if (event == &sender)
-+        if (event == &client)
-             event = nullptr;
-     }
-     for (auto& event : m_dispatchingList) {
--        if (event == &sender)
-+        if (event == &client)
-             event = nullptr;
-     }
- }
- 
--template<typename T> void EventSender<T>::dispatchPendingEvents()
-+template<typename T>
-+void EventSender<T>::dispatchPendingEvents()
- {
-     // Need to avoid re-entering this function; if new dispatches are
-     // scheduled before the parent finishes processing the list, they
-     // will set a timer and eventually be processed.
-     if (!m_dispatchingList.isEmpty())
+@@ -93,19 +93,19 @@ template<typename T> void EventSender<T>::dispatchPendingEvents()
          return;
  
      m_timer.stop();
  
--    m_dispatchSoonList.checkConsistency();
--
+     m_dispatchSoonList.checkConsistency();
+ 
      m_dispatchingList.swap(m_dispatchSoonList);
      for (auto& event : m_dispatchingList) {
--        if (T* sender = event) {
-+        if (T* client = event) {
+         if (T* sender = event) {
              event = nullptr;
 -            sender->dispatchPendingEvent(this);
-+            client->dispatchPendingEvent(*this);
++            sender->dispatchPendingEvent(*this);
          }
      }
      m_dispatchingList.clear();
@@ -993,7 +880,7 @@ index 0000000..d97c878
 +
 +#endif // SharedEventSenders_h
 diff --git a/Source/WebCore/html/HTMLLinkElement.cpp b/Source/WebCore/html/HTMLLinkElement.cpp
-index 572c202..56c418b 100644
+index 4a576ac..33fae4d 100644
 --- a/Source/WebCore/html/HTMLLinkElement.cpp
 +++ b/Source/WebCore/html/HTMLLinkElement.cpp
 @@ -26,53 +26,47 @@
@@ -1126,7 +1013,7 @@ index 572c202..56c418b 100644
  }
  
 diff --git a/Source/WebCore/html/HTMLLinkElement.h b/Source/WebCore/html/HTMLLinkElement.h
-index 3213ebf..4e0667f 100644
+index c47fff1..976010f 100644
 --- a/Source/WebCore/html/HTMLLinkElement.h
 +++ b/Source/WebCore/html/HTMLLinkElement.h
 @@ -34,21 +34,20 @@
@@ -1144,7 +1031,7 @@ index 3213ebf..4e0667f 100644
  
  class HTMLLinkElement final : public HTMLElement, public CachedStyleSheetClient, public LinkLoaderClient {
  public:
-     static PassRefPtr<HTMLLinkElement> create(const QualifiedName&, Document&, bool createdByParser);
+     static Ref<HTMLLinkElement> create(const QualifiedName&, Document&, bool createdByParser);
      virtual ~HTMLLinkElement();
  
      URL href() const;
@@ -1160,7 +1047,7 @@ index 3213ebf..4e0667f 100644
      bool isDisabled() const { return m_disabledState == Disabled; }
      bool isEnabledViaScript() const { return m_disabledState == EnabledViaScript; }
      void setSizes(const String&);
-     DOMSettableTokenList* sizes() const;
+     DOMSettableTokenList& sizes() { return m_sizes.get(); }
  
 -    void dispatchPendingEvent(LinkEventSender*);
 -    static void dispatchPendingLoadEvents();
@@ -1176,7 +1063,7 @@ index 3213ebf..4e0667f 100644
      static void processCallback(Node*);
      void clearSheet();
 diff --git a/Source/WebCore/html/HTMLStyleElement.cpp b/Source/WebCore/html/HTMLStyleElement.cpp
-index 68064949..0fb3d14 100644
+index 4dfb22a..10d2ae4 100644
 --- a/Source/WebCore/html/HTMLStyleElement.cpp
 +++ b/Source/WebCore/html/HTMLStyleElement.cpp
 @@ -20,54 +20,49 @@
@@ -1228,9 +1115,9 @@ index 68064949..0fb3d14 100644
 +    document().sharedEventSenders().styleLoadEventSender().cancelEvent(*this);
  }
  
- PassRefPtr<HTMLStyleElement> HTMLStyleElement::create(const QualifiedName& tagName, Document& document, bool createdByParser)
+ Ref<HTMLStyleElement> HTMLStyleElement::create(const QualifiedName& tagName, Document& document, bool createdByParser)
  {
-     return adoptRef(new HTMLStyleElement(tagName, document, createdByParser));
+     return adoptRef(*new HTMLStyleElement(tagName, document, createdByParser));
  }
  
  void HTMLStyleElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
@@ -1281,7 +1168,7 @@ index 68064949..0fb3d14 100644
          styleSheet->contents().addSubresourceStyleURLs(urls);
  }
 diff --git a/Source/WebCore/html/HTMLStyleElement.h b/Source/WebCore/html/HTMLStyleElement.h
-index 4b552e0..9de3db8 100644
+index 7776d1e..83cd797 100644
 --- a/Source/WebCore/html/HTMLStyleElement.h
 +++ b/Source/WebCore/html/HTMLStyleElement.h
 @@ -25,34 +25,32 @@
@@ -1299,7 +1186,7 @@ index 4b552e0..9de3db8 100644
  
  class HTMLStyleElement final : public HTMLElement {
  public:
-     static PassRefPtr<HTMLStyleElement> create(const QualifiedName&, Document&, bool createdByParser);
+     static Ref<HTMLStyleElement> create(const QualifiedName&, Document&, bool createdByParser);
      virtual ~HTMLStyleElement();
  
      CSSStyleSheet* sheet() const { return m_styleSheetOwner.sheet(); }
@@ -1321,7 +1208,7 @@ index 4b552e0..9de3db8 100644
      virtual void childrenChanged(const ChildChange&) override;
  
 diff --git a/Source/WebCore/loader/ImageLoader.cpp b/Source/WebCore/loader/ImageLoader.cpp
-index 0f06774..005f534 100644
+index 8b556ad..879058a 100644
 --- a/Source/WebCore/loader/ImageLoader.cpp
 +++ b/Source/WebCore/loader/ImageLoader.cpp
 @@ -22,29 +22,29 @@
@@ -1404,7 +1291,7 @@ index 0f06774..005f534 100644
      }   
  }
  
- void ImageLoader::timerFired(Timer<ImageLoader>&)
+ void ImageLoader::timerFired()
  {
      element().deref();
  }
@@ -1463,7 +1350,7 @@ index 0f06774..005f534 100644
      m_failedLoadURL = AtomicString();
  }
 diff --git a/Source/WebCore/loader/ImageLoader.h b/Source/WebCore/loader/ImageLoader.h
-index 5f3724c..8a0156b 100644
+index cfb48c3..1cddae8 100644
 --- a/Source/WebCore/loader/ImageLoader.h
 +++ b/Source/WebCore/loader/ImageLoader.h
 @@ -28,21 +28,20 @@

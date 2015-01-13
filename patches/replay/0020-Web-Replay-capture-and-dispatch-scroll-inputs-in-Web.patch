@@ -1,30 +1,102 @@
-From d3fc746097f6c9a941a51e3cfeed263a83c40013 Mon Sep 17 00:00:00 2001
+From 369118733aa8d26334e8f6e30952ac479300b462 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Fri, 22 Aug 2014 16:11:09 -0700
-Subject: [PATCH] Web Replay: capture and replay synchronous scrolling from
- WebPage
+Subject: [PATCH] Web Replay: capture and dispatch scroll inputs in WebPage
+ Need the bug URL (OOPS!).
 
+Reviewed by NOBODY (OOPS!).
+
+Source/WebCore:
+
+Remove input bridge methods for scroll and logicalScroll.
+
+No new tests, no behavior changed.
+
+* WebCore.exp.in:
+* replay/UserInputBridge.cpp:
+(WebCore::UserInputBridge::scrollRecursively): Deleted.
+(WebCore::UserInputBridge::logicalScrollRecursively): Deleted.
+* replay/UserInputBridge.h:
+* replay/WebInputs.json:
+* replay/WebReplayInputDispatchMethods.cpp:
+
+Source/WebKit2:
+
+Move the capture/dispatch entry point from UserInputBridge to WebPage.
+Like for mouse events, rearrange code paths so that inputs can be dispatched
+during replay without sending IPC messages to UIProcess.
+
+* WebProcess/Replay/WKInputs.json:
+* WebProcess/Replay/WKReplayInputDispatchMethods.cpp:
+(WebKit::HandleScroll::dispatch): Added.
+* WebProcess/WebPage/WebPage.cpp:
+(WebKit::WebPage::scroll):
+(WebKit::WebPage::handleScroll): Added.
+(WebKit::WebPage::scrollBy):
+(WebKit::WebPage::setTopContentInset): Deleted.
+(WebKit::WebPage::viewWillStartLiveResize): Deleted.
+* WebProcess/WebPage/WebPage.h: Remove logicalScroll as it has no callers.
+* WebProcess/WebPage/mac/WebPageMac.mm:
+(WebKit::WebPage::performNonEditingBehaviorForSelector): Pass page by reference.
 ---
- Source/WebCore/WebCore.exp.in                      |  7 -----
- Source/WebCore/replay/UserInputBridge.cpp          | 34 ----------------------
+ Source/WebCore/ChangeLog                           | 19 +++++++++
+ Source/WebCore/WebCore.exp.in                      |  7 ----
+ Source/WebCore/replay/UserInputBridge.cpp          | 34 ----------------
  Source/WebCore/replay/UserInputBridge.h            |  3 --
- Source/WebCore/replay/WebInputs.json               | 13 ---------
- .../replay/WebReplayInputDispatchMethods.cpp       | 12 --------
- Source/WebKit2/WebProcess/Replay/WKInputs.json     | 20 +++++++++++++
- .../Replay/WKReplayInputDispatchMethods.cpp        |  5 ++++
- Source/WebKit2/WebProcess/WebPage/WebPage.cpp      | 22 ++++++++++----
- Source/WebKit2/WebProcess/WebPage/WebPage.h        |  4 +--
- .../WebKit2/WebProcess/WebPage/mac/WebPageMac.mm   | 24 +++++++--------
- 10 files changed, 56 insertions(+), 88 deletions(-)
+ Source/WebCore/replay/WebInputs.json               | 47 ----------------------
+ .../replay/WebReplayInputDispatchMethods.cpp       | 11 -----
+ Source/WebKit2/ChangeLog                           | 24 +++++++++++
+ Source/WebKit2/WebProcess/Replay/WKInputs.json     | 29 +++++++++++++
+ .../Replay/WKReplayInputDispatchMethods.cpp        |  5 +++
+ Source/WebKit2/WebProcess/WebPage/WebPage.cpp      | 22 +++++++---
+ Source/WebKit2/WebProcess/WebPage/WebPage.h        |  4 +-
+ .../WebKit2/WebProcess/WebPage/mac/WebPageMac.mm   | 24 +++++------
+ 12 files changed, 108 insertions(+), 121 deletions(-)
 
+diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
+index 82ade3e..e3f7983 100644
+--- a/Source/WebCore/ChangeLog
++++ b/Source/WebCore/ChangeLog
+@@ -1,12 +1,31 @@
+ 2015-01-11  Brian J. Burg  <burg@cs.washington.edu>
+ 
++        Web Replay: capture and dispatch scroll inputs in WebPage
++        Need the bug URL (OOPS!).
++
++        Reviewed by NOBODY (OOPS!).
++
++        Remove input bridge methods for scroll and logicalScroll.
++
++        No new tests, no behavior changed.
++
++        * WebCore.exp.in:
++        * replay/UserInputBridge.cpp:
++        (WebCore::UserInputBridge::scrollRecursively): Deleted.
++        (WebCore::UserInputBridge::logicalScrollRecursively): Deleted.
++        * replay/UserInputBridge.h:
++        * replay/WebInputs.json:
++        * replay/WebReplayInputDispatchMethods.cpp:
++
++2015-01-11  Brian J. Burg  <burg@cs.washington.edu>
++
+         Web Replay: capture and dispatch keyboard and wheel inputs in WebPage
+         Need the bug URL (OOPS!).
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Move the capture/dispatch entry point from UserInputBridge to WebPage.
+ 
+         No new tests, no behavior changed.
+ 
+         * WebCore.exp.in:
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index 61fa15f..eb0a3d8 100644
+index 47d2163..a99226b 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -655,21 +655,20 @@ __ZN7WebCore15ScrollAlignment19alignToEdgeIfNeededE
- __ZN7WebCore15StorageStrategy21localStorageNamespaceEPNS_9PageGroupE
- __ZN7WebCore15StorageStrategy23sessionStorageNamespaceEPNS_4PageE
- __ZN7WebCore15StorageStrategy30transientLocalStorageNamespaceEPNS_9PageGroupEPNS_14SecurityOriginE
+@@ -655,21 +655,20 @@ __ZN7WebCore15SQLiteStatementC1ERNS_14SQLiteDatabaseERKN3WTF6StringE
+ __ZN7WebCore15SQLiteStatementD1Ev
+ __ZN7WebCore15ScrollAlignment17alignCenterAlwaysE
+ __ZN7WebCore15ScrollAlignment19alignToEdgeIfNeededE
  __ZN7WebCore15StringTruncator13rightTruncateERKN3WTF6StringEfRKNS_4FontENS0_24EnableRoundingHacksOrNotE
  __ZN7WebCore15StringTruncator14centerTruncateERKN3WTF6StringEfRKNS_4FontENS0_24EnableRoundingHacksOrNotE
  __ZN7WebCore15StringTruncator5widthERKN3WTF6StringERKNS_4FontENS0_24EnableRoundingHacksOrNotE
@@ -39,11 +111,11 @@ index 61fa15f..eb0a3d8 100644
  __ZN7WebCore15mimeTypeFromURLERKNS_3URLE
  __ZN7WebCore15originalURLDataEP5NSURL
  __ZN7WebCore15pathGetFileNameERKN3WTF6StringE
+ __ZN7WebCore15rangeOfContentsERNS_4NodeE
  __ZN7WebCore15reportExceptionEPN3JSC9ExecStateENS0_7JSValueEPNS_12CachedScriptE
  __ZN7WebCore15setDOMExceptionEPN3JSC9ExecStateEi
  __ZN7WebCore15visitedLinkHashEPKtj
- __ZN7WebCore15visitedLinkHashERKN3WTF6StringE
-@@ -3489,23 +3488,20 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
+@@ -3512,23 +3511,20 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
  
  #if ENABLE(VIDEO_TRACK)
  __ZN7WebCore9PageGroup18captionPreferencesEv
@@ -67,7 +139,7 @@ index 61fa15f..eb0a3d8 100644
  __ZN3JSC11InputTraitsIN7WebCore13DOMTimerFiredEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
  __ZN3JSC11InputTraitsIN7WebCore13DOMTimerFiredEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore14LoadURLRequestEE4typeEv
-@@ -3522,23 +3518,20 @@ __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6decodeERNS_12EncodedValueERNS
+@@ -3545,23 +3541,20 @@ __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6decodeERNS_12EncodedValueERNS
  __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -151,7 +223,7 @@ index 668a070..233b6e8 100644
          cursor.appendInput<LoadURLRequest>(std::move(ownedRequest));
      }
 diff --git a/Source/WebCore/replay/UserInputBridge.h b/Source/WebCore/replay/UserInputBridge.h
-index 3467194..eefc8c8 100644
+index c1d5977..9851fb5 100644
 --- a/Source/WebCore/replay/UserInputBridge.h
 +++ b/Source/WebCore/replay/UserInputBridge.h
 @@ -21,21 +21,20 @@
@@ -185,10 +257,10 @@ index 3467194..eefc8c8 100644
  #endif
  
      // User input APIs.
-     WEBCORE_EXPORT void focusSetActive(bool active, InputSource source = InputSource::User);
-     WEBCORE_EXPORT void focusSetFocused(bool focused, InputSource source = InputSource::User);
+     void focusSetActive(bool active, InputSource source = InputSource::User);
+     void focusSetFocused(bool focused, InputSource source = InputSource::User);
 -    WEBCORE_EXPORT bool scrollRecursively(ScrollDirection, ScrollGranularity, InputSource source = InputSource::User);
--    WEBCORE_EXPORT bool logicalScrollRecursively(ScrollLogicalDirection, ScrollGranularity, InputSource source = InputSource::User);
+-    bool logicalScrollRecursively(ScrollLogicalDirection, ScrollGranularity, InputSource source = InputSource::User);
  
      // Navigation APIs.
      WEBCORE_EXPORT void loadRequest(const FrameLoadRequest&, InputSource source = InputSource::User);
@@ -200,48 +272,112 @@ index 3467194..eefc8c8 100644
      Page& m_page;
  #if ENABLE(WEB_REPLAY)
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
-index d123812..c285540 100644
+index 778bdf3..f8707fa 100644
 --- a/Source/WebCore/replay/WebInputs.json
 +++ b/Source/WebCore/replay/WebInputs.json
-@@ -40,33 +40,20 @@
-             {
-                 "name": "FrameLoadRequest", "mode": "OWNED",
-                 "flags": ["STRUCT"],
-                 "header": "loader/FrameLoadRequest.h"
+@@ -76,49 +76,20 @@
+                 "flags": ["ENUM"],
+                 "values": [
+                     "UseProtocolCachePolicy",
+                     "ReloadIgnoringCacheData",
+                     "ReturnCacheDataElseLoad",
+                     "ReturnCacheDataDontLoad"
+                 ],
+                 "header": "platform/network/ResourceRequest.h"
              },
              {
-                 "name": "HistoryItem", "mode": "SHARED",
-                 "header": "history/HistoryItem.h"
-             },
-             {
--                "name": "Modifiers", "mode": "SCALAR", "storage": "uint8_t",
--                "enclosing_class": "PlatformEvent",
+-                "name": "ScrollDirection", "mode": "SCALAR", "storage": "uint8_t",
 -                "flags": ["ENUM"],
--                "values": ["AltKey", "CtrlKey", "MetaKey", "ShiftKey"],
--                "header": "platform/PlatformEvent.h"
+-                "values": ["ScrollUp", "ScrollDown", "ScrollLeft", "ScrollRight"],
+-                "header": "platform/ScrollTypes.h"
 -            },
 -            {
--                "name": "MouseButton", "mode": "SCALAR", "storage": "int8_t",
+-                "name": "ScrollGranularity", "mode": "SCALAR", "storage": "uint8_t",
 -                "flags": ["ENUM"],
--                "values": ["NoButton", "LeftButton", "MiddleButton", "RightButton"],
--                "header": "platform/PlatformMouseEvent.h"
+-                "values": [
+-                    "ScrollByLine",
+-                    "ScrollByPage",
+-                    "ScrollByDocument",
+-                    "ScrollByPixel",
+-                    "ScrollByPrecisePixel"
+-                ],
+-                "header": "platform/ScrollTypes.h"
 -            },
 -            {
-                 "name": "Page", "mode": "OWNED",
-                 "header": "page/Page.h"
+-                "name": "ScrollLogicalDirection", "mode": "SCALAR", "storage": "uint8_t",
+-                "flags": ["ENUM"],
+-                "values": [
+-                    "ScrollBlockDirectionBackward",
+-                    "ScrollBlockDirectionForward",
+-                    "ScrollInlineDirectionBackward",
+-                    "ScrollInlineDirectionForward"
+-                ],
+-                "header": "platform/ScrollTypes.h"
+-            },
+-            {
+                 "name": "ResourceError", "mode": "OWNED",
+                 "header": "platform/network/ResourceError.h"
              },
              {
-                 "name": "PlatformKeyboardEvent", "mode": "OWNED",
-                 "header": "platform/PlatformKeyboardEvent.h"
+                 "name": "ResourceResponse", "mode": "OWNED",
+                 "header": "platform/network/ResourceResponse.h"
              },
              {
-                 "name": "PlatformWheelEvent", "mode": "OWNED",
-                 "header": "platform/PlatformWheelEvent.h"
+                 "name": "SecurityOrigin", "mode": "SHARED",
+                 "header": "page/SecurityOrigin.h"
+@@ -223,47 +194,29 @@
+         },
+         {
+             "name": "LoadURLRequest",
+             "description": "The embedder requested that the specified frame start a new load.",
+             "queue": "EVENT_LOOP",
+             "members": [
+                 { "name": "loadRequest", "type": "FrameLoadRequest" }
+             ]
+         },
+         {
+-            "name": "LogicalScrollPage",
+-            "description": "The embedder signalled a logical scroll event.",
+-            "queue": "EVENT_LOOP",
+-            "members": [
+-                { "name": "direction", "type": "ScrollLogicalDirection" },
+-                { "name": "granularity", "type": "ScrollGranularity" }
+-            ]
+-        },
+-        {
+             "name": "ReloadFrame",
+             "description": "The embedder requested that the specified frame should reload.",
+             "queue": "EVENT_LOOP",
+             "members": [
+                 { "name": "frameIndex", "type": "uint32_t" },
+                 { "name": "endToEndReload", "type": "bool" }
+             ]
+         },
+         {
+-            "name": "ScrollPage",
+-            "description": "The embedder signalled a scroll event.",
+-            "queue": "EVENT_LOOP",
+-            "members": [
+-                { "name": "direction", "type": "ScrollDirection" },
+-                { "name": "granularity", "type": "ScrollGranularity" }
+-            ]
+-        },
+-        {
+             "name": "ResourceLoaderDidFail",
+             "description": "A resource loader failed to load its resource.",
+             "queue": "EVENT_LOOP",
+             "members": [
+                 { "name": "ordinal", "type": "uint64_t" },
+                 { "name": "frameIndex", "type": "uint32_t" },
+                 { "name": "error", "type": "ResourceError" }
+             ]
+         },
+         {
 diff --git a/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp b/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
-index 2d7fa87..595f01c 100644
+index 08a45f6..5c14bd1 100644
 --- a/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
 +++ b/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
-@@ -111,32 +111,20 @@ void InitializeHistory::dispatchOnPage(Page& page)
+@@ -111,31 +111,20 @@ void InitializeHistory::dispatch(Page& page)
      // FIXME: Load the empty document, so that when we prune the back-forward list it
      // is the single remaining entry. <https://webkit.org/b/131989>
      page.backForward().clear();
@@ -253,29 +389,69 @@ index 2d7fa87..595f01c 100644
  }
  
 -// User interaction inputs.
--
--void LogicalScrollPage::dispatchOnPage(Page& page)
+-void LogicalScrollPage::dispatch(Page& page)
 -{
 -    page.userInputBridge().logicalScrollRecursively(direction(), granularity(), InputSource::Synthetic);
 -}
 -
--void ScrollPage::dispatchOnPage(Page& page)
+-void ScrollPage::dispatch(Page& page)
 -{
 -    page.userInputBridge().scrollRecursively(direction(), granularity(), InputSource::Synthetic);
 -}
 -
  // Network inputs.
- void ResourceLoaderDidFail::dispatchOnPage(Page& page)
+ void ResourceLoaderDidFail::dispatch(Page& page)
  {
      if (ResourceLoader* loader = resourceLoaderForOrdinal(page, ordinal(), frameIndex()))
          loader->didFail(m_error->copy());
      // FIXME: signal error if the callback couldn't be fired.
  }
  
- void ResourceLoaderDidFinishLoading::dispatchOnPage(Page& page)
+ void ResourceLoaderDidFinishLoading::dispatch(Page& page)
  {
+diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
+index 6f3597c..916a4e3 100644
+--- a/Source/WebKit2/ChangeLog
++++ b/Source/WebKit2/ChangeLog
+@@ -1,12 +1,36 @@
+ 2015-01-11  Brian J. Burg  <burg@cs.washington.edu>
+ 
++        Web Replay: capture and dispatch scroll inputs in WebPage
++        Need the bug URL (OOPS!).
++
++        Reviewed by NOBODY (OOPS!).
++
++        Move the capture/dispatch entry point from UserInputBridge to WebPage.
++        Like for mouse events, rearrange code paths so that inputs can be dispatched
++        during replay without sending IPC messages to UIProcess.
++
++        * WebProcess/Replay/WKInputs.json:
++        * WebProcess/Replay/WKReplayInputDispatchMethods.cpp:
++        (WebKit::HandleScroll::dispatch): Added.
++        * WebProcess/WebPage/WebPage.cpp:
++        (WebKit::WebPage::scroll):
++        (WebKit::WebPage::handleScroll): Added.
++        (WebKit::WebPage::scrollBy):
++        (WebKit::WebPage::setTopContentInset): Deleted.
++        (WebKit::WebPage::viewWillStartLiveResize): Deleted.
++        * WebProcess/WebPage/WebPage.h: Remove logicalScroll as it has no callers.
++        * WebProcess/WebPage/mac/WebPageMac.mm:
++        (WebKit::WebPage::performNonEditingBehaviorForSelector): Pass page by reference.
++
++2015-01-11  Brian J. Burg  <burg@cs.washington.edu>
++
+         Web Replay: capture and dispatch keyboard and wheel inputs in WebPage
+         Need the bug URL (OOPS!).
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Move the capture/dispatch entry point from UserInputBridge to WebPage.
+         Like for mouse events, rearrange code paths so that inputs can be dispatched
+         during replay without sending IPC messages to UIProcess.
+ 
+         * Shared/WebEvent.h:
 diff --git a/Source/WebKit2/WebProcess/Replay/WKInputs.json b/Source/WebKit2/WebProcess/Replay/WKInputs.json
-index c5105ff..75960a1 100644
+index 83213d6..e3ca946 100644
 --- a/Source/WebKit2/WebProcess/Replay/WKInputs.json
 +++ b/Source/WebKit2/WebProcess/Replay/WKInputs.json
 @@ -1,18 +1,38 @@
@@ -317,27 +493,56 @@ index c5105ff..75960a1 100644
                  "enclosing_class": "WebEvent",
                  "flags": ["ENUM"],
                  "values": ["ShiftKey", "ControlKey", "AltKey", "MetaKey", "CapsLockKey"],
+@@ -95,19 +115,28 @@
+         },
+         {
+             "name": "HandleKeyEvent",
+             "description": "A keyboard event is forwarded to the web page.",
+             "queue": "EVENT_LOOP",
+             "members": [
+                 { "name": "keyboardEvent", "type": "WebKeyboardEvent" }
+             ]
+         },
+         {
++            "name": "HandleScroll",
++            "description": "A scroll event is forwarded to the web page.",
++            "queue": "EVENT_LOOP",
++            "members": [
++                { "name": "direction", "type": "ScrollDirection" },
++                { "name": "granularity", "type": "ScrollGranularity"}
++            ]
++        },
++        {
+             "name": "HandleWheelEvent",
+             "description": "A wheel event is forwarded to the web page.",
+             "queue": "EVENT_LOOP",
+             "members": [
+                 { "name": "wheelEvent", "type": "WebWheelEvent" }
+             ]
+         }
+     ]
+ }
 diff --git a/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp b/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp
-index 00668bb..c90e5b7 100644
+index b1a4afc..202540d 100644
 --- a/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp
 +++ b/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp
 @@ -36,18 +36,23 @@ namespace WebKit {
- void HandleKeyEvent::dispatchOnWebPage(WebPage& page)
+ void HandleKeyEvent::dispatch(WebPage& page)
  {
      page.handleKeyEvent(keyboardEvent(), WebPage::ActionSource::Synthetic);
  }
  
- void HandleMouseEvent::dispatchOnWebPage(WebPage& page)
+ void HandleMouseEvent::dispatch(WebPage& page)
  {
      page.handleMouseEvent(mouseEvent(), WebPage::ActionSource::Synthetic);
  }
  
-+void HandleScroll::dispatchOnWebPage(WebPage& page)
++void HandleScroll::dispatch(WebPage& page)
 +{
 +    page.handleScroll(direction(), granularity(), WebPage::ActionSource::Synthetic);
 +}
 +
- void HandleWheelEvent::dispatchOnWebPage(WebPage& page)
+ void HandleWheelEvent::dispatch(WebPage& page)
  {
      page.handleWheelEvent(wheelEvent(), WebPage::ActionSource::Synthetic);
  }
@@ -346,10 +551,10 @@ index 00668bb..c90e5b7 100644
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-index 96d0c48..f5bcdd1 100644
+index 4c1dcd1..2a71d1e 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-@@ -2168,33 +2168,45 @@ void WebPage::touchEvent(const WebTouchEvent& touchEvent)
+@@ -2226,33 +2226,45 @@ void WebPage::touchEvent(const WebTouchEvent& touchEvent)
      send(Messages::WebPageProxy::DidReceiveEvent(static_cast<uint32_t>(touchEvent.type()), handled));
  }
  
@@ -401,10 +606,10 @@ index 96d0c48..f5bcdd1 100644
  
  #if ENABLE(REMOTE_INSPECTOR)
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.h b/Source/WebKit2/WebProcess/WebPage/WebPage.h
-index 3798283..ed8dbb1 100644
+index 53aa57b..b254a22 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.h
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.h
-@@ -844,20 +844,21 @@ public:
+@@ -867,20 +867,21 @@ public:
      // Synthetic actions are simulated during web replay.
      enum class ActionSource {
          User,
@@ -426,7 +631,7 @@ index 3798283..ed8dbb1 100644
  
      void platformInitialize();
      void platformDetach();
-@@ -929,22 +930,21 @@ private:
+@@ -955,22 +956,21 @@ private:
  #if ENABLE(IOS_TOUCH_EVENTS)
      void touchEventSync(const WebTouchEvent&, bool& handled);
  #elif ENABLE(TOUCH_EVENTS)
@@ -451,10 +656,10 @@ index 3798283..ed8dbb1 100644
  #endif
  
 diff --git a/Source/WebKit2/WebProcess/WebPage/mac/WebPageMac.mm b/Source/WebKit2/WebProcess/WebPage/mac/WebPageMac.mm
-index 02ae36d..ed60c31 100644
+index ac41eae..83b63f9 100644
 --- a/Source/WebKit2/WebProcess/WebPage/mac/WebPageMac.mm
 +++ b/Source/WebKit2/WebProcess/WebPage/mac/WebPageMac.mm
-@@ -652,43 +652,43 @@ bool WebPage::performNonEditingBehaviorForSelector(const String& selector, Keybo
+@@ -571,43 +571,43 @@ bool WebPage::performNonEditingBehaviorForSelector(const String& selector, Keybo
      frame->eventHandler().handleKeyboardSelectionMovementForAccessibility(event);
      if (event->defaultHandled())
          return true;

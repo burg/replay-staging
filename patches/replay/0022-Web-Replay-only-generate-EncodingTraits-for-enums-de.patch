@@ -1,4 +1,4 @@
-From 22512f215bdce43423a40d03240ae526b3753b1d Mon Sep 17 00:00:00 2001
+From bff1b39c2f8161d5e28649f3fb4794b50506ec2a Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 27 Aug 2014 14:45:59 -0700
 Subject: [PATCH] Web Replay: only generate EncodingTraits for enums defined in
@@ -30,17 +30,17 @@ Covered by existing generator tests.
 * WebCore.exp.in:
 * replay/WebInputs.json:
 ---
- Source/JavaScriptCore/ChangeLog                    | 19 +++++++++++++++
- Source/JavaScriptCore/replay/JSInputs.json         |  9 ++++++++
- .../replay/scripts/CodeGeneratorReplayInputs.py    | 27 ++++++++++++++++++----
- .../scripts/CodeGeneratorReplayInputsTemplates.py  | 24 +++++++++----------
- Source/WebCore/ChangeLog                           | 15 ++++++++++++
- Source/WebCore/WebCore.exp.in                      |  4 ++++
- Source/WebCore/replay/WebInputs.json               | 16 ++++++-------
- 7 files changed, 90 insertions(+), 24 deletions(-)
+ Source/JavaScriptCore/ChangeLog                    | 19 ++++++++++++++
+ Source/JavaScriptCore/replay/JSInputs.json         |  9 +++++++
+ .../replay/scripts/CodeGeneratorReplayInputs.py    | 27 +++++++++++++++++---
+ .../scripts/CodeGeneratorReplayInputsTemplates.py  | 24 +++++++++---------
+ Source/WebCore/ChangeLog                           | 15 +++++++++++
+ Source/WebCore/WebCore.exp.in                      |  4 +++
+ Source/WebCore/replay/WebInputs.json               | 29 ++++++++++++++++++++++
+ 7 files changed, 111 insertions(+), 16 deletions(-)
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index c106c06..66797ba 100644
+index 317b76b..b5da802 100644
 --- a/Source/JavaScriptCore/ChangeLog
 +++ b/Source/JavaScriptCore/ChangeLog
 @@ -1,10 +1,29 @@
@@ -63,16 +63,16 @@ index c106c06..66797ba 100644
 +        (Generator.generate_enum_trait_implementation): add WEBCORE_EXPORT macro to enum encoding traits.
 +        * replay/scripts/CodeGeneratorReplayInputsTemplates.py:
 +
- 2014-08-20  Brian J. Burg  <burg@cs.washington.edu>
+ 2015-01-09  Brian J. Burg  <burg@cs.washington.edu>
  
-         Web Replay: Use framework prefixes for framework-specific replay input code
+         Web Replay: add support for dispatching inputs with Page or WebPage context
          Need the bug URL (OOPS!).
  
          Reviewed by NOBODY (OOPS!).
  
-         Rename SerializationMethods to ReplayInputCoders to match WebKit2 naming schemes.
- 
-         * replay/scripts/CodeGeneratorReplayInputs.py:
+         Update the inputs code generator to change dispatch() argument based on the
+         framework the input is from. WebKit framework inputs have the base class of
+         WebEventLoopInput.
 diff --git a/Source/JavaScriptCore/replay/JSInputs.json b/Source/JavaScriptCore/replay/JSInputs.json
 index 7394d94..8419170 100644
 --- a/Source/JavaScriptCore/replay/JSInputs.json
@@ -103,7 +103,7 @@ index 7394d94..8419170 100644
              "members": [
                  { "name": "currentTime", "type": "double" }
 diff --git a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
-index a159ab4..aeaa560 100644
+index 3bdc070..6bfe7e1 100644
 --- a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
 +++ b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
 @@ -44,20 +44,23 @@ GLOBAL_CONFIG = {
@@ -373,7 +373,7 @@ index 8de7bf6..be00981 100644
  
      return true;
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 1b6b729..04a5bff 100644
+index e1d49c5..75934e3 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,25 @@
@@ -392,21 +392,21 @@ index 1b6b729..04a5bff 100644
 +        * WebCore.exp.in:
 +        * replay/WebInputs.json:
 +
- 2014-08-20  Brian J. Burg  <burg@cs.washington.edu>
+ 2015-01-11  Brian J. Burg  <burg@cs.washington.edu>
  
-         Web Replay: Encode replay inputs through ReplayClient
+         Web Replay: capture and dispatch navigation inputs from WebPage
          Need the bug URL (OOPS!).
  
          Reviewed by NOBODY (OOPS!).
  
-         Only WebKit2 can access all possible replay inputs, so it should contain
-         the big function with cases to encode each input based on its type tag.
+         Finish moving interception methods from UserInputBridge into WebPage
+         Remove UserinputBridge accessors and state changes.
  
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index b32f998..69d2417 100644
+index 1a746e4..9b3fff6 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -3531,22 +3531,26 @@ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE4typeEv
+@@ -3554,22 +3554,26 @@ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE4typeEv
@@ -434,57 +434,49 @@ index b32f998..69d2417 100644
  __ZNK7WebCore14ResourceLoader17activeInputCursorEv
  __ZNK7WebCore16ReplayController17activeInputCursorEv
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
-index 5c9af24..2b005d2 100644
+index d4f3b34..19bcbde 100644
 --- a/Source/WebCore/replay/WebInputs.json
 +++ b/Source/WebCore/replay/WebInputs.json
-@@ -105,20 +105,28 @@
-                 "flags": ["ENUM"],
-                 "values": [
-                     "UseProtocolCachePolicy",
-                     "ReloadIgnoringCacheData",
-                     "ReturnCacheDataElseLoad",
-                     "ReturnCacheDataDontLoad"
-                 ],
-                 "header": "platform/network/ResourceRequest.h"
+@@ -79,20 +79,49 @@
              },
              {
-+                "name": "ResourceError", "mode": "OWNED",
-+                "header": "platform/network/ResourceError.h"
+                 "name": "ResourceError", "mode": "OWNED",
+                 "header": "platform/network/ResourceError.h"
+             },
+             {
+                 "name": "ResourceResponse", "mode": "OWNED",
+                 "header": "platform/network/ResourceResponse.h"
+             },
+             {
++                "name": "ScrollDirection", "mode": "SCALAR", "storage": "uint8_t",
++                "flags": ["ENUM"],
++                "values": ["ScrollUp", "ScrollDown", "ScrollLeft", "ScrollRight"],
++                "header": "platform/ScrollTypes.h"
 +            },
 +            {
-+                "name": "ResourceResponse", "mode": "OWNED",
-+                "header": "platform/network/ResourceResponse.h"
++                "name": "ScrollGranularity", "mode": "SCALAR", "storage": "uint8_t",
++                "flags": ["ENUM"],
++                "values": [
++                    "ScrollByLine",
++                    "ScrollByPage",
++                    "ScrollByDocument",
++                    "ScrollByPixel",
++                    "ScrollByPrecisePixel"
++                ],
++                "header": "platform/ScrollTypes.h"
 +            },
 +            {
-                 "name": "ScrollDirection", "mode": "SCALAR", "storage": "uint8_t",
-                 "flags": ["ENUM"],
-                 "values": ["ScrollUp", "ScrollDown", "ScrollLeft", "ScrollRight"],
-                 "header": "platform/ScrollTypes.h"
-             },
-             {
-                 "name": "ScrollGranularity", "mode": "SCALAR", "storage": "uint8_t",
-                 "flags": ["ENUM"],
-                 "values": [
-                     "ScrollByLine",
-@@ -134,28 +142,20 @@
-                 "flags": ["ENUM"],
-                 "values": [
-                     "ScrollBlockDirectionBackward",
-                     "ScrollBlockDirectionForward",
-                     "ScrollInlineDirectionBackward",
-                     "ScrollInlineDirectionForward"
-                 ],
-                 "header": "platform/ScrollTypes.h"
-             },
-             {
--                "name": "ResourceError", "mode": "OWNED",
--                "header": "platform/network/ResourceError.h"
--            },
--            {
--                "name": "ResourceResponse", "mode": "OWNED",
--                "header": "platform/network/ResourceResponse.h"
--            },
--            {
++                "name": "ScrollLogicalDirection", "mode": "SCALAR", "storage": "uint8_t",
++                "flags": ["ENUM"],
++                "values": [
++                    "ScrollBlockDirectionBackward",
++                    "ScrollBlockDirectionForward",
++                    "ScrollInlineDirectionBackward",
++                    "ScrollInlineDirectionForward"
++                ],
++                "header": "platform/ScrollTypes.h"
++            },
++            {
                  "name": "SecurityOrigin", "mode": "SHARED",
                  "header": "page/SecurityOrigin.h"
              },

@@ -1,11 +1,10 @@
-From 46e88a88e5c816db111a9d53e6a016ec2b47f45f Mon Sep 17 00:00:00 2001
+From dfd82a4461e57705211a5fdd1ff2e26405d2e5a3 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Sat, 20 Sep 2014 23:46:25 -0700
 Subject: [PATCH] Port the replay-aware probe tables and relevant data grid
  changes.
 
 ---
- Source/WebInspectorUI/UserInterface/Base/Main.js   |  2 -
  .../UserInterface/Controllers/ReplayManager.js     |  2 +-
  Source/WebInspectorUI/UserInterface/Main.html      |  2 +
  .../UserInterface/Models/ProbeSet.js               | 67 +++++++++++++---
@@ -18,41 +17,10 @@ Subject: [PATCH] Port the replay-aware probe tables and relevant data grid
  .../UserInterface/Views/ProbeSetDataGrid.css       |  5 ++
  .../UserInterface/Views/ProbeSetDataGrid.js        | 59 +++++++++++---
  .../UserInterface/Views/ProbeSetDataGridNode.js    |  2 +-
- 13 files changed, 246 insertions(+), 82 deletions(-)
+ 12 files changed, 246 insertions(+), 80 deletions(-)
  copy Source/WebInspectorUI/UserInterface/Models/{ProbeSetDataFrame.js => ProbeSetReplayDataFrame.js} (51%)
  create mode 100644 Source/WebInspectorUI/UserInterface/Models/ProbeSetReplayDataTable.js
 
-diff --git a/Source/WebInspectorUI/UserInterface/Base/Main.js b/Source/WebInspectorUI/UserInterface/Base/Main.js
-index 3aad79a..2b52a70 100644
---- a/Source/WebInspectorUI/UserInterface/Base/Main.js
-+++ b/Source/WebInspectorUI/UserInterface/Base/Main.js
-@@ -742,26 +742,24 @@ WebInspector._dragOver = function(event)
- 
-     // Allow dropping into editable areas.
-     if (WebInspector.isEventTargetAnEditableField(event))
-         return;
- 
-     // Prevent the drop from being accepted.
-     event.dataTransfer.dropEffect = "none";
-     event.preventDefault();
- }
- 
--/*
- WebInspector._captureDidStart = function(event)
- {
-     this.dashboardContainer.showDashboardViewForRepresentedObject(this.dashboardManager.dashboards.replay);
- }
--*/
- 
- WebInspector._debuggerDidPause = function(event)
- {
-     this.debuggerSidebarPanel.show();
-     this.dashboardContainer.showDashboardViewForRepresentedObject(this.dashboardManager.dashboards.debugger);
- 
-     // Since the Scope Chain details sidebar panel might not be in the sidebar yet,
-     // set a flag to select and show it when it does become available.
-     this._selectAndShowScopeChainDetailsSidebarPanelWhenAvailable = true;
- 
 diff --git a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
 index be7faa9..884df35 100644
 --- a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
@@ -81,10 +49,10 @@ index be7faa9..884df35 100644
  
      // These return promises even if the relevant instance is already created.
 diff --git a/Source/WebInspectorUI/UserInterface/Main.html b/Source/WebInspectorUI/UserInterface/Main.html
-index 2b82171..89442f0 100644
+index 732f31e..fbe00de 100644
 --- a/Source/WebInspectorUI/UserInterface/Main.html
 +++ b/Source/WebInspectorUI/UserInterface/Main.html
-@@ -238,21 +238,23 @@
+@@ -241,21 +241,23 @@
      <script src="Models/IndexedDatabaseObjectStoreIndex.js"></script>
      <script src="Models/IssueMessage.js"></script>
      <script src="Models/KeyboardShortcut.js"></script>
@@ -107,7 +75,7 @@ index 2b82171..89442f0 100644
      <script src="Models/ReplaySessionSegment.js"></script>
      <script src="Models/Resource.js"></script>
      <script src="Models/ResourceCollection.js"></script>
-     <script src="Models/ResourceSearchMatchObject.js"></script>
+     <script src="Models/ResourceTimelineRecord.js"></script>
 diff --git a/Source/WebInspectorUI/UserInterface/Models/ProbeSet.js b/Source/WebInspectorUI/UserInterface/Models/ProbeSet.js
 index edaf77e..769bec4 100644
 --- a/Source/WebInspectorUI/UserInterface/Models/ProbeSet.js

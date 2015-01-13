@@ -1,4 +1,4 @@
-From ab4c1b345fc53eac60d6103d7abc39ec307d95f4 Mon Sep 17 00:00:00 2001
+From f68844ad67408709eb0f073e4a127b5d41424063 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 11:45:23 -0700
 Subject: [PATCH] Source/WebCore: [WIP] Web Replay: capture and replay Reload,
@@ -101,7 +101,7 @@ an enum with uint64_t-sized storage rather than int.
  12 files changed, 511 insertions(+), 9 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index a51cc95..14ff344 100644
+index d55c8a0..919e711 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,83 @@
@@ -216,10 +216,10 @@ index 81e3f65..e665e7a 100644
  
  }
 diff --git a/Source/WebCore/loader/cache/CachedResourceLoader.cpp b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
-index e6e8a0a..958e0c2 100644
+index 0d3f666..66a9c39 100644
 --- a/Source/WebCore/loader/cache/CachedResourceLoader.cpp
 +++ b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
-@@ -414,21 +414,21 @@ bool CachedResourceLoader::shouldContinueAfterNotifyingLoadedFromMemoryCache(con
+@@ -435,21 +435,21 @@ bool CachedResourceLoader::shouldContinueAfterNotifyingLoadedFromMemoryCache(con
      
      // FIXME <http://webkit.org/b/113251>: If the delegate modifies the request's
      // URL, it is no longer appropriate to use this CachedResource.
@@ -243,10 +243,10 @@ index e6e8a0a..958e0c2 100644
          return 0;
  
 diff --git a/Source/WebCore/platform/network/FormData.h b/Source/WebCore/platform/network/FormData.h
-index c5e7f0f..f07f358 100644
+index 2dd07b1..88bd311 100644
 --- a/Source/WebCore/platform/network/FormData.h
 +++ b/Source/WebCore/platform/network/FormData.h
-@@ -245,28 +245,30 @@ public:
+@@ -246,28 +246,30 @@ public:
      static EncodingType parseEncodingType(const String& type)
      {
          if (equalIgnoringCase(type, "text/plain"))
@@ -306,7 +306,7 @@ index 5a7104f..94e722e 100644
      ResourceLoadPriorityHighest = ResourceLoadPriorityVeryHigh,
  };
 diff --git a/Source/WebCore/platform/network/ResourceRequestBase.h b/Source/WebCore/platform/network/ResourceRequestBase.h
-index c2c134e..268898d 100644
+index 3f89ebe..0850c65 100644
 --- a/Source/WebCore/platform/network/ResourceRequestBase.h
 +++ b/Source/WebCore/platform/network/ResourceRequestBase.h
 @@ -28,21 +28,21 @@
@@ -384,10 +384,10 @@ index 97daede..cd67cf0 100644
      if (m_scrollbarTargeted)
          controller.page().userInputBridge().handleMouseMoveOnScrollbarEvent(platformEvent(), InputSource::Synthetic);
 diff --git a/Source/WebCore/replay/SerializationMethods.cpp b/Source/WebCore/replay/SerializationMethods.cpp
-index 92648d2..781ce35 100644
+index 8f166fd..83e1913 100644
 --- a/Source/WebCore/replay/SerializationMethods.cpp
 +++ b/Source/WebCore/replay/SerializationMethods.cpp
-@@ -25,54 +25,65 @@
+@@ -25,53 +25,64 @@
   * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   */
  
@@ -409,7 +409,6 @@ index 92648d2..781ce35 100644
  #include "PlatformMouseEvent.h"
  #include "PlatformWheelEvent.h"
  #include "PluginData.h"
- #include "ReplayInputTypes.h"
  #include "ResourceError.h"
  #include "ResourceLoadTiming.h"
 +#include "ResourceRequest.h"
@@ -453,7 +452,7 @@ index 92648d2..781ce35 100644
  #define IMPORT_FROM_WEBCORE_NAMESPACE(name) \
  using WebCore::name; \
  
-@@ -141,20 +152,134 @@ Frame* frameFromFrameIndex(Page* page, uint32_t frameIndex)
+@@ -140,20 +151,134 @@ Frame* frameFromFrameIndex(Page* page, uint32_t frameIndex)
  
  #define DECODE_OPTIONAL_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _lvalue) \
      bool _key ## WasDecoded = _encodedValue.get<_type>(ASCIILiteral(#_key), _lvalue)
@@ -588,7 +587,7 @@ index 92648d2..781ce35 100644
          encodedKeys.append<String>(it->key);
          encodedValues.append<String>(it->value);
      }
-@@ -598,20 +723,92 @@ bool EncodingTraits<ResourceLoadTiming>::decodeValue(EncodedValue& encodedData,
+@@ -597,20 +722,92 @@ bool EncodingTraits<ResourceLoadTiming>::decodeValue(EncodedValue& encodedData,
      DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, int, connectStart, timingData.connectStart);
      DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, int, connectEnd, timingData.connectEnd);
      DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, int, requestStart, timingData.requestStart);
@@ -681,7 +680,7 @@ index 92648d2..781ce35 100644
      ENCODE_TYPE_WITH_KEY(encodedData, String, textEncodingName, response.textEncodingName());
      ENCODE_TYPE_WITH_KEY(encodedData, int, httpStatusCode, response.httpStatusCode());
      ENCODE_TYPE_WITH_KEY(encodedData, String, httpStatusText, response.httpStatusText());
-@@ -676,20 +873,50 @@ EncodedValue EncodingTraits<SharedBuffer>::encodeValue(RefPtr<SharedBuffer> buff
+@@ -675,20 +872,50 @@ EncodedValue EncodingTraits<SharedBuffer>::encodeValue(RefPtr<SharedBuffer> buff
  bool EncodingTraits<SharedBuffer>::decodeValue(EncodedValue& encodedBuffer, RefPtr<SharedBuffer>& decodedBuffer)
  {
      Vector<char, 0> data;
@@ -1138,7 +1137,7 @@ index 1dfa9be..6a63171 100644
      ]
  }
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 811ee78..e8fa645 100644
+index 6ab85fa..4fd0231 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,25 @@

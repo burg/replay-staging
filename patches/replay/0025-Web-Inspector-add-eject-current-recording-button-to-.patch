@@ -1,4 +1,4 @@
-From 5749c961cfe4cb98b6d130acb1a59db5bc89fa10 Mon Sep 17 00:00:00 2001
+From 5399d1d2294c39dd8c96f10cf775685f07cf7f79 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Mon, 11 Aug 2014 23:52:17 -0700
 Subject: [PATCH] Web Inspector: add eject current recording button to the
@@ -48,7 +48,7 @@ This will be replaced soon with a mini-timeline content view.
  Source/WebCore/inspector/InspectorReplayAgent.cpp  |   7 +++
  Source/WebCore/inspector/InspectorReplayAgent.h    |   1 +
  Source/WebInspectorUI/ChangeLog                    |  32 ++++++++++++++
- .../Localizations/en.lproj/localizedStrings.js     | Bin 54104 -> 54218 bytes
+ .../Localizations/en.lproj/localizedStrings.js     | Bin 54644 -> 54758 bytes
  .../UserInterface/Controllers/ReplayManager.js     |  33 ++++++++++++++
  .../UserInterface/Images/ReplayEjectButton.svg     |   8 ++++
  .../UserInterface/Views/ReplayDashboardView.css    |  13 ++++++
@@ -89,7 +89,7 @@ index 7bc26bd..b39111c 100644
              "description": "Splices the specified session segment into the session at the specified index.",
              "parameters": [
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index df5d661..dd89a0c 100644
+index 57eb7dc..a7dc3a6 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,25 @@
@@ -119,10 +119,10 @@ index df5d661..dd89a0c 100644
  
          * WebCore.exp.in:
 diff --git a/Source/WebCore/inspector/InspectorReplayAgent.cpp b/Source/WebCore/inspector/InspectorReplayAgent.cpp
-index f1b5b9c..3917468 100644
+index 0f77c9a..16e339c 100644
 --- a/Source/WebCore/inspector/InspectorReplayAgent.cpp
 +++ b/Source/WebCore/inspector/InspectorReplayAgent.cpp
-@@ -381,20 +381,27 @@ void InspectorReplayAgent::pausePlayback(ErrorString& errorString)
+@@ -377,20 +377,27 @@ void InspectorReplayAgent::pausePlayback(ErrorString& errorString)
  void InspectorReplayAgent::cancelPlayback(ErrorString& errorString)
  {
      if (sessionState() == WebCore::SessionState::Capturing) {
@@ -151,7 +151,7 @@ index f1b5b9c..3917468 100644
  
      RefPtr<ReplaySession> session = findSession(errorString, identifier);
 diff --git a/Source/WebCore/inspector/InspectorReplayAgent.h b/Source/WebCore/inspector/InspectorReplayAgent.h
-index 5ae3984..1b732df 100644
+index e1ca544..ed2b94c 100644
 --- a/Source/WebCore/inspector/InspectorReplayAgent.h
 +++ b/Source/WebCore/inspector/InspectorReplayAgent.h
 @@ -93,20 +93,21 @@ public:
@@ -160,7 +160,7 @@ index 5ae3984..1b732df 100644
      virtual void startCapturing(ErrorString&) override;
      virtual void stopCapturing(ErrorString&) override;
  
-     virtual void replayToPosition(ErrorString&, const RefPtr<Inspector::InspectorObject>&, bool shouldFastForward) override;
+     virtual void replayToPosition(ErrorString&, const RefPtr<Inspector::InspectorObject>&&, bool shouldFastForward) override;
      virtual void replayToCompletion(ErrorString&, bool shouldFastForward) override;
      virtual void pausePlayback(ErrorString&) override;
      virtual void cancelPlayback(ErrorString&) override;
@@ -177,7 +177,7 @@ index 5ae3984..1b732df 100644
  
  private:
 diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
-index 963b796..9b6a509 100644
+index bc7ed4c..a67cd44 100644
 --- a/Source/WebInspectorUI/ChangeLog
 +++ b/Source/WebInspectorUI/ChangeLog
 @@ -1,10 +1,42 @@
@@ -213,32 +213,35 @@ index 963b796..9b6a509 100644
 +        (WebInspector.ReplayDashboardView.prototype._playbackFinished):
 +        (WebInspector.ReplayDashboardView.prototype._activeSessionChanged):
 +
- 2014-10-10 Brian J. Burg  <burg@cs.washington.edu>
+ 2015-01-08  Joseph Pecoraro  <pecoraro@apple.com>
  
-         Web Inspector: timelines should not count time elapsed while paused in the debugger
-         https://bugs.webkit.org/show_bug.cgi?id=136351
+         Web Inspector: Expected UserAgent styles to be crossed-out if overridden
+         https://bugs.webkit.org/show_bug.cgi?id=140154
  
          Reviewed by Timothy Hatcher.
  
-         Don't update the timeline's current time when the debugger is paused.
- 
-         Start and end times for timeline records are now in seconds elapsed since timeline
+         * UserInterface/Models/DOMNodeStyles.js:
+         (WebInspector.DOMNodeStyles.prototype._parseStylePropertyPayload):
+         Add a comment about anonymous styles. The getter is no longer used, and it is not
 diff --git a/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js b/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js
-index 806034bfd7db4eb2b47ccf97fca3dfc838277c72..f334336145c97a1dabbcae90dd0a1c6532b10e1b 100644
+index 26b00d3c3e0d4808e8fb0321ced0dfb7050fb0da..10c78fa5f5ec21ee53694d3a607f6d884cb29820 100644
 GIT binary patch
-delta 413
-zcmcbyjQP}ZX3qcr$`}$EiWn3oZcyB)oh!u2AfuqlP|P5!FnOU+GJ?06SJ+;UnL$lq
-zvcIDynBM5DGkLk=afA|}j2H)8_eN)n$!DG1*s~Z?8Il=FCj0FbpZtFo7pE%&Ld1UZ
-zekZ=o^3IPrnSs_$uJ(0g23cGfsE@+m=;sUO^ZS{i$iw(Bc}9O>6nPjQE*~I^Di7tu
-z<O>7jQRHEKn7nzQIf^`tztPWa^87Hi$<aYVo2`TL^O1t&<3W|l*AEIJL^gjs$cV(9
-UY<O8^@_lVCM7SAVR%c`Y03X<A3;+NC
+delta 539
+zcmeyeiuu`UX3qcr$`}$EiWn3oZcyB)oh!u2AfuqlP|P5!FnOU+GJ?06S2$RonL$lq
+z@<&Ip$-Yj)VD?3SoyohMjw6(TWI5m_T=ch?933Gwd2WObYZgN)L-OPUdn6~X-^0c3
+z$^hd#PJZtqFuB{sX7YY7sm<Lk-JHxoCrs}5b7TfNBGwORD-!=>klSQ`Hx4GCP_Mr!
+ziV_$fszgFYA&DUeXlour3WF{~E<-+$PKBB&2{aRjEL6Laj6wlWOEE(xLkSS)1C6m_
+zP+&*{vMYebq(BW)1{y?A9g?GO2Fjy28pcOb;vHm;q6Es{{4pp#gPFlYX>#yxS1_Gl
+zZLs<D?%(W4!GHd+DGE<zvZ$%X<o!oECbJ%$G}-eE&*uL}_yv%Z1nQ_vK0Tca5oduq
+F8UW++kr@C0
 
-delta 443
-zcmX@LocYEwX0Ct#8Oj(E8HyMbCO5JwZq&*Z;#81fP-Q4qkY$*>Kqwi(+sq?uug9#Q
-z#xU8>QIknQZL*?^?qmZ;j>+pB_p8D6C^5t`C@|Opu@ZwTLkdGCLkWWdOctoca`G7`
-zx5*#e_$I$_w%L5nc_}9|P<HYgUq@z;jSd0&D0~AyUogMH&lE)-#s|tv0`(^`<S?W%
-z<N@u|Wyod72hyof)9}c`%vK1HMKK%3N63pz_6p=iQ-ctLsap|fj-m#}H}G?tED+8%
-o`Am?|<~2e2`G_E$ta8W{g{QK)?a*BTB%z$kx+pvqW@`p601@qGfdBvi
+delta 506
+zcmaF1n)%BrX0Ct#8Oj(E8HyMbCO5JwZq&*Z;#81fP-Q4qkY$*>Kqwi(+sq>ztk0yN
+zHu=4y_+%d^VGz?XKzH&kr{f$jEkHRj1jjMJa`FRbx5)->e3SpU*i1I?mfHNsrJIu(
+zsC<&YBQwZ~bAI~B+?*g^5O?xFe^X>>I3Fl436xJ_$YDrj$YV%h&}GPF$OqD?P{Z)Z
+z0`)2b^%elt7c*oslmKx)&<raE1%@;ry8>up3e*&$)WO{96(o=1Ru~^B&!iwT+0j#Y
+z^0^>Ym=biMoFKQ!8$#J8KL{4ud?1)HgIURgVe*mPu1rcElkZm>PVU>yw%KXVS9U~1
+pOm;Y8io#Qw%yQgda@o;IlT^4i=N%OkKtzGRj_PEa8Jx%h8US_zgPs5Y
 
 diff --git a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
 index 6994bc0..d3f562e 100644

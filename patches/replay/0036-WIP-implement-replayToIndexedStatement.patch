@@ -1,4 +1,4 @@
-From 3690386aa65c781a52aa413eb1ac8b7c56169467 Mon Sep 17 00:00:00 2001
+From 85544356c260fb0630be6842c65ad0595f7edd5f Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Sun, 21 Sep 2014 16:52:07 -0700
 Subject: [PATCH] WIP: implement replayToIndexedStatement

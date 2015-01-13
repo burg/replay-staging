@@ -1,7 +1,7 @@
-From 2ba51e868dc144932b3ce60eb364cd820aaa562b Mon Sep 17 00:00:00 2001
+From 8ad834b51241ee4785118ad27a69556d54a9fef4 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 16 Jul 2014 14:58:22 -0700
-Subject: [PATCH] Web Replay: DOM Timers should be created and fired
+Subject: [PATCH] [WIP] Web Replay: DOM Timers should be created and fired
  deterministically Need the bug URL (OOPS!).
 
 Reviewed by NOBODY (OOPS!).
@@ -27,9 +27,11 @@ WIP NOTE: ideally, we would not need to use subclasses, and DOMTimer would inher
 from ReplayableTimer rather than SuspendableTimer. This patch may be rewritten
 when ReplayableTimer is able to support SuspendableTimer operations.
 
-WIP NOTE: this functionality needs tests
-
 No new tests (OOPS!).
+
+[TEST STRATEGY]
+ * Create and fire multiple DOM timers.
+ * Test that timer does not fire if playback is paused.
 
 * page/DOMTimer.cpp:
 (WebCore::InstrumentedDOMTimer::~InstrumentedDOMTimer): Added.
@@ -51,18 +53,18 @@ Move the singleShot parameter to DOMTimer::start since it isn't used here now.
 (WebCore::DOMTimerFired::dispatch): Added.
 * replay/WebInputs.json: Add DOMTimerFired and DOMTimerCreated.
 ---
- Source/WebCore/ChangeLog                           |  52 ++++++++
- Source/WebCore/page/DOMTimer.cpp                   | 138 +++++++++++++++++++--
- Source/WebCore/page/DOMTimer.h                     |  20 ++-
+ Source/WebCore/ChangeLog                           |  54 ++++++++
+ Source/WebCore/page/DOMTimer.cpp                   | 136 +++++++++++++++++++--
+ Source/WebCore/page/DOMTimer.h                     |  19 ++-
  .../WebCore/replay/ReplayInputDispatchMethods.cpp  |  11 ++
  Source/WebCore/replay/WebInputs.json               |  18 +++
- 5 files changed, 225 insertions(+), 14 deletions(-)
+ 5 files changed, 224 insertions(+), 14 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 759f80a..4890f5f 100644
+index fdcfe64..a68da95 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
-@@ -1,10 +1,62 @@
+@@ -1,10 +1,64 @@
 +2014-07-16  Brian J. Burg  <burg@cs.washington.edu>
 +
 +        [WIP] Web Replay: DOM Timers should be created and fired deterministically
@@ -91,9 +93,11 @@ index 759f80a..4890f5f 100644
 +        from ReplayableTimer rather than SuspendableTimer. This patch may be rewritten
 +        when ReplayableTimer is able to support SuspendableTimer operations.
 +
-+        WIP NOTE: this functionality needs tests
-+
 +        No new tests (OOPS!).
++
++        [TEST STRATEGY]
++         * Create and fire multiple DOM timers.
++         * Test that timer does not fire if playback is paused.
 +
 +        * page/DOMTimer.cpp:
 +        (WebCore::InstrumentedDOMTimer::~InstrumentedDOMTimer): Added.
@@ -126,17 +130,17 @@ index 759f80a..4890f5f 100644
          the contents of the back-forward list at each main frame navigation.
          This can be done before the initial navigation that's kicked off when
 diff --git a/Source/WebCore/page/DOMTimer.cpp b/Source/WebCore/page/DOMTimer.cpp
-index 34b5c35..f7b6360 100644
+index 02ebdac..9721e24 100644
 --- a/Source/WebCore/page/DOMTimer.cpp
 +++ b/Source/WebCore/page/DOMTimer.cpp
-@@ -38,20 +38,26 @@
+@@ -43,20 +43,26 @@
+ #include <wtf/NeverDestroyed.h>
  #include <wtf/StdLibExtras.h>
  
  #if PLATFORM(IOS)
  #include "Chrome.h"
  #include "ChromeClient.h"
  #include "Frame.h"
- #include "Page.h"
  #include "WKContentObservation.h"
  #endif
  
@@ -149,16 +153,16 @@ index 34b5c35..f7b6360 100644
  namespace WebCore {
  
  static const int maxIntervalForUserGestureForwarding = 1000; // One second matches Gecko.
- static const int minIntervalForNonUserObservablePluginScriptTimers = 1000; // Empirically determined to maximize battery life.
+ static const int minIntervalForNonUserObservableChangeTimers = 1000; // Empirically determined to maximize battery life.
  static const int maxTimerNestingLevel = 5;
  static const double oneMillisecond = 0.001;
  
- struct DOMTimerFireState {
-     DOMTimerFireState(ScriptExecutionContext* context)
-         : scriptDidInteractWithNonUserObservablePlugin(false)
-@@ -84,59 +90,173 @@ private:
+ class DOMTimerFireState {
+ public:
+     explicit DOMTimerFireState(ScriptExecutionContext& context)
+@@ -176,67 +182,179 @@ private:
  
- DOMTimerFireState* DOMTimerFireState::current = nullptr;
+ bool NestedTimersMap::isTrackingNestedTimers = false;
  
  static inline bool shouldForwardUserGesture(int interval, int nestingLevel)
  {
@@ -167,11 +171,11 @@ index 34b5c35..f7b6360 100644
          && !nestingLevel; // Gestures should not be forwarded to nested timers.
  }
  
--DOMTimer::DOMTimer(ScriptExecutionContext* context, std::unique_ptr<ScheduledAction> action, int interval, bool singleShot)
+-DOMTimer::DOMTimer(ScriptExecutionContext& context, std::unique_ptr<ScheduledAction> action, int interval, bool singleShot)
 +#if ENABLE(WEB_REPLAY)
 +class InstrumentedDOMTimer final : public DOMTimer {
 +public:
-+    InstrumentedDOMTimer(ScriptExecutionContext*, std::unique_ptr<ScheduledAction>, int originalInterval);
++    InstrumentedDOMTimer(ScriptExecutionContext&, std::unique_ptr<ScheduledAction>, int originalInterval);
 +    virtual ~InstrumentedDOMTimer() { }
 +protected:
 +    virtual void start(bool singleShot) override;
@@ -180,13 +184,13 @@ index 34b5c35..f7b6360 100644
 +
 +class DeterministicDOMTimer final : public DOMTimer {
 +public:
-+    DeterministicDOMTimer(ScriptExecutionContext*, std::unique_ptr<ScheduledAction>, int originalInterval);
++    DeterministicDOMTimer(ScriptExecutionContext&, std::unique_ptr<ScheduledAction>, int originalInterval);
 +    virtual ~DeterministicDOMTimer() { }
 +protected:
 +    virtual void start(bool singleShot) override;
 +};
 +
-+InstrumentedDOMTimer::InstrumentedDOMTimer(ScriptExecutionContext* context, std::unique_ptr<ScheduledAction> action, int originalInterval)
++InstrumentedDOMTimer::InstrumentedDOMTimer(ScriptExecutionContext& context, std::unique_ptr<ScheduledAction> action, int originalInterval)
 +    : DOMTimer(context, WTF::move(action), originalInterval)
 +{
 +}
@@ -228,7 +232,7 @@ index 34b5c35..f7b6360 100644
 +    DOMTimer::fired();
 +}
 +
-+DeterministicDOMTimer::DeterministicDOMTimer(ScriptExecutionContext* context, std::unique_ptr<ScheduledAction> action, int originalInterval)
++DeterministicDOMTimer::DeterministicDOMTimer(ScriptExecutionContext& context, std::unique_ptr<ScheduledAction> action, int originalInterval)
 +    : DOMTimer(context, WTF::move(action), originalInterval)
 +{
 +    // override the default behavior set in DOMTimer constructor.
@@ -261,11 +265,9 @@ index 34b5c35..f7b6360 100644
 +}
 +#endif // ENABLE(WEB_REPLAY)
 +
-+DOMTimer::DOMTimer(ScriptExecutionContext* context, std::unique_ptr<ScheduledAction> action, int interval)
++DOMTimer::DOMTimer(ScriptExecutionContext& context, std::unique_ptr<ScheduledAction> action, int interval)
      : SuspendableTimer(context)
-+    , m_timeoutId(0)
-+    , m_shouldScheduleNormally(true)
-     , m_nestingLevel(context->timerNestingLevel())
+     , m_nestingLevel(context.timerNestingLevel())
      , m_action(WTF::move(action))
      , m_originalInterval(interval)
      , m_throttleState(Undetermined)
@@ -280,8 +282,8 @@ index 34b5c35..f7b6360 100644
 +    RefPtr<DOMTimer> reference = adoptRef(this);
      // Keep asking for the next id until we're given one that we don't already have.
      do {
--        m_timeoutId = context->circularSequentialID();
--    } while (!context->addTimeout(m_timeoutId, reference));
+-        m_timeoutId = context.circularSequentialID();
+-    } while (!context.addTimeout(m_timeoutId, reference));
 +        m_timeoutId = scriptExecutionContext()->circularSequentialID();
 +    } while (!scriptExecutionContext()->addTimeout(m_timeoutId, reference));
  
@@ -291,7 +293,15 @@ index 34b5c35..f7b6360 100644
          startRepeating(m_currentTimerInterval);
  }
  
- int DOMTimer::install(ScriptExecutionContext* context, std::unique_ptr<ScheduledAction> action, int timeout, bool singleShot)
+ DOMTimer::~DOMTimer()
+ {
+     // If the ScriptExecutionContext has already been destroyed, there is
+     // no need to stop listening for viewport changes.
+     if (scriptExecutionContext() && isIntervalDependentOnViewport())
+         unregisterForViewportChanges();
+ }
+ 
+ int DOMTimer::install(ScriptExecutionContext& context, std::unique_ptr<ScheduledAction> action, int timeout, bool singleShot)
  {
      // DOMTimer constructor passes ownership of the initial ref on the object to the constructor.
      // This reference will be released automatically when a one-shot timer fires, when the context
@@ -301,10 +311,10 @@ index 34b5c35..f7b6360 100644
 +    DOMTimer* timer = nullptr;
 +#if ENABLE(WEB_REPLAY)
 +    do {
-+        if (!context->isDocument())
++        if (!is<Document>(context))
 +            break;
 +
-+        InputCursor& cursor = downcast<Document&>(*context).inputCursor();
++        InputCursor& cursor = downcast<Document&>(context).inputCursor();
 +        if (cursor.isCapturing())
 +            timer = new InstrumentedDOMTimer(context, WTF::move(action), timeout);
 +        if (cursor.isReplaying())
@@ -315,8 +325,8 @@ index 34b5c35..f7b6360 100644
 +    timer = new DOMTimer(context, WTF::move(action), timeout);
 +
  #if PLATFORM(IOS)
-     if (is<Document>(*context)) {
-         Document& document = downcast<Document>(*context);
+     if (is<Document>(context)) {
+         Document& document = downcast<Document>(context);
          bool didDeferTimeout = document.frame() && document.frame()->timersPaused();
          if (!didDeferTimeout && timeout <= 100 && singleShot) {
              WKSetObservedContentChange(WKContentIndeterminateChange);
@@ -327,25 +337,25 @@ index 34b5c35..f7b6360 100644
  
 +    timer->start(singleShot);
      timer->suspendIfNeeded();
-     InspectorInstrumentation::didInstallTimer(context, timer->m_timeoutId, timeout, singleShot);
+     InspectorInstrumentation::didInstallTimer(&context, timer->m_timeoutId, timeout, singleShot);
+ 
+     // Keep track of nested timer installs.
+     if (NestedTimersMap* nestedTimers = NestedTimersMap::instanceForContext(context))
+         nestedTimers->add(timer->m_timeoutId, timer);
  
      return timer->m_timeoutId;
  }
  
- void DOMTimer::removeById(ScriptExecutionContext* context, int timeoutId)
- {
-     // timeout IDs have to be positive, and 0 and -1 are unsafe to
-     // even look up since they are the empty and deleted value
-@@ -181,23 +301,22 @@ void DOMTimer::fired()
-     context->setTimerNestingLevel(std::min(m_nestingLevel + 1, maxTimerNestingLevel));
+@@ -347,23 +465,22 @@ void DOMTimer::fired()
+     context.setTimerNestingLevel(std::min(m_nestingLevel + 1, maxTimerNestingLevel));
  
      ASSERT(!isSuspended());
-     ASSERT(!context->activeDOMObjectsAreSuspended());
+     ASSERT(!context.activeDOMObjectsAreSuspended());
      UserGestureIndicator gestureIndicator(m_shouldForwardUserGesture ? DefinitelyProcessingUserGesture : PossiblyProcessingUserGesture);
      // Only the first execution of a multi-shot timer should get an affirmative user gesture indicator.
      m_shouldForwardUserGesture = false;
  
-     InspectorInstrumentationCookie cookie = InspectorInstrumentation::willFireTimer(context, m_timeoutId);
+     InspectorInstrumentationCookie cookie = InspectorInstrumentation::willFireTimer(&context, m_timeoutId);
  
 -    // Simple case for non-one-shot timers.
      if (isActive()) {
@@ -358,14 +368,14 @@ index 34b5c35..f7b6360 100644
          m_action->execute(context);
  
          InspectorInstrumentation::didFireTimer(cookie);
+         updateThrottlingStateIfNecessary(fireState);
  
-         if (fireState.scriptDidInteractWithUserObservablePlugin && m_throttleState != ShouldNotThrottle) {
-             m_throttleState = ShouldNotThrottle;
-@@ -251,20 +370,23 @@ void DOMTimer::didStop()
-     // Need to release JS objects potentially protected by ScheduledAction
-     // because they can form circular references back to the ScriptExecutionContext
-     // which will cause a memory leak.
-     m_action = nullptr;
+         return;
+@@ -441,20 +558,23 @@ void DOMTimer::unregisterForViewportChanges()
+     if (auto* frameView = downcast<Document>(*scriptExecutionContext()).view())
+         frameView->unregisterThrottledDOMTimer(this);
+ 
+     m_elementsCausingThrottling.clear();
  }
  
  void DOMTimer::updateTimerIntervalIfNecessary()
@@ -378,27 +388,27 @@ index 34b5c35..f7b6360 100644
      double previousInterval = m_currentTimerInterval;
      m_currentTimerInterval = intervalClampedToMinimum();
  
-     if (previousInterval == m_currentTimerInterval)
+     if (WTF::areEssentiallyEqual(previousInterval, m_currentTimerInterval, oneMillisecond))
          return;
  
      if (repeatInterval()) {
-         ASSERT(repeatInterval() == previousInterval);
+         ASSERT(WTF::areEssentiallyEqual(repeatInterval(), previousInterval, oneMillisecond));
+         LOG(DOMTimers, "%p - Updating DOMTimer's repeat interval from %g ms to %g ms due to throttling.", this, previousInterval * 1000., m_currentTimerInterval * 1000.);
          augmentRepeatInterval(m_currentTimerInterval - previousInterval);
-     } else
 diff --git a/Source/WebCore/page/DOMTimer.h b/Source/WebCore/page/DOMTimer.h
-index 8654df4..79d1f81 100644
+index d895ea4..7fff0de 100644
 --- a/Source/WebCore/page/DOMTimer.h
 +++ b/Source/WebCore/page/DOMTimer.h
-@@ -28,52 +28,60 @@
- #define DOMTimer_h
- 
- #include "SuspendableTimer.h"
- #include <memory>
- #include <wtf/RefCounted.h>
+@@ -34,65 +34,72 @@
+ #include <wtf/WeakPtr.h>
  
  namespace WebCore {
  
+     class DOMTimerFireState;
+     class Document;
+     class Element;
      class HTMLPlugInElement;
+     class IntRect;
      class ScheduledAction;
 +    class DOMTimerFired;
  
@@ -407,30 +417,42 @@ index 8654df4..79d1f81 100644
          WTF_MAKE_NONCOPYABLE(DOMTimer);
          WTF_MAKE_FAST_ALLOCATED;
      public:
+         virtual ~DOMTimer();
+ 
          // Creates a new timer owned by specified ScriptExecutionContext, starts it
          // and returns its Id.
-         static int install(ScriptExecutionContext*, std::unique_ptr<ScheduledAction>, int timeout, bool singleShot);
-         static void removeById(ScriptExecutionContext*, int timeoutId);
+         static int install(ScriptExecutionContext&, std::unique_ptr<ScheduledAction>, int timeout, bool singleShot);
+         static void removeById(ScriptExecutionContext&, int timeoutId);
  
          // Notify that the interval may need updating (e.g. because the minimum interval
          // setting for the context has changed).
          void updateTimerIntervalIfNecessary();
+         void updateThrottlingStateAfterViewportChange(const IntRect& visibleRect);
  
          static void scriptDidInteractWithPlugin(HTMLPlugInElement&);
+         static void scriptDidCauseElementRepaint(Element&, bool mayRepaintNonDescendants = false);
 +    protected:
-+        DOMTimer(ScriptExecutionContext*, std::unique_ptr<ScheduledAction>, int interval);
++        DOMTimer(ScriptExecutionContext&, std::unique_ptr<ScheduledAction>, int interval);
 +        virtual void start(bool singleShot);
  
 +        // SuspendableTimer
 +        virtual void fired();
 +
-+        int m_timeoutId;
-+        bool m_shouldScheduleNormally;
++        int m_timeoutId = {0};
++        bool m_shouldScheduleNormally = {true};
      private:
--        DOMTimer(ScriptExecutionContext*, std::unique_ptr<ScheduledAction>, int interval, bool singleShot);
+-        DOMTimer(ScriptExecutionContext&, std::unique_ptr<ScheduledAction>, int interval, bool singleShot);
+         friend class Internals;
 +        friend class DOMTimerFired;
-+
+ 
          double intervalClampedToMinimum() const;
+ 
+         bool isDOMTimersThrottlingEnabled(Document&) const;
+         bool isIntervalDependentOnViewport() const { return m_throttleState == ShouldThrottle && !m_elementsCausingThrottling.isEmpty(); }
+         void registerForViewportChanges();
+         void unregisterForViewportChanges();
+ 
+         void updateThrottlingStateIfNecessary(const DOMTimerFireState&);
  
          // SuspendableTimer
 -        virtual void fired() override;
@@ -452,10 +474,10 @@ index 8654df4..79d1f81 100644
          TimerThrottleState m_throttleState;
          double m_currentTimerInterval;
          bool m_shouldForwardUserGesture;
-     };
- 
- } // namespace WebCore
- 
+         // Use WeakPtrs because we don't want to keep the elements alive but we
+         // still need to handle cases where the elements get destroyed after
+         // the timer has fired.
+         Vector<WeakPtr<Element>> m_elementsCausingThrottling;
 diff --git a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
 index d242aae..4c8d8ae 100644
 --- a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp

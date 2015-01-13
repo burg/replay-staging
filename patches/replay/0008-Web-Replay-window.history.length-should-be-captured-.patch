@@ -1,4 +1,4 @@
-From 1da1e0ff5083c9c5a4e95da6acacc1b790eca9bc Mon Sep 17 00:00:00 2001
+From 3f75fe479a8fb846f9c4e3acc459cb9143eeb207 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 15:34:16 -0700
 Subject: [PATCH] Web Replay: window.history.length should be captured at main
@@ -85,7 +85,7 @@ LayoutTests:
  create mode 100644 LayoutTests/inspector/replay/history-length-single-segment.html
 
 diff --git a/LayoutTests/ChangeLog b/LayoutTests/ChangeLog
-index 50710a7..1b31b3a 100644
+index eac5262..a477bb6 100644
 --- a/LayoutTests/ChangeLog
 +++ b/LayoutTests/ChangeLog
 @@ -1,10 +1,20 @@
@@ -99,16 +99,16 @@ index 50710a7..1b31b3a 100644
 +        * inspector/replay/history-length-single-segment-expected.txt: Added.
 +        * inspector/replay/history-length-single-segment.html: Added.
 +
- 2014-10-29  Simon Fraser  <simon.fraser@apple.com>
+ 2015-01-08  Alexey Proskuryakov  <ap@apple.com>
  
-         Skip compositing/regions/propagate-region-box-shadow-border-padding-for-video.html which 
-         asserts in Debug.
+         Two tests, which include data uri images, need to be changed and rebaselined since the expected results are incorrect
+         https://bugs.webkit.org/show_bug.cgi?id=140199
  
-         * platform/mac/TestExpectations:
+         Revert unneeded changes landed in this patch, and update results on Mavericks
+         to make bots green
  
- 2014-10-29  Lorenzo Tilve  <ltilve@igalia.com>
+         * fast/forms/basic-buttons.html:
  
-         [GTK] Unreviewed GTK gardening.
 diff --git a/LayoutTests/inspector/replay/history-length-single-segment-expected.txt b/LayoutTests/inspector/replay/history-length-single-segment-expected.txt
 new file mode 100644
 index 0000000..b797ffd
@@ -165,7 +165,7 @@ index 0000000..a88d9c1
 +</body>
 +</html>
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 14ff344..759f80a 100644
+index 919e711..fdcfe64 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,64 @@
@@ -343,7 +343,7 @@ index 1e5e774..0bd8429 100644
      m_closed = true;
  }
 diff --git a/Source/WebCore/history/BackForwardList.h b/Source/WebCore/history/BackForwardList.h
-index ae3c97d..983570c 100644
+index a33c8a6..5fcbc56 100644
 --- a/Source/WebCore/history/BackForwardList.h
 +++ b/Source/WebCore/history/BackForwardList.h
 @@ -60,20 +60,21 @@ public:
@@ -369,7 +369,7 @@ index ae3c97d..983570c 100644
      virtual void setCurrent(unsigned newCurrent) override;
  
 diff --git a/Source/WebCore/replay/ReplayController.cpp b/Source/WebCore/replay/ReplayController.cpp
-index 854c8da..216ae14 100644
+index 44e3f44..d6e45ec 100644
 --- a/Source/WebCore/replay/ReplayController.cpp
 +++ b/Source/WebCore/replay/ReplayController.cpp
 @@ -224,22 +224,28 @@ void ReplayController::createSegment()
@@ -378,7 +378,7 @@ index 854c8da..216ae14 100644
      m_loadedSegment = ReplaySessionSegment::create();
  
      LOG(WebReplay, "%-20s Created segment: %p.\n", "ReplayController", m_loadedSegment.get());
-     InspectorInstrumentation::segmentCreated(&m_page, m_loadedSegment);
+     InspectorInstrumentation::segmentCreated(m_page, m_loadedSegment.copyRef());
  
      m_activeCursor = CapturingInputCursor::create(m_loadedSegment);
      m_activeCursor->appendInput<BeginSegmentSentinel>();
@@ -403,7 +403,7 @@ index 854c8da..216ae14 100644
  
      m_activeCursor->appendInput<EndSegmentSentinel>();
 diff --git a/Source/WebCore/replay/ReplayInputCreationMethods.cpp b/Source/WebCore/replay/ReplayInputCreationMethods.cpp
-index 0ed3e23..67f8762 100644
+index b4d1c3d..98c5ef0 100644
 --- a/Source/WebCore/replay/ReplayInputCreationMethods.cpp
 +++ b/Source/WebCore/replay/ReplayInputCreationMethods.cpp
 @@ -1,12 +1,12 @@
@@ -450,7 +450,7 @@ index 0ed3e23..67f8762 100644
      RefPtr<SecurityOrigin> originCopy = mainFrame.document()->securityOrigin()->isolatedCopy();
      URL url = mainFrame.document()->url();
      String referrer = mainFrame.loader().referrer();
-     return std::make_unique<InitialNavigation>(originCopy, url, referrer);
+     return std::make_unique<InitialNavigation>(WTF::move(originCopy), url, referrer);
  }
  
 +std::unique_ptr<InitializeHistory> InitializeHistory::createFromPage(const Page& page)
@@ -543,10 +543,10 @@ index cd67cf0..d242aae 100644
      if (m_scrollbarTargeted)
          controller.page().userInputBridge().handleMouseMoveOnScrollbarEvent(platformEvent(), InputSource::Synthetic);
 diff --git a/Source/WebCore/replay/SerializationMethods.cpp b/Source/WebCore/replay/SerializationMethods.cpp
-index 781ce35..a99cf5a 100644
+index 83e1913..b3425c9 100644
 --- a/Source/WebCore/replay/SerializationMethods.cpp
 +++ b/Source/WebCore/replay/SerializationMethods.cpp
-@@ -30,58 +30,62 @@
+@@ -30,57 +30,61 @@
  
  #if ENABLE(WEB_REPLAY)
  
@@ -564,7 +564,6 @@ index 781ce35..a99cf5a 100644
  #include "PlatformMouseEvent.h"
  #include "PlatformWheelEvent.h"
  #include "PluginData.h"
- #include "ReplayInputTypes.h"
  #include "ResourceError.h"
  #include "ResourceLoadTiming.h"
  #include "ResourceRequest.h"
@@ -609,7 +608,7 @@ index 781ce35..a99cf5a 100644
  #endif
  
  #define IMPORT_FROM_WEBCORE_NAMESPACE(name) \
-@@ -350,20 +354,108 @@ EncodedValue EncodingTraits<NondeterministicInputBase>::encodeValue(const Nondet
+@@ -349,20 +353,108 @@ EncodedValue EncodingTraits<NondeterministicInputBase>::encodeValue(const Nondet
      // The macro won't work here because of the class template argument.
      if (input.type() == InputTraits<MemoizedDOMResultBase>::type()) {
          InputTraits<MemoizedDOMResultBase>::encode(encodedValue, static_cast<const MemoizedDOMResultBase&>(input));
@@ -718,7 +717,7 @@ index 781ce35..a99cf5a 100644
          if (!InputTraits<name>::decode(encodedValue, decodedInput)) \
              return false; \
          \
-@@ -903,20 +995,31 @@ bool EncodingTraits<SubstituteData>::decodeValue(EncodedValue& encodedData, Subs
+@@ -902,20 +994,31 @@ bool EncodingTraits<SubstituteData>::decodeValue(EncodedValue& encodedData, Subs
      DECODE_TYPE_WITH_KEY(encodedData, String, mimeType);
      DECODE_TYPE_WITH_KEY(encodedData, String, textEncoding);
      DECODE_TYPE_WITH_KEY(encodedData, URL, failingURL);
@@ -897,7 +896,7 @@ index 6a63171..2ac077a 100644
              ]
          },
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index e8fa645..2531e36 100644
+index 4fd0231..6884a28 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,21 @@
@@ -923,7 +922,7 @@ index e8fa645..2531e36 100644
          an enum with uint64_t-sized storage rather than int.
  
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebBackForwardListProxy.h b/Source/WebKit2/WebProcess/WebPage/WebBackForwardListProxy.h
-index ef219e0..53724a7 100644
+index aa147e1..a282212 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebBackForwardListProxy.h
 +++ b/Source/WebKit2/WebProcess/WebPage/WebBackForwardListProxy.h
 @@ -38,21 +38,21 @@ class WebBackForwardListProxy : public WebCore::BackForwardClient {
@@ -943,12 +942,12 @@ index ef219e0..53724a7 100644
  private:
      WebBackForwardListProxy(WebPage*);
  
-     virtual void addItem(PassRefPtr<WebCore::HistoryItem>);
+     virtual void addItem(PassRefPtr<WebCore::HistoryItem>) override;
  
-     virtual void goToItem(WebCore::HistoryItem*);
+     virtual void goToItem(WebCore::HistoryItem*) override;
          
-     virtual WebCore::HistoryItem* itemAtIndex(int);
-     virtual int backListCount();
+     virtual WebCore::HistoryItem* itemAtIndex(int) override;
+     virtual int backListCount() override;
 -- 
 2.0.1
 

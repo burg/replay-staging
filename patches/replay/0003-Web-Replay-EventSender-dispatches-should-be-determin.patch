@@ -1,4 +1,4 @@
-From 2a328101fed8629b8b26b3d60f45c2627dc2367b Mon Sep 17 00:00:00 2001
+From 86311124b20c47828a35b04a8697063d6b2544bc Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Fri, 10 Oct 2014 16:41:36 -0700
 Subject: [PATCH] Web Replay: EventSender dispatches should be deterministic
@@ -14,14 +14,19 @@ inside of EventSender to ensure deterministic run loop ordering.
 
 No new tests (OOPS!).
 
+[TEST STRATEGY]
+Create tests that generate load/beforeload/error events,
+and capture/replay it. It may be easier to reuse existing tests for
+this functionality, doing capture/replay for each separately.
+
 * dom/Document.cpp:
 (WebCore::Document::Document):
 * dom/EventSender.h:
 (WebCore::EventSender::EventSender):
 (WebCore::EventSender::timerFired):
 (WebCore::EventSender<T>::dispatchEventSoon):
-(WebCore::EventSender::eventType): Deleted.
-(WebCore::EventSender<T>::EventSender): Deleted.
+(WebCore::EventSender::eventType):
+(WebCore::EventSender<T>::EventSender):
 * dom/SharedEventSenders.cpp:
 (WebCore::SharedEventSenders::linkLoadEventSender):
 (WebCore::SharedEventSenders::styleLoadEventSender):
@@ -31,18 +36,18 @@ No new tests (OOPS!).
 * dom/SharedEventSenders.h:
 (WebCore::SharedEventSenders::SharedEventSenders):
 ---
- Source/WebCore/ChangeLog                  | 32 +++++++++++++++++++++++++++++++
+ Source/WebCore/ChangeLog                  | 37 +++++++++++++++++++++++++++++++
  Source/WebCore/dom/Document.cpp           |  2 +-
- Source/WebCore/dom/EventSender.h          | 12 +++++++-----
- Source/WebCore/dom/SharedEventSenders.cpp | 10 +++++-----
- Source/WebCore/dom/SharedEventSenders.h   |  6 +++++-
- 5 files changed, 50 insertions(+), 12 deletions(-)
+ Source/WebCore/dom/EventSender.h          | 12 +++++-----
+ Source/WebCore/dom/SharedEventSenders.cpp | 10 ++++-----
+ Source/WebCore/dom/SharedEventSenders.h   |  6 ++++-
+ 5 files changed, 55 insertions(+), 12 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 8d49b82..8d7b058 100644
+index 5584c46..a89be29 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
-@@ -1,12 +1,44 @@
+@@ -1,12 +1,49 @@
  2014-10-10  Brian J. Burg  <burg@cs.washington.edu>
  
 +        Web Replay: EventSender dispatches should be deterministic
@@ -58,14 +63,19 @@ index 8d49b82..8d7b058 100644
 +
 +        No new tests (OOPS!).
 +
++        [TEST STRATEGY]
++        Create tests that generate load/beforeload/error events,
++        and capture/replay it. It may be easier to reuse existing tests for
++        this functionality, doing capture/replay for each separately.
++
 +        * dom/Document.cpp:
 +        (WebCore::Document::Document):
 +        * dom/EventSender.h:
 +        (WebCore::EventSender::EventSender):
 +        (WebCore::EventSender::timerFired):
 +        (WebCore::EventSender<T>::dispatchEventSoon):
-+        (WebCore::EventSender::eventType): Deleted.
-+        (WebCore::EventSender<T>::EventSender): Deleted.
++        (WebCore::EventSender::eventType):
++        (WebCore::EventSender<T>::EventSender):
 +        * dom/SharedEventSenders.cpp:
 +        (WebCore::SharedEventSenders::linkLoadEventSender):
 +        (WebCore::SharedEventSenders::styleLoadEventSender):
@@ -88,10 +98,10 @@ index 8d49b82..8d7b058 100644
          for each Document are lazily allocated. Further per-Document or global optimizations
          are possible.
 diff --git a/Source/WebCore/dom/Document.cpp b/Source/WebCore/dom/Document.cpp
-index 0be84e0..68db538 100644
+index b5a1782..6f4e922 100644
 --- a/Source/WebCore/dom/Document.cpp
 +++ b/Source/WebCore/dom/Document.cpp
-@@ -467,21 +467,21 @@ Document::Document(Frame* frame, const URL& url, unsigned documentClasses, unsig
+@@ -466,21 +466,21 @@ Document::Document(Frame* frame, const URL& url, unsigned documentClasses, unsig
  #endif
      , m_createRenderers(true)
      , m_inPageCache(false)
@@ -108,17 +118,17 @@ index 0be84e0..68db538 100644
  #if ENABLE(FULLSCREEN_API)
      , m_areKeysEnabledInFullScreen(0)
      , m_fullScreenRenderer(nullptr)
-     , m_fullScreenChangeDelayTimer(this, &Document::fullScreenChangeDelayTimerFired)
+     , m_fullScreenChangeDelayTimer(*this, &Document::fullScreenChangeDelayTimerFired)
      , m_isAnimatingFullScreen(false)
  #endif
      , m_loadEventDelayCount(0)
-     , m_loadEventDelayTimer(this, &Document::loadEventDelayTimerFired)
+     , m_loadEventDelayTimer(*this, &Document::loadEventDelayTimerFired)
      , m_referrerPolicy(ReferrerPolicyDefault)
 diff --git a/Source/WebCore/dom/EventSender.h b/Source/WebCore/dom/EventSender.h
-index bd86c44..12a9837 100644
+index 97a91e7..e83d67a 100644
 --- a/Source/WebCore/dom/EventSender.h
 +++ b/Source/WebCore/dom/EventSender.h
-@@ -20,62 +20,64 @@
+@@ -19,62 +19,64 @@
   * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
   * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
   * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
@@ -135,17 +145,11 @@ index bd86c44..12a9837 100644
  
  namespace WebCore {
  
- template <typename T>
- class EventSender {
+ template<typename T> class EventSender {
      WTF_MAKE_NONCOPYABLE(EventSender); WTF_MAKE_FAST_ALLOCATED;
  public:
--    EventSender(const AtomicString& eventType)
-+    EventSender(Document& document, const AtomicString& eventType)
-         : m_eventType(eventType)
-+        , m_document(document)
-         , m_timer(this, &EventSender::timerFired)
-     {
-     }
+-    explicit EventSender(const AtomicString& eventType);
++    explicit EventSender(Document&, const AtomicString& eventType);
  
      const AtomicString& eventType() const { return m_eventType; }
      void dispatchEventSoon(T&);
@@ -153,41 +157,47 @@ index bd86c44..12a9837 100644
      void dispatchPendingEvents();
  
  #ifndef NDEBUG
-     bool hasPendingEvents(T& client) const
+     bool hasPendingEvents(T& sender) const
      {
-         return m_dispatchSoonList.find(&client) != notFound || m_dispatchingList.find(&client) != notFound;
+         return m_dispatchSoonList.find(&sender) != notFound || m_dispatchingList.find(&sender) != notFound;
      }
  #endif
  
  private:
--    void timerFired(Timer<EventSender<T>>&) { dispatchPendingEvents(); }
-+    void timerFired(ReplayableTimer<EventSender<T>>&) { dispatchPendingEvents(); }
+     void timerFired() { dispatchPendingEvents(); }
  
      AtomicString m_eventType;
--    Timer<EventSender<T>> m_timer;
+-    Timer m_timer;
 +    Document& m_document;
-+    ReplayableTimer<EventSender<T>> m_timer;
++    ReplayableTimer m_timer;
      Vector<T*> m_dispatchSoonList;
      Vector<T*> m_dispatchingList;
  };
  
- template <typename T>
- void EventSender<T>::dispatchEventSoon(T& client)
+-template<typename T> EventSender<T>::EventSender(const AtomicString& eventType)
++template<typename T> EventSender<T>::EventSender(Document& document, const AtomicString& eventType)
+     : m_eventType(eventType)
++    , m_document(document)
+     , m_timer(*this, &EventSender::timerFired)
  {
-     m_dispatchSoonList.append(&client);
+ }
+ 
+ template<typename T> void EventSender<T>::dispatchEventSoon(T& sender)
+ {
+     m_dispatchSoonList.append(&sender);
      if (!m_timer.isActive())
 -        m_timer.startOneShot(0);
 +        m_timer.startOneShot(0, &m_document);
  }
  
- template<typename T>
- void EventSender<T>::cancelEvent(T& client)
+ template<typename T> void EventSender<T>::cancelEvent(T& sender)
  {
-     // Remove instances of this client from both lists.
+     // Remove instances of this sender from both lists.
      // Use loops because we allow multiple instances to get into the lists.
      for (auto& event : m_dispatchSoonList) {
-         if (event == &client)
+         if (event == &sender)
              event = nullptr;
+     }
 diff --git a/Source/WebCore/dom/SharedEventSenders.cpp b/Source/WebCore/dom/SharedEventSenders.cpp
 index 2145dd4..d7eea40 100644
 --- a/Source/WebCore/dom/SharedEventSenders.cpp

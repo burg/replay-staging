@@ -1,10 +1,17 @@
-From 85e4855bd3947378f6480099bf55abb1455d402a Mon Sep 17 00:00:00 2001
+From f95aabd8d26cbb04fa701b272654d0be57061eba Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
-Date: Wed, 20 Aug 2014 15:32:34 -0700
+Date: Fri, 9 Jan 2015 21:35:21 -0800
 Subject: [PATCH] Web Replay: Encode replay inputs through ReplayClient Need
  the bug URL (OOPS!).
 
 Reviewed by NOBODY (OOPS!).
+
+Source/JavaScriptCore:
+
+* replay/InputCursor.h:
+(JSC::InputCursor::InputCursor): Fix signature of type().
+
+Source/WebCore:
 
 Only WebKit2 can access all possible replay inputs, so it should contain
 the big function with cases to encode each input based on its type tag.
@@ -14,14 +21,13 @@ through ReplayClient and then displayed in the serialized JSON representation.
 
 No new tests, no behavior was changed.
 
-Source/WebCore:
-
 * WebCore.exp.in: Add symbols for EncodingTraits specializations of WebCore inputs.
 * WebCore.xcodeproj/project.pbxproj:
 * inspector/InspectorReplayAgent.cpp:
 (WebCore::SerializeInputToJSONFunctor::SerializeInputToJSONFunctor):
 (WebCore::SerializeInputToJSONFunctor::operator()):
 (WebCore::buildInspectorObjectForSegment):
+(WebCore::buildInspectorObjectForInput): Deleted, it isn't used.
 (WebCore::InspectorReplayAgent::getSegmentData):
 (WebCore::buildInspectorObjectForInput): Deleted.
 * loader/EmptyClients.h:
@@ -31,6 +37,7 @@ Source/WebCore:
 (WebCore::CapturingInputCursor::CapturingInputCursor):
 (WebCore::CapturingInputCursor::create):
 (WebCore::CapturingInputCursor::storeInput):
+(WebCore::CapturingInputCursor::loadInput):
 * replay/CapturingInputCursor.h:
 * replay/EventLoopInputDispatcher.cpp:
 (WebCore::EventLoopInputDispatcher::dispatchInput):
@@ -40,6 +47,8 @@ Source/WebCore:
 * replay/ReplayingInputCursor.cpp:
 (WebCore::queueTypeToLogPrefix):
 (WebCore::ReplayingInputCursor::ReplayingInputCursor):
+(WebCore::ReplayingInputCursor::create):
+(WebCore::ReplayingInputCursor::loadInput):
 (WebCore::ReplayingInputCursor::uncheckedLoadInput):
 * replay/ReplayingInputCursor.h:
 * replay/SegmentedInputStorage.cpp:
@@ -53,49 +62,87 @@ Source/WebCore:
 
 Source/WebKit2:
 
+Only WebKit2 can access all frameworks' replay inputs, so it should contain
+the big function with cases to encode each input based on its type tag.
+
+Move some logging code out of SegmentedInputStorage so that inputs can be encoded
+through ReplayClient and then displayed in the serialized JSON representation.
+
+No new tests, no behavior was changed.
+
 * CMakeLists.txt:
 * WebKit2.xcodeproj/project.pbxproj:
 * WebProcess/Replay/WKReplayInputCoders.cpp: Added.
+(JSC::EncodingTraits<NondeterministicInputBase>::encodeValue): Added.
 * WebProcess/Replay/WKReplayInputCoders.h: Added.
 * WebProcess/WebCoreSupport/WebReplayClient.cpp:
 (WebKit::WebReplayClient::encodeInput):
+(WebKit::WebReplayClient::decodeInput):
 * WebProcess/WebCoreSupport/WebReplayClient.h:
 ---
- Source/WebCore/ChangeLog                           | 50 ++++++++++++
- Source/WebCore/WebCore.exp.in                      | 76 ++++++++++++++++++-
- Source/WebCore/WebCore.xcodeproj/project.pbxproj   | 10 +--
- Source/WebCore/inspector/InspectorReplayAgent.cpp  | 36 ++++-----
- Source/WebCore/loader/EmptyClients.h               |  2 +
- Source/WebCore/replay/AllReplayInputs.h            | 48 ------------
- Source/WebCore/replay/CapturingInputCursor.cpp     | 41 +++++++++-
- Source/WebCore/replay/CapturingInputCursor.h       |  5 +-
- Source/WebCore/replay/EventLoopInputDispatcher.cpp | 10 +--
- Source/WebCore/replay/ReplayClient.h               |  8 ++
- Source/WebCore/replay/ReplayController.cpp         |  3 +-
- Source/WebCore/replay/ReplayingInputCursor.cpp     | 28 ++++++-
- Source/WebCore/replay/ReplayingInputCursor.h       |  1 +
- Source/WebCore/replay/SegmentedInputStorage.cpp    | 43 +----------
- Source/WebCore/replay/SegmentedInputStorage.h      |  2 +-
- Source/WebCore/replay/WebReplayInputCoders.cpp     | 59 +--------------
- Source/WebCore/replay/WebReplayInputCoders.h       |  7 --
- .../replay/WebReplayInputDispatchMethods.cpp       |  2 +-
- Source/WebKit2/CMakeLists.txt                      |  1 +
- Source/WebKit2/ChangeLog                           | 23 ++++++
- Source/WebKit2/WebKit2.xcodeproj/project.pbxproj   |  8 ++
- .../WebProcess/Replay/WKReplayInputCoders.cpp      | 88 ++++++++++++++++++++++
- .../WebProcess/Replay/WKReplayInputCoders.h        | 49 ++++++++++++
- .../WebProcess/WebCoreSupport/WebReplayClient.cpp  | 12 +++
- .../WebProcess/WebCoreSupport/WebReplayClient.h    |  3 +
- 25 files changed, 422 insertions(+), 193 deletions(-)
+ Source/JavaScriptCore/ChangeLog                    |  10 ++
+ Source/WebCore/ChangeLog                           |  54 +++++++++
+ Source/WebCore/WebCore.exp.in                      |  82 ++++++++++++-
+ Source/WebCore/WebCore.xcodeproj/project.pbxproj   |  10 +-
+ Source/WebCore/inspector/InspectorReplayAgent.cpp  |  56 ++++-----
+ Source/WebCore/inspector/InspectorReplayAgent.h    |   4 +-
+ Source/WebCore/loader/EmptyClients.h               |   2 +
+ Source/WebCore/replay/AllReplayInputs.h            |  48 --------
+ Source/WebCore/replay/CapturingInputCursor.cpp     |  43 ++++++-
+ Source/WebCore/replay/CapturingInputCursor.h       |   6 +-
+ Source/WebCore/replay/EventLoopInputDispatcher.cpp |  10 +-
+ Source/WebCore/replay/ReplayClient.h               |   8 ++
+ Source/WebCore/replay/ReplayController.cpp         |   5 +-
+ Source/WebCore/replay/ReplayingInputCursor.cpp     |  38 +++++-
+ Source/WebCore/replay/ReplayingInputCursor.h       |   8 +-
+ Source/WebCore/replay/SegmentedInputStorage.cpp    |  43 +------
+ Source/WebCore/replay/SegmentedInputStorage.h      |   2 +-
+ Source/WebCore/replay/WebReplayInputCoders.cpp     |  59 +--------
+ Source/WebCore/replay/WebReplayInputCoders.h       |   7 --
+ .../replay/WebReplayInputDispatchMethods.cpp       |   2 +-
+ Source/WebKit2/CMakeLists.txt                      |   1 +
+ Source/WebKit2/ChangeLog                           |  25 ++++
+ Source/WebKit2/WebKit2.xcodeproj/project.pbxproj   |   8 ++
+ Source/WebKit2/WebProcess/Replay/WKInputs.json     |   4 +-
+ .../WebProcess/Replay/WKReplayInputCoders.cpp      | 134 +++++++++++++++++++++
+ .../WebProcess/Replay/WKReplayInputCoders.h        |  49 ++++++++
+ .../WebProcess/WebCoreSupport/WebReplayClient.cpp  |  12 ++
+ .../WebProcess/WebCoreSupport/WebReplayClient.h    |   3 +
+ 28 files changed, 516 insertions(+), 217 deletions(-)
  delete mode 100644 Source/WebCore/replay/AllReplayInputs.h
  create mode 100644 Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.cpp
  create mode 100644 Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.h
 
+diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
+index b0fb5db..403e301 100644
+--- a/Source/JavaScriptCore/ChangeLog
++++ b/Source/JavaScriptCore/ChangeLog
+@@ -1,10 +1,20 @@
++2015-01-09  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Replay: Encode replay inputs through ReplayClient
++        Need the bug URL (OOPS!).
++
++        Reviewed by NOBODY (OOPS!).
++
++        * replay/InputCursor.h:
++        (JSC::InputCursor::InputCursor): Fix signature of type().
++
+ 2014-08-20  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         Web Replay: Use framework prefixes for framework-specific replay input code
+         Need the bug URL (OOPS!).
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Rename SerializationMethods to ReplayInputCoders to match WebKit2 naming schemes.
+ 
+         * replay/scripts/CodeGeneratorReplayInputs.py:
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 7107d1f..1b6b729 100644
+index fbe58e3..28533dd 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
-@@ -1,12 +1,62 @@
+@@ -1,12 +1,66 @@
  2014-08-20  Brian J. Burg  <burg@cs.washington.edu>
  
 +        Web Replay: Encode replay inputs through ReplayClient
@@ -117,6 +164,7 @@ index 7107d1f..1b6b729 100644
 +        (WebCore::SerializeInputToJSONFunctor::SerializeInputToJSONFunctor):
 +        (WebCore::SerializeInputToJSONFunctor::operator()):
 +        (WebCore::buildInspectorObjectForSegment):
++        (WebCore::buildInspectorObjectForInput): Deleted, it isn't used.
 +        (WebCore::InspectorReplayAgent::getSegmentData):
 +        (WebCore::buildInspectorObjectForInput): Deleted.
 +        * loader/EmptyClients.h:
@@ -126,6 +174,7 @@ index 7107d1f..1b6b729 100644
 +        (WebCore::CapturingInputCursor::CapturingInputCursor):
 +        (WebCore::CapturingInputCursor::create):
 +        (WebCore::CapturingInputCursor::storeInput):
++        (WebCore::CapturingInputCursor::loadInput):
 +        * replay/CapturingInputCursor.h:
 +        * replay/EventLoopInputDispatcher.cpp:
 +        (WebCore::EventLoopInputDispatcher::dispatchInput):
@@ -135,6 +184,8 @@ index 7107d1f..1b6b729 100644
 +        * replay/ReplayingInputCursor.cpp:
 +        (WebCore::queueTypeToLogPrefix):
 +        (WebCore::ReplayingInputCursor::ReplayingInputCursor):
++        (WebCore::ReplayingInputCursor::create):
++        (WebCore::ReplayingInputCursor::loadInput):
 +        (WebCore::ReplayingInputCursor::uncheckedLoadInput):
 +        * replay/ReplayingInputCursor.h:
 +        * replay/SegmentedInputStorage.cpp:
@@ -159,10 +210,32 @@ index 7107d1f..1b6b729 100644
  
          Also rename SerializationMethods to ReplayInputCoders to match WebKit2 naming schemes.
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index a7ea993..0c61eef 100644
+index 16a149d..c1821e7 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -3496,16 +3496,90 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
+@@ -1734,20 +1734,21 @@ __ZNK7WebCore14DocumentMarker11descriptionEv
+ __ZNK7WebCore14FrameSelection11currentFormEv
+ __ZNK7WebCore14FrameSelection15copyTypingStyleEv
+ __ZNK7WebCore14FrameSelection15selectionBoundsEb
+ __ZNK7WebCore14FrameSelection18isFocusedAndActiveEv
+ __ZNK7WebCore14FrameSelection31getClippedVisibleTextRectanglesERN3WTF6VectorINS_9FloatRectELm0ENS1_15CrashOnOverflowEEE
+ __ZNK7WebCore14FrameSelection36rootEditableElementOrDocumentElementEv
+ __ZNK7WebCore14InsertionPoint8isActiveEv
+ __ZNK7WebCore14RenderListItem10markerTextEv
+ __ZNK7WebCore14ResourceHandle10connectionEv
+ __ZNK7WebCore14ResourceLoader11frameLoaderEv
++__ZNK7WebCore14ResourceLoader17activeInputCursorEv
+ __ZNK7WebCore14ResourceLoader32isAllowedToAskUserForCredentialsEv
+ __ZNK7WebCore14ScrollableArea13scrolledToTopEv
+ __ZNK7WebCore14ScrollableArea14scrollAnimatorEv
+ __ZNK7WebCore14ScrollableArea14scrolledToLeftEv
+ __ZNK7WebCore14ScrollableArea15scrolledToRightEv
+ __ZNK7WebCore14ScrollableArea16scrolledToBottomEv
+ __ZNK7WebCore14ScrollableArea17totalContentsSizeEv
+ __ZNK7WebCore14ScrollableArea18visibleContentRectENS0_26VisibleContentRectBehaviorE
+ __ZNK7WebCore14ScrollableArea20contentAreaWillPaintEv
+ __ZNK7WebCore14ScrollableArea21mouseEnteredScrollbarEPNS_9ScrollbarE
+@@ -3518,16 +3519,95 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
  
  #if ENABLE(VIDEO_TRACK)
  __ZN7WebCore9PageGroup18captionPreferencesEv
@@ -202,8 +275,10 @@ index a7ea993..0c61eef 100644
 +__ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore15HandleMouseMoveEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore15HandleMouseMoveEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore15HandleMouseMoveEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore16HandleMousePressEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore16HandleMousePressEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore16HandleMousePressEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore16HandleWheelEventEE4typeEv
 +__ZN3JSC11InputTraitsIN7WebCore16HandleWheelEventEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -224,6 +299,7 @@ index a7ea993..0c61eef 100644
 +__ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore18HandleMouseReleaseEE4typeEv
++__ZN3JSC11InputTraitsIN7WebCore18HandleMouseReleaseEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore18HandleMouseReleaseEE6encodeERNS_12EncodedValueERKS2_
 +__ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE4typeEv
 +__ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -249,16 +325,18 @@ index a7ea993..0c61eef 100644
 +__ZN3JSC11InputTraitsIN7WebCore32ResourceLoaderDidReceiveResponseEE4typeEv
 +__ZN3JSC11InputTraitsIN7WebCore32ResourceLoaderDidReceiveResponseEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
 +__ZN3JSC11InputTraitsIN7WebCore32ResourceLoaderDidReceiveResponseEE6encodeERNS_12EncodedValueERKS2_
++__ZN3JSC14EncodingTraitsIN7WebCore18PlatformMouseEventEE11encodeValueERKS2_
++__ZN3JSC14EncodingTraitsIN7WebCore18PlatformMouseEventEE11decodeValueERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
  #endif
  
  #if ENABLE(WEB_TIMING)
  __ZNK7WebCore20ResourceResponseBase18resourceLoadTimingEv
  #endif
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index 8f9f7a2..b735b31 100644
+index 1d6c4c1..0426e00 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -3622,23 +3622,24 @@
+@@ -3641,23 +3641,24 @@
  		97F8E666151D4A4E00D2D181 /* WorkerGlobalScopeNotifications.h in Headers */ = {isa = PBXBuildFile; fileRef = 97F8E662151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.h */; };
  		9831AE4A154225C900FE2644 /* ReferrerPolicy.h in Headers */ = {isa = PBXBuildFile; fileRef = 9831AE49154225A200FE2644 /* ReferrerPolicy.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		984264F112D5280A000D88A4 /* LinkLoaderClient.h in Headers */ = {isa = PBXBuildFile; fileRef = 984264EF12D5280A000D88A4 /* LinkLoaderClient.h */; };
@@ -285,7 +363,7 @@ index 8f9f7a2..b735b31 100644
  		99CC0B5518BE9849006CEBCC /* ReplayingInputCursor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4018BE9849006CEBCC /* ReplayingInputCursor.cpp */; };
  		99CC0B5618BE984A006CEBCC /* ReplayingInputCursor.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4118BE9849006CEBCC /* ReplayingInputCursor.h */; };
  		99CC0B5718BE984A006CEBCC /* WebReplayInputCreationMethods.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4218BE9849006CEBCC /* WebReplayInputCreationMethods.cpp */; };
-@@ -3647,21 +3648,21 @@
+@@ -3666,21 +3667,21 @@
  		99CC0B5A18BE984A006CEBCC /* ReplaySession.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4518BE9849006CEBCC /* ReplaySession.h */; };
  		99CC0B5B18BE984A006CEBCC /* ReplaySessionSegment.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4618BE9849006CEBCC /* ReplaySessionSegment.cpp */; };
  		99CC0B5C18BE984A006CEBCC /* ReplaySessionSegment.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4718BE9849006CEBCC /* ReplaySessionSegment.h */; };
@@ -308,7 +386,7 @@ index 8f9f7a2..b735b31 100644
  		9B1AB07C1648C7C40051F3F2 /* JSHTMLFormControlsCollectionCustom.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9B1AB07B1648C7C40051F3F2 /* JSHTMLFormControlsCollectionCustom.cpp */; };
  		9B24DE8E15194B9500C59C27 /* HTMLBDIElement.h in Headers */ = {isa = PBXBuildFile; fileRef = 9B24DE8C15194B9500C59C27 /* HTMLBDIElement.h */; };
  		9B2D8A7914997CCF00ECEF3E /* UndoStep.h in Headers */ = {isa = PBXBuildFile; fileRef = 9B2D8A7814997CCF00ECEF3E /* UndoStep.h */; settings = {ATTRIBUTES = (Private, ); }; };
-@@ -10827,21 +10828,20 @@
+@@ -10848,21 +10849,20 @@
  		984264EF12D5280A000D88A4 /* LinkLoaderClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = LinkLoaderClient.h; sourceTree = "<group>"; };
  		985BB96B13A94058007A0B69 /* LinkRelAttribute.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = LinkRelAttribute.cpp; sourceTree = "<group>"; };
  		985BB96C13A94058007A0B69 /* LinkRelAttribute.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = LinkRelAttribute.h; sourceTree = "<group>"; };
@@ -351,8 +429,8 @@ index 8f9f7a2..b735b31 100644
  				99CC0B3D18BE9849006CEBCC /* FunctorInputCursor.h */,
  				99C7CCB418C6B8990032E413 /* MemoizedDOMResult.cpp */,
  				99C7CCB218C663E40032E413 /* MemoizedDOMResult.h */,
- 				99CC0B3E18BE9849006CEBCC /* ReplayController.cpp */,
-@@ -23419,21 +23418,20 @@
+ 				C4D4F5271975C88B003EF5BC /* ReplayableTimer.cpp */,
+@@ -23438,21 +23437,20 @@
  				29A8122B0FBB9C1D00510293 /* AccessibilityTable.h in Headers */,
  				29A812320FBB9C1D00510293 /* AccessibilityTableCell.h in Headers */,
  				29A812410FBB9C1D00510293 /* AccessibilityTableColumn.h in Headers */,
@@ -371,14 +449,14 @@ index 8f9f7a2..b735b31 100644
  				FD31603E12B0267600C1A359 /* AnalyserNode.h in Headers */,
  				31A795C71888BCB200382F90 /* ANGLEInstancedArrays.h in Headers */,
  				490707E71219C04300D90E51 /* ANGLEWebKitBridge.h in Headers */,
- 				077AF14018F4AE400001ED61 /* SerializedPlatformRepresentation.h in Headers */,
  				49E912AB0EFAC906009D0CAF /* Animation.h in Headers */,
  				316FE1120E6E1DA700BF6088 /* AnimationBase.h in Headers */,
+ 				316FE1140E6E1DA700BF6088 /* AnimationController.h in Headers */,
 diff --git a/Source/WebCore/inspector/InspectorReplayAgent.cpp b/Source/WebCore/inspector/InspectorReplayAgent.cpp
-index b3d0f9e..f1b5b9c 100644
+index 9c35065..0f77c9a 100644
 --- a/Source/WebCore/inspector/InspectorReplayAgent.cpp
 +++ b/Source/WebCore/inspector/InspectorReplayAgent.cpp
-@@ -35,20 +35,21 @@
+@@ -35,50 +35,41 @@
  #include "EventLoopInput.h"
  #include "Frame.h"
  #include "FunctorInputCursor.h"
@@ -400,39 +478,39 @@ index b3d0f9e..f1b5b9c 100644
  
  using namespace Inspector;
  
-@@ -56,31 +57,20 @@ namespace WebCore {
+ namespace WebCore {
  
- static PassRefPtr<Inspector::Protocol::Replay::ReplayPosition> buildInspectorObjectForPosition(const ReplayPosition& position)
+ static Ref<Inspector::Protocol::Replay::ReplayPosition> buildInspectorObjectForPosition(const ReplayPosition& position)
  {
-     RefPtr<Inspector::Protocol::Replay::ReplayPosition> positionObject = Inspector::Protocol::Replay::ReplayPosition::create()
+     return Inspector::Protocol::Replay::ReplayPosition::create()
          .setSegmentOffset(position.segmentOffset)
-         .setInputOffset(position.inputOffset);
- 
-     return positionObject.release();
+         .setInputOffset(position.inputOffset)
+         .release();
  }
  
--static PassRefPtr<Inspector::Protocol::Replay::ReplayInput> buildInspectorObjectForInput(const NondeterministicInputBase& input, size_t offset)
+-static Ref<Inspector::Protocol::Replay::ReplayInput> buildInspectorObjectForInput(const NondeterministicInputBase& input, size_t offset)
 -{
 -    EncodedValue encodedInput = EncodingTraits<NondeterministicInputBase>::encodeValue(input);
--    RefPtr<Inspector::Protocol::Replay::ReplayInput> inputObject = Inspector::Protocol::Replay::ReplayInput::create()
+-    return Inspector::Protocol::Replay::ReplayInput::create()
 -        .setType(input.type())
 -        .setOffset(offset)
--        .setData(encodedInput.asObject());
--
--    return inputObject.release();
+-        .setData(encodedInput.asObject())
+-        .release();
 -}
 -
- static PassRefPtr<Inspector::Protocol::Replay::ReplaySession> buildInspectorObjectForSession(PassRefPtr<ReplaySession> prpSession)
+ static Ref<Inspector::Protocol::Replay::ReplaySession> buildInspectorObjectForSession(RefPtr<ReplaySession>&& session)
  {
-     RefPtr<ReplaySession> session = prpSession;
-     RefPtr<Inspector::Protocol::Array<SegmentIdentifier>> segments = Inspector::Protocol::Array<SegmentIdentifier>::create();
+     auto segments = Inspector::Protocol::Array<SegmentIdentifier>::create();
  
      for (auto it = session->begin(); it != session->end(); ++it)
          segments->addItem((*it)->identifier());
  
-     RefPtr<Inspector::Protocol::Replay::ReplaySession> sessionObject = Inspector::Protocol::Replay::ReplaySession::create()
+     return Inspector::Protocol::Replay::ReplaySession::create()
          .setId(session->identifier())
-@@ -106,44 +96,54 @@ static Inspector::Protocol::Replay::SegmentState buildInspectorObjectForSegmentS
+         .setTimestamp(session->timestamp())
+@@ -100,52 +91,63 @@ static Inspector::Protocol::Replay::SegmentState buildInspectorObjectForSegmentS
+     switch (segmentState) {
+     case WebCore::SegmentState::Appending: return Inspector::Protocol::Replay::SegmentState::Appending;
      case WebCore::SegmentState::Unloaded: return Inspector::Protocol::Replay::SegmentState::Unloaded;
      case WebCore::SegmentState::Loaded: return Inspector::Protocol::Replay::SegmentState::Loaded;
      case WebCore::SegmentState::Dispatching: return Inspector::Protocol::Replay::SegmentState::Dispatching;
@@ -441,7 +519,8 @@ index b3d0f9e..f1b5b9c 100644
  
  class SerializeInputToJSONFunctor {
  public:
-     typedef PassRefPtr<Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInput>> ReturnType;
+-    typedef RefPtr<Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInput>> ReturnType;
++    typedef Ref<Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInput>> ReturnType;
  
 -    SerializeInputToJSONFunctor()
 -        : m_inputs(Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInput>::create()) { }
@@ -460,40 +539,101 @@ index b3d0f9e..f1b5b9c 100644
 +        if (!m_client.encodeInput(*input, encodedInput))
 +            return;
 +
-+        RefPtr<Inspector::Protocol::Replay::ReplayInput> inputObject = Inspector::Protocol::Replay::ReplayInput::create()
++        auto inputObject = Inspector::Protocol::Replay::ReplayInput::create()
 +            .setType(input->type())
 +            .setOffset(index)
-+            .setData(encodedInput.asObject());
++            .setData(encodedInput.asObject())
++            .release();
 +
-+        m_inputs->addItem(inputObject.release());
++        m_inputs->addItem(WTF::move(inputObject));
      }
  
-     ReturnType returnValue() { return m_inputs.release(); }
+-    ReturnType returnValue() { return m_inputs.release(); }
++    ReturnType returnValue() { return m_inputs.copyRef(); }
  private:
+-    RefPtr<Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInput>> m_inputs;
 +    ReplayClient& m_client;
-     RefPtr<Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInput>> m_inputs;
++    Ref<Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInput>> m_inputs;
  };
  
--static PassRefPtr<Inspector::Protocol::Replay::SessionSegment> buildInspectorObjectForSegment(PassRefPtr<ReplaySessionSegment> prpSegment)
-+static PassRefPtr<Inspector::Protocol::Replay::SessionSegment> buildInspectorObjectForSegment(PassRefPtr<ReplaySessionSegment> prpSegment, ReplayClient& client)
+-static Ref<Inspector::Protocol::Replay::SessionSegment> buildInspectorObjectForSegment(RefPtr<ReplaySessionSegment>&& segment)
++static Ref<Inspector::Protocol::Replay::SessionSegment> buildInspectorObjectForSegment(RefPtr<ReplaySessionSegment>&& segment, ReplayClient& client)
  {
-     RefPtr<ReplaySessionSegment> segment = prpSegment;
-     RefPtr<Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInputQueue>> queuesObject = Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInputQueue>::create();
+     auto queuesObject = Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInputQueue>::create();
  
      for (size_t i = 0; i < static_cast<size_t>(InputQueue::Count); i++) {
 -        SerializeInputToJSONFunctor collector;
 +        SerializeInputToJSONFunctor collector(client);
          InputQueue queue = static_cast<InputQueue>(i);
-         RefPtr<FunctorInputCursor> functorCursor = FunctorInputCursor::create(segment);
-         RefPtr<Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInput>> queueInputs = functorCursor->forEachInputInQueue(queue, collector);
+-        RefPtr<FunctorInputCursor> functorCursor = FunctorInputCursor::create(segment.copyRef());
+-        RefPtr<Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInput>> queueInputs = functorCursor->forEachInputInQueue(queue, collector);
++        auto functorCursor = FunctorInputCursor::create(segment.copyRef());
++        Ref<Inspector::Protocol::Array<Inspector::Protocol::Replay::ReplayInput>> queueInputs = functorCursor->forEachInputInQueue(queue, collector);
  
-         RefPtr<Inspector::Protocol::Replay::ReplayInputQueue> queueObject = Inspector::Protocol::Replay::ReplayInputQueue::create()
+         auto queueObject = Inspector::Protocol::Replay::ReplayInputQueue::create()
              .setType(EncodingTraits<InputQueue>::encodeValue(queue).convertTo<String>())
-             .setInputs(queueInputs);
- 
-         queuesObject->addItem(queueObject.release());
+-            .setInputs(queueInputs)
++            .setInputs(WTF::move(queueInputs))
+             .release();
+         queuesObject->addItem(WTF::move(queueObject));
      }
-@@ -511,16 +511,16 @@ void InspectorReplayAgent::getSessionData(ErrorString& errorString, Inspector::P
+ 
+     return Inspector::Protocol::Replay::SessionSegment::create()
+         .setId(segment->identifier())
+         .setTimestamp(segment->timestamp())
+         .setQueues(WTF::move(queuesObject))
+         .release();
+ }
+@@ -441,44 +443,44 @@ void InspectorReplayAgent::removeSessionSegment(ErrorString& errorString, Inspec
+ 
+     if (session == m_page.replayController().loadedSession() && sessionState() != WebCore::SessionState::Inactive) {
+         errorString = ASCIILiteral("Can't modify a loaded session unless the session is inactive.");
+         return;
+     }
+ 
+     session->removeSegment(segmentIndex);
+     sessionModified(session);
+ }
+ 
+-PassRefPtr<ReplaySession> InspectorReplayAgent::findSession(ErrorString& errorString, SessionIdentifier identifier)
++RefPtr<ReplaySession> InspectorReplayAgent::findSession(ErrorString& errorString, SessionIdentifier identifier)
+ {
+     ASSERT(identifier > 0);
+ 
+     auto it = m_sessionsMap.find(identifier);
+     if (it == m_sessionsMap.end()) {
+         errorString = ASCIILiteral("Couldn't find session with specified identifier");
+         return nullptr;
+     }
+ 
+-    return it->value;
++    return it->value.copyRef();
+ }
+ 
+-PassRefPtr<ReplaySessionSegment> InspectorReplayAgent::findSegment(ErrorString& errorString, SegmentIdentifier identifier)
++RefPtr<ReplaySessionSegment> InspectorReplayAgent::findSegment(ErrorString& errorString, SegmentIdentifier identifier)
+ {
+     ASSERT(identifier > 0);
+ 
+     auto it = m_segmentsMap.find(identifier);
+     if (it == m_segmentsMap.end()) {
+         errorString = ASCIILiteral("Couldn't find segment with specified identifier");
+         return nullptr;
+     }
+ 
+-    return it->value;
++    return it->value.copyRef();
+ }
+ 
+ void InspectorReplayAgent::currentReplayState(ErrorString&, Inspector::Protocol::Replay::SessionIdentifier* sessionIdentifier, Inspector::Protocol::OptOutput<Inspector::Protocol::Replay::SegmentIdentifier>* segmentIdentifier, Inspector::Protocol::Replay::SessionState* sessionState, Inspector::Protocol::Replay::SegmentState* segmentState, RefPtr<Inspector::Protocol::Replay::ReplayPosition>& replayPosition)
+ {
+     *sessionState = buildInspectorObjectForSessionState(m_page.replayController().sessionState());
+     *segmentState = buildInspectorObjectForSegmentState(m_page.replayController().segmentState());
+ 
+     *sessionIdentifier = m_page.replayController().loadedSession()->identifier();
+     if (m_page.replayController().loadedSegment())
+         *segmentIdentifier = m_page.replayController().loadedSegment()->identifier();
+@@ -505,16 +507,16 @@ void InspectorReplayAgent::getSessionData(ErrorString& errorString, Inspector::P
  }
  
  void InspectorReplayAgent::getSegmentData(ErrorString& errorString, Inspector::Protocol::Replay::SegmentIdentifier identifier, RefPtr<Inspector::Protocol::Replay::SessionSegment>& serializedObject)
@@ -504,18 +644,47 @@ index b3d0f9e..f1b5b9c 100644
          return;
      }
  
--    serializedObject = buildInspectorObjectForSegment(segment);
-+    serializedObject = buildInspectorObjectForSegment(segment, m_page.replayController().client());
+-    serializedObject = buildInspectorObjectForSegment(WTF::move(segment));
++    serializedObject = buildInspectorObjectForSegment(WTF::move(segment), m_page.replayController().client());
  }
  
  } // namespace WebCore
  
  #endif // ENABLE(INSPECTOR) && ENABLE(WEB_REPLAY)
+diff --git a/Source/WebCore/inspector/InspectorReplayAgent.h b/Source/WebCore/inspector/InspectorReplayAgent.h
+index 9429511..e1ca544 100644
+--- a/Source/WebCore/inspector/InspectorReplayAgent.h
++++ b/Source/WebCore/inspector/InspectorReplayAgent.h
+@@ -103,22 +103,22 @@ public:
+     virtual void switchSession(ErrorString&, SessionIdentifier) override;
+     virtual void insertSessionSegment(ErrorString&, Inspector::Protocol::Replay::SessionIdentifier, Inspector::Protocol::Replay::SegmentIdentifier, int segmentIndex) override;
+     virtual void removeSessionSegment(ErrorString&, Inspector::Protocol::Replay::SessionIdentifier, int segmentIndex) override;
+ 
+     virtual void currentReplayState(ErrorString&, Inspector::Protocol::Replay::SessionIdentifier*, Inspector::Protocol::OptOutput<Inspector::Protocol::Replay::SegmentIdentifier>*, Inspector::Protocol::Replay::SessionState*, Inspector::Protocol::Replay::SegmentState* segmentState, RefPtr<Inspector::Protocol::Replay::ReplayPosition>&) override;
+     virtual void getAvailableSessions(ErrorString&, RefPtr<Inspector::Protocol::Array<Inspector::Protocol::Replay::SessionIdentifier>>&) override;
+     virtual void getSessionData(ErrorString&, Inspector::Protocol::Replay::SessionIdentifier, RefPtr<Inspector::Protocol::Replay::ReplaySession>&) override;
+     virtual void getSegmentData(ErrorString&, Inspector::Protocol::Replay::SegmentIdentifier, RefPtr<Inspector::Protocol::Replay::SessionSegment>&) override;
+ 
+ private:
+-    PassRefPtr<ReplaySession> findSession(ErrorString&, SessionIdentifier);
+-    PassRefPtr<ReplaySessionSegment> findSegment(ErrorString&, SegmentIdentifier);
++    RefPtr<ReplaySession> findSession(ErrorString&, SessionIdentifier);
++    RefPtr<ReplaySessionSegment> findSegment(ErrorString&, SegmentIdentifier);
+     WebCore::SessionState sessionState() const;
+ 
+     std::unique_ptr<Inspector::InspectorReplayFrontendDispatcher> m_frontendDispatcher;
+     RefPtr<Inspector::InspectorReplayBackendDispatcher> m_backendDispatcher;
+     Page& m_page;
+ 
+     HashMap<int, RefPtr<ReplaySession>, WTF::IntHash<int>, WTF::UnsignedWithZeroKeyHashTraits<int>> m_sessionsMap;
+     HashMap<int, RefPtr<ReplaySessionSegment>, WTF::IntHash<int>, WTF::UnsignedWithZeroKeyHashTraits<int>> m_segmentsMap;
+ };
+ 
 diff --git a/Source/WebCore/loader/EmptyClients.h b/Source/WebCore/loader/EmptyClients.h
-index a1c0b80..616c3b0 100644
+index 13b437e..46bb7e7 100644
 --- a/Source/WebCore/loader/EmptyClients.h
 +++ b/Source/WebCore/loader/EmptyClients.h
-@@ -610,20 +610,22 @@ public:
+@@ -605,20 +605,22 @@ public:
      virtual void hideHighlight() override { }
  };
  
@@ -593,7 +762,7 @@ index 669bc25..0000000
 -
 -#endif // AllReplayInputs_h
 diff --git a/Source/WebCore/replay/CapturingInputCursor.cpp b/Source/WebCore/replay/CapturingInputCursor.cpp
-index 73b402f..731842e 100644
+index 885df58..54370a7 100644
 --- a/Source/WebCore/replay/CapturingInputCursor.cpp
 +++ b/Source/WebCore/replay/CapturingInputCursor.cpp
 @@ -25,53 +25,86 @@
@@ -609,7 +778,7 @@ index 73b402f..731842e 100644
  #include "Logging.h"
 +#include "Page.h"
 +#include "ReplayController.h"
-+#include "ReplayCLient.h"
++#include "ReplayClient.h"
  #include "ReplaySessionSegment.h"
  #include "SegmentedInputStorage.h"
 +#include <replay/EncodedValue.h>
@@ -632,8 +801,9 @@ index 73b402f..731842e 100644
  namespace WebCore {
  
 -CapturingInputCursor::CapturingInputCursor(PassRefPtr<ReplaySessionSegment> segment)
-+CapturingInputCursor::CapturingInputCursor(PassRefPtr<ReplaySessionSegment> segment, Page& page)
-     : m_segment(segment)
+-    : m_segment(segment)
++CapturingInputCursor::CapturingInputCursor(RefPtr<ReplaySessionSegment>&& segment, Page& page)
++    : m_segment(WTF::move(segment))
 +    , m_page(page)
  {
      LOG(WebReplay, "%-30sCreated capture cursor=%p.\n", "[ReplayController]", this);
@@ -644,11 +814,11 @@ index 73b402f..731842e 100644
      LOG(WebReplay, "%-30sDestroyed capture cursor=%p.\n", "[ReplayController]", this);
  }
  
--PassRefPtr<CapturingInputCursor> CapturingInputCursor::create(PassRefPtr<ReplaySessionSegment> segment)
-+PassRefPtr<CapturingInputCursor> CapturingInputCursor::create(PassRefPtr<ReplaySessionSegment> segment, Page& page)
+-Ref<CapturingInputCursor> CapturingInputCursor::create(PassRefPtr<ReplaySessionSegment> segment)
++Ref<CapturingInputCursor> CapturingInputCursor::create(RefPtr<ReplaySessionSegment>&& segment, Page& page)
  {
--    return adoptRef(new CapturingInputCursor(segment));
-+    return adoptRef(new CapturingInputCursor(segment, page));
+-    return adoptRef(*new CapturingInputCursor(segment));
++    return adoptRef(*new CapturingInputCursor(WTF::move(segment), page));
  }
  
  void CapturingInputCursor::storeInput(std::unique_ptr<NondeterministicInputBase> input)
@@ -663,14 +833,14 @@ index 73b402f..731842e 100644
  
 -    m_segment->storage().store(WTF::move(input));
 +    InputQueue queue = input->queue();
-+    const AtomicString& type = input->type();
++    const String& type = input->type();
 +    EncodedValue encodedInput;
 +    m_page.replayController().client().encodeInput(*input, encodedInput);
 +
 +    size_t inputCount = m_segment->storage().store(WTF::move(input));
 +
 +#if !LOG_DISABLED
-+    LOG(WebReplay, "%-14s#%-5zu %s: %s %s\n", "ReplayEvents", inputCount, queueTypeToLogPrefix(queue), type.string().utf8().data(), encodedInput.asObject()->toJSONString().utf8().data());
++    LOG(WebReplay, "%-14s#%-5zu %s: %s %s\n", "ReplayEvents", inputCount, queueTypeToLogPrefix(queue), type.utf8().data(), encodedInput.asObject()->toJSONString().utf8().data());
 +#else
 +    UNUSED_PARAM(queue);
 +    UNUSED_PARAM(type);
@@ -688,10 +858,22 @@ index 73b402f..731842e 100644
  
  NondeterministicInputBase* CapturingInputCursor::uncheckedLoadInput(InputQueue)
 diff --git a/Source/WebCore/replay/CapturingInputCursor.h b/Source/WebCore/replay/CapturingInputCursor.h
-index ec25c84..31f3061 100644
+index 08017ab..eec15aa 100644
 --- a/Source/WebCore/replay/CapturingInputCursor.h
 +++ b/Source/WebCore/replay/CapturingInputCursor.h
-@@ -35,33 +35,34 @@
+@@ -24,44 +24,46 @@
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #ifndef CapturingInputCursor_h
+ #define CapturingInputCursor_h
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include <replay/InputCursor.h>
++#include <wtf/RefPtr.h>
+ #include <wtf/Noncopyable.h>
  
  namespace WebCore {
  
@@ -702,8 +884,8 @@ index ec25c84..31f3061 100644
  class CapturingInputCursor final : public InputCursor {
      WTF_MAKE_NONCOPYABLE(CapturingInputCursor);
  public:
--    static PassRefPtr<CapturingInputCursor> create(PassRefPtr<ReplaySessionSegment>);
-+    static PassRefPtr<CapturingInputCursor> create(PassRefPtr<ReplaySessionSegment>, Page&);
+-    static Ref<CapturingInputCursor> create(PassRefPtr<ReplaySessionSegment>);
++    static Ref<CapturingInputCursor> create(RefPtr<ReplaySessionSegment>&&, Page&);
      virtual ~CapturingInputCursor();
  
      virtual bool isCapturing() const override { return true; }
@@ -714,7 +896,7 @@ index ec25c84..31f3061 100644
  
  private:
 -    CapturingInputCursor(PassRefPtr<ReplaySessionSegment>);
-+    CapturingInputCursor(PassRefPtr<ReplaySessionSegment>, Page&);
++    CapturingInputCursor(RefPtr<ReplaySessionSegment>&&, Page&);
  
      virtual NondeterministicInputBase* uncheckedLoadInput(InputQueue) override;
      virtual void storeInput(std::unique_ptr<NondeterministicInputBase>) override;
@@ -729,10 +911,10 @@ index ec25c84..31f3061 100644
  
  #endif // CapturingInputCursor_h
 diff --git a/Source/WebCore/replay/EventLoopInputDispatcher.cpp b/Source/WebCore/replay/EventLoopInputDispatcher.cpp
-index 0a1c23d..0c835b6 100644
+index f0f3459..c5cde24 100644
 --- a/Source/WebCore/replay/EventLoopInputDispatcher.cpp
 +++ b/Source/WebCore/replay/EventLoopInputDispatcher.cpp
-@@ -132,25 +132,25 @@ void EventLoopInputDispatcher::dispatchInput()
+@@ -131,25 +131,25 @@ void EventLoopInputDispatcher::dispatchInput()
  {
      ASSERT(m_currentWork.input);
      ASSERT(!m_dispatching);
@@ -764,13 +946,13 @@ index 0a1c23d..0c835b6 100644
          TemporaryChange<bool> change(m_dispatching, true);
          m_page.replayController().client().dispatchInput(*m_currentWork.input);
 diff --git a/Source/WebCore/replay/ReplayClient.h b/Source/WebCore/replay/ReplayClient.h
-index 509e6a1..70a79b1 100644
+index 56bb2c0..c6819e8 100644
 --- a/Source/WebCore/replay/ReplayClient.h
 +++ b/Source/WebCore/replay/ReplayClient.h
 @@ -21,26 +21,34 @@
-  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
   */
  
  #ifndef ReplayClient_h
@@ -803,7 +985,7 @@ index 509e6a1..70a79b1 100644
  
  #endif // !defined(ReplayClient_h)
 diff --git a/Source/WebCore/replay/ReplayController.cpp b/Source/WebCore/replay/ReplayController.cpp
-index a3560c1..297ad54 100644
+index e374f10..ced8f06 100644
 --- a/Source/WebCore/replay/ReplayController.cpp
 +++ b/Source/WebCore/replay/ReplayController.cpp
 @@ -23,21 +23,20 @@
@@ -837,10 +1019,10 @@ index a3560c1..297ad54 100644
      m_loadedSegment = ReplaySessionSegment::create();
  
      LOG(WebReplay, "%-20s Created segment: %p.\n", "ReplayController", m_loadedSegment.get());
-     InspectorInstrumentation::segmentCreated(&m_page, m_loadedSegment);
+     InspectorInstrumentation::segmentCreated(m_page, m_loadedSegment.copyRef());
  
 -    m_activeCursor = CapturingInputCursor::create(m_loadedSegment);
-+    m_activeCursor = CapturingInputCursor::create(m_loadedSegment, m_page);
++    m_activeCursor = CapturingInputCursor::create(m_loadedSegment.copyRef(), m_page);
      m_activeCursor->appendInput<BeginSegmentSentinel>();
  
      // Dispatching this input saves history, clears all but the current item, appends saved
@@ -851,11 +1033,34 @@ index a3560c1..297ad54 100644
  
      // Dispatching this input schedules navigation of the main frame, causing a refresh.
      std::unique_ptr<InitialNavigation> navigationInput = InitialNavigation::createFromPage(m_page);
+@@ -273,21 +272,21 @@ void ReplayController::loadSegmentAtIndex(size_t segmentIndex)
+     ASSERT(m_segmentState == SegmentState::Unloaded);
+     ASSERT(segment);
+     ASSERT(!m_loadedSegment);
+ 
+     m_loadedSegment = segment;
+     setSegmentState(SegmentState::Loaded);
+ 
+     m_currentPosition.segmentOffset = segmentIndex;
+     m_currentPosition.inputOffset = 0;
+ 
+-    m_activeCursor = ReplayingInputCursor::create(m_loadedSegment, m_page, this);
++    m_activeCursor = ReplayingInputCursor::create(m_loadedSegment.copyRef(), m_page, this);
+ 
+     LOG(WebReplay, "%-20sLoading segment: %p.\n", "ReplayController", segment.get());
+     InspectorInstrumentation::segmentLoaded(m_page, segment.copyRef());
+ }
+ 
+ void ReplayController::unloadSegment(bool suppressNotifications)
+ {
+     ASSERT(m_sessionState != SessionState::Inactive);
+     ASSERT(m_segmentState == SegmentState::Loaded || m_segmentState == SegmentState::Appending);
+ 
 diff --git a/Source/WebCore/replay/ReplayingInputCursor.cpp b/Source/WebCore/replay/ReplayingInputCursor.cpp
-index ae6aa7a..e3aa7d8 100644
+index ae6aa7a..07ed630 100644
 --- a/Source/WebCore/replay/ReplayingInputCursor.cpp
 +++ b/Source/WebCore/replay/ReplayingInputCursor.cpp
-@@ -24,30 +24,48 @@
+@@ -24,72 +24,98 @@
   * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
   * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   */
@@ -878,6 +1083,8 @@ index ae6aa7a..e3aa7d8 100644
  
  namespace WebCore {
  
+-ReplayingInputCursor::ReplayingInputCursor(PassRefPtr<ReplaySessionSegment> segment, Page& page, EventLoopInputDispatcherClient* client)
+-    : m_segment(segment)
 +#if !LOG_DISABLED
 +// This is used to make the log spew from LOG(WebReplay, ...) more readable.
 +static const char* queueTypeToLogPrefix(InputQueue queue)
@@ -891,8 +1098,8 @@ index ae6aa7a..e3aa7d8 100644
 +}
 +#endif // !LOG_DISABLED
 +
- ReplayingInputCursor::ReplayingInputCursor(PassRefPtr<ReplaySessionSegment> segment, Page& page, EventLoopInputDispatcherClient* client)
-     : m_segment(segment)
++ReplayingInputCursor::ReplayingInputCursor(RefPtr<ReplaySessionSegment>&& segment, Page& page, EventLoopInputDispatcherClient* client)
++    : m_segment(WTF::move(segment))
 +    , m_page(page)
      , m_dispatcher(std::make_unique<EventLoopInputDispatcher>(page, *this, client))
  {
@@ -904,7 +1111,30 @@ index ae6aa7a..e3aa7d8 100644
  {
  }
  
-@@ -75,21 +93,29 @@ NondeterministicInputBase* ReplayingInputCursor::loadInput(InputQueue queue, con
+-PassRefPtr<ReplayingInputCursor> ReplayingInputCursor::create(PassRefPtr<ReplaySessionSegment> segment, Page& page, EventLoopInputDispatcherClient* client)
++Ref<ReplayingInputCursor> ReplayingInputCursor::create(RefPtr<ReplaySessionSegment>&& segment, Page& page, EventLoopInputDispatcherClient* client)
+ {
+-    return adoptRef(new ReplayingInputCursor(segment, page, client));
++    return adoptRef(*new ReplayingInputCursor(WTF::move(segment), page, client));
+ }
+ 
+ void ReplayingInputCursor::storeInput(std::unique_ptr<NondeterministicInputBase>)
+ {
+     // Cannot store inputs from a replaying input cursor.
+     ASSERT_NOT_REACHED();
+ }
+ 
+-NondeterministicInputBase* ReplayingInputCursor::loadInput(InputQueue queue, const AtomicString& type)
++NondeterministicInputBase* ReplayingInputCursor::loadInput(InputQueue queue, const String& type)
+ {
+     NondeterministicInputBase* input = uncheckedLoadInput(queue);
+ 
+     if (input->type() != type) {
+         LOG_ERROR("%-25s ERROR: Expected replay input of type %s, but got type %s\n", "[ReplayingInputCursor]", type.string().ascii().data(), input->type().ascii().data());
+         return nullptr;
+     }
+ 
+     return input;
  }
  
  NondeterministicInputBase* ReplayingInputCursor::uncheckedLoadInput(InputQueue queue)
@@ -936,15 +1166,49 @@ index ae6aa7a..e3aa7d8 100644
  
      EventLoopInputData data;
 diff --git a/Source/WebCore/replay/ReplayingInputCursor.h b/Source/WebCore/replay/ReplayingInputCursor.h
-index f379066..5d1cddf 100644
+index f379066..0da1e96 100644
 --- a/Source/WebCore/replay/ReplayingInputCursor.h
 +++ b/Source/WebCore/replay/ReplayingInputCursor.h
-@@ -57,19 +57,20 @@ public:
+@@ -26,50 +26,50 @@
+  */
+ 
+ #ifndef ReplayingInputCursor_h
+ #define ReplayingInputCursor_h
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include "EventLoopInput.h"
+ #include <replay/InputCursor.h>
+ #include <wtf/Vector.h>
+-#include <wtf/text/AtomicString.h>
+ 
+ namespace WebCore {
+ 
+ class EventLoopInputBase;
+ class EventLoopInputDispatcher;
+ class EventLoopInputDispatcherClient;
+ class Page;
+ class ReplaySessionSegment;
+ 
+ class ReplayingInputCursor final : public InputCursor {
+     WTF_MAKE_NONCOPYABLE(ReplayingInputCursor);
+ public:
+-    static PassRefPtr<ReplayingInputCursor> create(PassRefPtr<ReplaySessionSegment>, Page&, EventLoopInputDispatcherClient*);
++    static Ref<ReplayingInputCursor> create(RefPtr<ReplaySessionSegment>&&, Page&, EventLoopInputDispatcherClient*);
+     virtual ~ReplayingInputCursor();
+ 
+     virtual bool isCapturing() const override { return false; }
+     virtual bool isReplaying() const override { return true; }
+ 
+     EventLoopInputDispatcher& dispatcher() const { return *m_dispatcher; }
+ 
      EventLoopInputData loadEventLoopInput();
  protected:
-     virtual NondeterministicInputBase* loadInput(InputQueue, const AtomicString& type) override;
+-    virtual NondeterministicInputBase* loadInput(InputQueue, const AtomicString& type) override;
++    virtual NondeterministicInputBase* loadInput(InputQueue, const String& type) override;
  private:
-     ReplayingInputCursor(PassRefPtr<ReplaySessionSegment>, Page&, EventLoopInputDispatcherClient*);
+-    ReplayingInputCursor(PassRefPtr<ReplaySessionSegment>, Page&, EventLoopInputDispatcherClient*);
++    ReplayingInputCursor(RefPtr<ReplaySessionSegment>&&, Page&, EventLoopInputDispatcherClient*);
  
      virtual void storeInput(std::unique_ptr<NondeterministicInputBase>) override;
      virtual NondeterministicInputBase* uncheckedLoadInput(InputQueue) override;
@@ -1087,10 +1351,10 @@ index b87211b..7316512 100644
  };
  
 diff --git a/Source/WebCore/replay/WebReplayInputCoders.cpp b/Source/WebCore/replay/WebReplayInputCoders.cpp
-index 853c4dd..93a32a3 100644
+index 913674e..7bde576 100644
 --- a/Source/WebCore/replay/WebReplayInputCoders.cpp
 +++ b/Source/WebCore/replay/WebReplayInputCoders.cpp
-@@ -23,44 +23,46 @@
+@@ -23,43 +23,45 @@
   * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
   * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
   * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
@@ -1116,7 +1380,6 @@ index 853c4dd..93a32a3 100644
  #include "PlatformMouseEvent.h"
  #include "PlatformWheelEvent.h"
  #include "PluginData.h"
- #include "ReplayInputTypes.h"
  #include "ResourceError.h"
  #include "ResourceLoadTiming.h"
  #include "ResourceRequest.h"
@@ -1138,7 +1401,7 @@ index 853c4dd..93a32a3 100644
  using WebCore::IntPoint;
  using WebCore::MimeClassInfo;
  using WebCore::MouseButton;
-@@ -329,45 +331,20 @@ bool EncodingTraits<MimeClassInfo>::decodeValue(EncodedValue& encodedData, MimeC
+@@ -328,45 +330,20 @@ bool EncodingTraits<MimeClassInfo>::decodeValue(EncodedValue& encodedData, MimeC
      MimeClassInfo info;
  
      DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, String, type, info.type);
@@ -1184,7 +1447,7 @@ index 853c4dd..93a32a3 100644
      ENCODE_TYPE_WITH_KEY(encodedValue, String, parent, item->parent());
      ENCODE_TYPE_WITH_KEY(encodedValue, int64_t, documentSequenceNumber, item->documentSequenceNumber());
      ENCODE_TYPE_WITH_KEY(encodedValue, Vector<String>, documentState, item->documentState());
-@@ -442,50 +419,20 @@ bool EncodingTraits<IntPoint>::decodeValue(EncodedValue& encodedData, IntPoint&
+@@ -441,50 +418,20 @@ bool EncodingTraits<IntPoint>::decodeValue(EncodedValue& encodedData, IntPoint&
  {
      IntPoint decodedPoint;
  
@@ -1311,10 +1574,10 @@ index ea452e6..7b5662c 100644
      Frame* frame = frameFromFrameIndex(&page, frameIndex);
      ASSERT(frame);
 diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
-index f1c191b..31f73a9 100644
+index c462fc9..5c6fd47 100644
 --- a/Source/WebKit2/CMakeLists.txt
 +++ b/Source/WebKit2/CMakeLists.txt
-@@ -752,19 +752,20 @@ if (ENABLE_WEB_REPLAY)
+@@ -775,19 +775,20 @@ if (ENABLE_WEB_REPLAY)
  =======
      set(WebKit2_WEB_REPLAY_INPUTS ${WEBKIT2_DIR}/WebProcess/Replay/WebInputs.json)
      add_custom_command(
@@ -1336,10 +1599,10 @@ index f1c191b..31f73a9 100644
  install(TARGETS WebKit2 DESTINATION "${LIB_INSTALL_DIR}")
  install(TARGETS WebProcess DESTINATION "${LIBEXEC_INSTALL_DIR}")
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 2531e36..638dda4 100644
+index a539fb3..2cd57c6 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
-@@ -1,10 +1,33 @@
+@@ -1,10 +1,35 @@
 +2014-08-20  Brian J. Burg  <burg@cs.washington.edu>
 +
 +        Web Replay: Encode replay inputs through ReplayClient
@@ -1347,7 +1610,7 @@ index 2531e36..638dda4 100644
 +
 +        Reviewed by NOBODY (OOPS!).
 +
-+        Only WebKit2 can access all possible replay inputs, so it should contain
++        Only WebKit2 can access all frameworks' replay inputs, so it should contain
 +        the big function with cases to encode each input based on its type tag.
 +
 +        Move some logging code out of SegmentedInputStorage so that inputs can be encoded
@@ -1358,26 +1621,28 @@ index 2531e36..638dda4 100644
 +        * CMakeLists.txt:
 +        * WebKit2.xcodeproj/project.pbxproj:
 +        * WebProcess/Replay/WKReplayInputCoders.cpp: Added.
++        (JSC::EncodingTraits<NondeterministicInputBase>::encodeValue): Added.
 +        * WebProcess/Replay/WKReplayInputCoders.h: Added.
 +        * WebProcess/WebCoreSupport/WebReplayClient.cpp:
 +        (WebKit::WebReplayClient::encodeInput):
++        (WebKit::WebReplayClient::decodeInput):
 +        * WebProcess/WebCoreSupport/WebReplayClient.h:
 +
- 2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
+ 2015-01-09  Brian J. Burg  <burg@cs.washington.edu>
  
-         Web Replay: save and restore page history state at main frame navigations
-         https://bugs.webkit.org/show_bug.cgi?id=131043
+         [WIP] Web Replay: support generating replay inputs for WebKit framework
+         Need the bug URL (OOPS!).
  
          Reviewed by NOBODY (OOPS!).
  
-         Promote clear() to be part of the BackForwardClient interface.
+         Generate WebKit2-specific replay inputs from WKInputs.json with the code generator.
  
-         * WebProcess/WebPage/WebBackForwardListProxy.h:
+         * CMakeLists.txt:
 diff --git a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
-index 7766f75..adef8bf 100644
+index 51ebf15..c987143 100644
 --- a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
 +++ b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
-@@ -1549,20 +1549,22 @@
+@@ -1561,20 +1561,22 @@
  		C0CE72A01247E71D00BC0EC4 /* WebPageMessageReceiver.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0CE729E1247E71D00BC0EC4 /* WebPageMessageReceiver.cpp */; };
  		C0CE72A11247E71D00BC0EC4 /* WebPageMessages.h in Headers */ = {isa = PBXBuildFile; fileRef = C0CE729F1247E71D00BC0EC4 /* WebPageMessages.h */; };
  		C0CE72AD1247E78D00BC0EC4 /* HandleMessage.h in Headers */ = {isa = PBXBuildFile; fileRef = C0CE72AC1247E78D00BC0EC4 /* HandleMessage.h */; };
@@ -1400,7 +1665,7 @@ index 7766f75..adef8bf 100644
  		C54256BA18BEC18C00DE4179 /* WKFormSelectControl.h in Headers */ = {isa = PBXBuildFile; fileRef = C54256B418BEC18C00DE4179 /* WKFormSelectControl.h */; };
  		C55CB5B718C269CF00CA81E1 /* WKFormSelectPopover.mm in Sources */ = {isa = PBXBuildFile; fileRef = C57193BA18C149D0002D0F12 /* WKFormSelectPopover.mm */; };
  		C55CB5B818C2A5D600CA81E1 /* WKFormSelectPicker.mm in Sources */ = {isa = PBXBuildFile; fileRef = C57193B918C149D0002D0F12 /* WKFormSelectPicker.mm */; };
-@@ -3655,20 +3657,22 @@
+@@ -3707,20 +3709,22 @@
  		C0CE73361247F70E00BC0EC4 /* generate-message-receiver.py */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.python; path = "generate-message-receiver.py"; sourceTree = "<group>"; };
  		C0CE73371247F70E00BC0EC4 /* generate-messages-header.py */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.python; path = "generate-messages-header.py"; sourceTree = "<group>"; };
  		C0E3AA441209E2BA00A49D01 /* Module.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Module.h; sourceTree = "<group>"; };
@@ -1423,7 +1688,7 @@ index 7766f75..adef8bf 100644
  		C54256B418BEC18C00DE4179 /* WKFormSelectControl.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WKFormSelectControl.h; path = ios/forms/WKFormSelectControl.h; sourceTree = "<group>"; };
  		C554FFA212E4E8EA002F22C0 /* WebDragClientMac.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = WebDragClientMac.mm; sourceTree = "<group>"; };
  		C57193B918C149D0002D0F12 /* WKFormSelectPicker.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WKFormSelectPicker.mm; path = ios/forms/WKFormSelectPicker.mm; sourceTree = "<group>"; };
-@@ -6938,20 +6942,22 @@
+@@ -7076,20 +7080,22 @@
  			);
  			path = Scripts;
  			sourceTree = "<group>";
@@ -1446,56 +1711,83 @@ index 7766f75..adef8bf 100644
  				C5FA1ED118E1062200B3F402 /* WKAirPlayRoutePicker.h */,
  				C5FA1ED218E1062200B3F402 /* WKAirPlayRoutePicker.mm */,
  				A58B6F0618FCA733008CBA53 /* WKFileUploadPanel.h */,
-@@ -7822,20 +7828,21 @@
- 				BCD597D0112B56AC00EC8C23 /* WKPreferencesRef.h in Headers */,
- 				762B748D120BC75C00819339 /* WKPreferencesRefPrivate.h in Headers */,
- 				37C4C08918149F23003688B9 /* WKBackForwardListItemInternal.h in Headers */,
- 				51D0D437183B353D0097041D /* DatabaseProcessIDBConnectionMessages.h in Headers */,
- 				BCBAACED145225E30053F82F /* WKProcessGroupPrivate.h in Headers */,
+@@ -8006,20 +8012,21 @@
  				512F58FC12A88A5400629530 /* WKProtectionSpace.h in Headers */,
  				518ACAEA12AEE6BB00B04B83 /* WKProtectionSpaceTypes.h in Headers */,
+ 				1AD01BCD1905D54900C9C45F /* WKReloadFrameErrorRecoveryAttempter.h in Headers */,
+ 				1A9E329B1822E1CC00F5D04C /* WKRemoteObject.h in Headers */,
+ 				1A9E329F1822FEDD00F5D04C /* WKRemoteObjectCoder.h in Headers */,
+ 				1F604BA81889FA7400EE0395 /* WKRenderingProgressEvents.h in Headers */,
+ 				1F604BAA1889FBB800EE0395 /* _WKRenderingProgressEventsInternal.h in Headers */,
  				37948409150C4B9700E52CE9 /* WKRenderLayer.h in Headers */,
  				37608823150414F700FC82C7 /* WKRenderObject.h in Headers */,
- 				E13833EC189C33C8001E2350 /* LocalStorageDetails.h in Headers */,
+ 				C49474B819A41B73009B3DE8 /* WKReplayInputs.h in Headers */,
 +				C49474BC19A5413F009B3DE8 /* WKReplayInputCoders.h in Headers */,
  				3336763B130C99DC006C9DE2 /* WKResourceCacheManager.h in Headers */,
  				BC8A501511765F5600757573 /* WKRetainPtr.h in Headers */,
+ 				1A7E377918E4A4FE003D0FFF /* WKScriptMessage.h in Headers */,
+ 				1A7E377518E4A33A003D0FFF /* WKScriptMessageHandler.h in Headers */,
+ 				7CC99A3618EF7CBC0048C8B4 /* WKScriptMessageInternal.h in Headers */,
+ 				0FCB4E5418BBE044000FCFC9 /* WKScrollView.h in Headers */,
  				F634445D12A885E9000612D8 /* WKSecurityOrigin.h in Headers */,
- 				1AAF08B819269E6D00B6390C /* WebUserContentControllerMessages.h in Headers */,
  				BC407604124FF0270068F20A /* WKSerializedScriptValue.h in Headers */,
- 				1CBBE4A119B66C53006B7D81 /* WebInspectorUIMessages.h in Headers */,
- 				0FCB4E4C18BBE044000FCFC9 /* WKContentView.h in Headers */,
- 				37A64E5718F38F4600EB30F1 /* _WKFormInputSession.h in Headers */,
- 				1F604BAA1889FBB800EE0395 /* WKRenderingProgressEventsInternal.h in Headers */,
- 				1F7506B81859165D00EC0FF7 /* WKWebProcessPlugInFrameInternal.h in Headers */,
-@@ -8828,20 +8835,21 @@
- 				515E773318402D510007203F /* UniqueIDBDatabaseIdentifier.cpp in Sources */,
- 				2DA049B7180CCD0A00AAFA9E /* GraphicsLayerCARemote.cpp in Sources */,
- 				378E1A4D18208D700031007A /* WKNSURL.mm in Sources */,
- 				515E772F184015800007203F /* UniqueIDBDatabase.cpp in Sources */,
- 				2DA049B3180CCCD300AAFA9E /* PlatformCALayerRemote.cpp in Sources */,
- 				CDC3831017212440008A2FC3 /* CookieStorageShim.mm in Sources */,
- 				B878B616133428DC006888E9 /* CorrectionPanel.mm in Sources */,
- 				2989A411167D1834004F96D2 /* CustomProtocolManagerCocoa.mm in Sources */,
- 				2984F588164BA095004BC0C6 /* CustomProtocolManagerMessageReceiver.cpp in Sources */,
- 				29AD3096164B4C930072DEA9 /* CustomProtocolManagerProxyMac.mm in Sources */,
+ 				F67DD7BA125E40D9007BDCB8 /* WKSerializedScriptValuePrivate.h in Headers */,
+ 				75A8D2D7187D303A00C39C9E /* WKSessionRef.h in Headers */,
+@@ -9676,20 +9683,21 @@
+ 				1AFDD3191891CA1200153970 /* WKPreferences.mm in Sources */,
+ 				0FCB4E6718BBE3D9000FCFC9 /* WKPrintingView.mm in Sources */,
+ 				BCBAACEC145225E30053F82F /* WKProcessGroup.mm in Sources */,
+ 				1A158419189044F50017616C /* WKProcessPool.mm in Sources */,
+ 				512F58FB12A88A5400629530 /* WKProtectionSpace.cpp in Sources */,
+ 				1AD01BCC1905D54900C9C45F /* WKReloadFrameErrorRecoveryAttempter.mm in Sources */,
+ 				1A9E329A1822E1CC00F5D04C /* WKRemoteObject.mm in Sources */,
+ 				1A9E329E1822FEDD00F5D04C /* WKRemoteObjectCoder.mm in Sources */,
+ 				37948408150C4B9700E52CE9 /* WKRenderLayer.cpp in Sources */,
+ 				37608822150414F700FC82C7 /* WKRenderObject.cpp in Sources */,
 +				C49474BB19A5413F009B3DE8 /* WKReplayInputCoders.cpp in Sources */,
- 				0FF24A2D1879E4BC003ABF0C /* RemoteLayerTreeDrawingAreaProxyMessageReceiver.cpp in Sources */,
- 				2984F57C164B915F004BC0C6 /* CustomProtocolManagerProxyMessageReceiver.cpp in Sources */,
- 				BCE81D98131AE02100241910 /* DictionaryPopupInfo.cpp in Sources */,
- 				5167EEA1170377BF007681CA /* NetworkDiskCacheMonitor.mm in Sources */,
- 				2DAF06D718BD1A470081CEB1 /* SmartMagnificationController.mm in Sources */,
- 				2D6CD11A189058A500E5A4A0 /* ViewSnapshotStore.mm in Sources */,
- 				518E8F0716B2093700E91429 /* Download.cpp in Sources */,
- 				2D47B56C1810714E003A3AEE /* RemoteLayerBackingStore.mm in Sources */,
- 				518E8F0916B2093700E91429 /* DownloadAuthenticationClient.cpp in Sources */,
- 				518E8F0D16B2093700E91429 /* DownloadMac.mm in Sources */,
+ 				C49474B719A41B73009B3DE8 /* WKReplayInputs.cpp in Sources */,
+ 				3336763A130C99DC006C9DE2 /* WKResourceCacheManager.cpp in Sources */,
+ 				1A7E377818E4A4FE003D0FFF /* WKScriptMessage.mm in Sources */,
+ 				0FCB4E5518BBE044000FCFC9 /* WKScrollView.mm in Sources */,
+ 				F634445C12A885E9000612D8 /* WKSecurityOrigin.cpp in Sources */,
+ 				BC407603124FF0270068F20A /* WKSerializedScriptValue.cpp in Sources */,
+ 				75A8D2D8187D304000C39C9E /* WKSessionRef.cpp in Sources */,
+ 				1ADE46B21954EC61000F7985 /* WKSessionStateRef.cpp in Sources */,
+ 				BC407605124FF0270068F20A /* WKString.cpp in Sources */,
+ 				BC407619124FF0370068F20A /* WKStringCF.mm in Sources */,
+diff --git a/Source/WebKit2/WebProcess/Replay/WKInputs.json b/Source/WebKit2/WebProcess/Replay/WKInputs.json
+index 42ac5ab..d01777e3 100644
+--- a/Source/WebKit2/WebProcess/Replay/WKInputs.json
++++ b/Source/WebKit2/WebProcess/Replay/WKInputs.json
+@@ -6,20 +6,20 @@
+         "WebCore": [
+             {
+                 "name": "PlatformMouseEvent", "mode": "OWNED",
+                 "header": "platform/PlatformMouseEvent.h"
+             }
+         ]
+     },
+ 
+     "inputs": [
+         {
+-            "name": "HandleMouseMove",
++            "name": "HandleMouseMoveDummy",
+             "description": "The embedder signalled a mouse move event.",
+-            "queue": "EVENT_LOOP",
++            "queue": "SCRIPT_MEMOIZED",
+             "members": [
+                 { "name": "platformEvent", "type": "PlatformMouseEvent" },
+                 { "name": "scrollbarTargeted", "type": "bool" }
+             ]
+         }
+     ]
+ }
 diff --git a/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.cpp b/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.cpp
 new file mode 100644
-index 0000000..ffdac55
+index 0000000..d533cfd
 --- /dev/null
 +++ b/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.cpp
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,134 @@
 +/*
 + * Copyright (C) 2012, 2014 University of Washington. All rights reserved.
 + * Copyright (C) 2014 Apple Inc. All rights reserved.
@@ -1545,9 +1837,23 @@ index 0000000..ffdac55
 +WEB_REPLAY_INPUT_NAMES_FOR_EACH(IMPORT_FROM_WEBCORE_NAMESPACE)
 +#undef IMPORT_FROM_WEBCORE_NAMESPACE
 +
++#define IMPORT_FROM_WEBKIT_NAMESPACE(name) \
++using WebKit::name; \
++
++WK_REPLAY_INPUT_NAMES_FOR_EACH(IMPORT_FROM_WEBKIT_NAMESPACE)
++#undef IMPORT_FROM_WEBKIT_NAMESPACE
++
 +// FIXME: This is copied verbatim from WebReplayInputCoders.cpp
 +#define ENCODE_TYPE_WITH_KEY(_encodedValue, _type, _key, _value) \
 +_encodedValue.put<_type>(ASCIILiteral(#_key), _value)
++
++#define DECODE_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _lvalue) \
++    if (!_encodedValue.get<_type>(ASCIILiteral(#_key), _lvalue)) \
++        return false
++
++#define DECODE_TYPE_WITH_KEY(_encodedValue, _type, _key) \
++    EncodingTraits<_type>::DecodedType _key; \
++    DECODE_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _key)
 +
 +using WebCore::MemoizedDOMResultBase;
 +
@@ -1556,9 +1862,9 @@ index 0000000..ffdac55
 +EncodedValue EncodingTraits<NondeterministicInputBase>::encodeValue(const NondeterministicInputBase& input)
 +{
 +    EncodedValue encodedValue = EncodedValue::createObject();
-+    const AtomicString& type = input.type();
++    const String& type = input.type();
 +
-+    ENCODE_TYPE_WITH_KEY(encodedValue, String, type, type.string());
++    ENCODE_TYPE_WITH_KEY(encodedValue, String, type, type);
 +
 +#define ENCODE_IF_TYPE_TAG_MATCHES(name) \
 +    if (type == InputTraits<name>::type()) { \
@@ -1579,6 +1885,38 @@ index 0000000..ffdac55
 +
 +    ASSERT_NOT_REACHED();
 +    return EncodedValue();
++}
++
++bool EncodingTraits<NondeterministicInputBase>::decodeValue(EncodedValue& encodedValue, std::unique_ptr<NondeterministicInputBase>& input)
++{
++    DECODE_TYPE_WITH_KEY(encodedValue, String, type);
++
++#define DECODE_IF_TYPE_TAG_MATCHES(name) \
++    if (type == InputTraits<name>::type()) { \
++        std::unique_ptr<name> decodedInput; \
++        if (!InputTraits<name>::decode(encodedValue, decodedInput)) \
++            return false; \
++        \
++        input = WTF::move(decodedInput); \
++        return true; \
++    } \
++
++    JS_REPLAY_INPUT_NAMES_FOR_EACH(DECODE_IF_TYPE_TAG_MATCHES)
++    WEB_REPLAY_INPUT_NAMES_FOR_EACH(DECODE_IF_TYPE_TAG_MATCHES)
++    WK_REPLAY_INPUT_NAMES_FOR_EACH(DECODE_IF_TYPE_TAG_MATCHES)
++#undef DECODE_IF_TYPE_TAG_MATCHES
++
++    // The macro won't work here because of the class template argument.
++    if (type == InputTraits<MemoizedDOMResultBase>::type()) {
++        std::unique_ptr<MemoizedDOMResultBase> decodedInput;
++        if (!InputTraits<MemoizedDOMResultBase>::decode(encodedValue, decodedInput))
++            return false;
++
++        input = WTF::move(decodedInput);
++        return true;
++    }
++
++    return false;
 +}
 +
 +} // namespace JSC

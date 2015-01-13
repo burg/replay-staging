@@ -1,4 +1,4 @@
-From d4653984d8393e524aa1ca4b8890934ae074b84d Mon Sep 17 00:00:00 2001
+From 237533ac156952e437d6dfbd34a34c71288fd986 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Sat, 20 Sep 2014 12:52:14 -0700
 Subject: [PATCH] Hack to get the overview timeline data to persist during
@@ -7,7 +7,6 @@ Subject: [PATCH] Hack to get the overview timeline data to persist during
 
 This patch should be deleted and rewritten once we have a better plan for timelines integration.
 ---
- Source/WebInspectorUI/UserInterface/Base/Main.js   |  2 +
  .../UserInterface/Controllers/ReplayManager.js     | 33 +++++++---
  .../UserInterface/Controllers/TimelineManager.js   | 13 +++-
  Source/WebInspectorUI/UserInterface/Main.html      |  1 +
@@ -20,40 +19,9 @@ This patch should be deleted and rewritten once we have a better plan for timeli
  .../UserInterface/Views/TimelineOverview.js        | 19 ++++++
  .../UserInterface/Views/TimelineOverviewGraph.js   | 16 +++++
  .../UserInterface/Views/TimelineRecordBar.js       |  2 +-
- 13 files changed, 193 insertions(+), 25 deletions(-)
+ 12 files changed, 191 insertions(+), 25 deletions(-)
  create mode 100644 Source/WebInspectorUI/UserInterface/Models/ReplayPosition.js
 
-diff --git a/Source/WebInspectorUI/UserInterface/Base/Main.js b/Source/WebInspectorUI/UserInterface/Base/Main.js
-index 2b52a70..3aad79a 100644
---- a/Source/WebInspectorUI/UserInterface/Base/Main.js
-+++ b/Source/WebInspectorUI/UserInterface/Base/Main.js
-@@ -742,24 +742,26 @@ WebInspector._dragOver = function(event)
- 
-     // Allow dropping into editable areas.
-     if (WebInspector.isEventTargetAnEditableField(event))
-         return;
- 
-     // Prevent the drop from being accepted.
-     event.dataTransfer.dropEffect = "none";
-     event.preventDefault();
- }
- 
-+/*
- WebInspector._captureDidStart = function(event)
- {
-     this.dashboardContainer.showDashboardViewForRepresentedObject(this.dashboardManager.dashboards.replay);
- }
-+*/
- 
- WebInspector._debuggerDidPause = function(event)
- {
-     this.debuggerSidebarPanel.show();
-     this.dashboardContainer.showDashboardViewForRepresentedObject(this.dashboardManager.dashboards.debugger);
- 
-     // Since the Scope Chain details sidebar panel might not be in the sidebar yet,
-     // set a flag to select and show it when it does become available.
-     this._selectAndShowScopeChainDetailsSidebarPanelWhenAvailable = true;
- 
 diff --git a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
 index 0efdb30..0de1226 100644
 --- a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
@@ -316,10 +284,10 @@ index 3f71642..3274e80 100644
              return;
  
 diff --git a/Source/WebInspectorUI/UserInterface/Main.html b/Source/WebInspectorUI/UserInterface/Main.html
-index 3698bf4..2b82171 100644
+index eb11fe3..732f31e 100644
 --- a/Source/WebInspectorUI/UserInterface/Main.html
 +++ b/Source/WebInspectorUI/UserInterface/Main.html
-@@ -243,20 +243,21 @@
+@@ -246,20 +246,21 @@
      <script src="Models/LogObject.js"></script>
      <script src="Models/NetworkTimeline.js"></script>
      <script src="Models/Probe.js"></script>
@@ -335,12 +303,12 @@ index 3698bf4..2b82171 100644
      <script src="Models/ReplaySessionSegment.js"></script>
      <script src="Models/Resource.js"></script>
      <script src="Models/ResourceCollection.js"></script>
-     <script src="Models/ResourceSearchMatchObject.js"></script>
      <script src="Models/ResourceTimelineRecord.js"></script>
      <script src="Models/Revision.js"></script>
      <script src="Models/ScopeChainNode.js"></script>
      <script src="Models/Script.js"></script>
      <script src="Models/ScriptSyntaxTree.js"></script>
+     <script src="Models/ScriptTimelineRecord.js"></script>
 diff --git a/Source/WebInspectorUI/UserInterface/Models/ReplayPosition.js b/Source/WebInspectorUI/UserInterface/Models/ReplayPosition.js
 new file mode 100644
 index 0000000..2ac0c24
@@ -514,10 +482,10 @@ index 36bd03c..a0a5a22 100644
  
      captureStarted: function()
 diff --git a/Source/WebInspectorUI/UserInterface/Test.html b/Source/WebInspectorUI/UserInterface/Test.html
-index 4dc1e87..bdd31b2 100644
+index 7d4bb55..e6c5313 100644
 --- a/Source/WebInspectorUI/UserInterface/Test.html
 +++ b/Source/WebInspectorUI/UserInterface/Test.html
-@@ -90,20 +90,21 @@
+@@ -91,20 +91,21 @@
      <script src="Models/LayoutTimelineRecord.js"></script>
      <script src="Models/LazySourceCodeLocation.js"></script>
      <script src="Models/NetworkTimeline.js"></script>
@@ -540,10 +508,10 @@ index 4dc1e87..bdd31b2 100644
      <script src="Models/ScriptSyntaxTree.js"></script>
      <script src="Models/ScriptTimelineRecord.js"></script>
 diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineContentView.js b/Source/WebInspectorUI/UserInterface/Views/TimelineContentView.js
-index a203f2e..75f9902 100644
+index a364bc5..ff9a716 100644
 --- a/Source/WebInspectorUI/UserInterface/Views/TimelineContentView.js
 +++ b/Source/WebInspectorUI/UserInterface/Views/TimelineContentView.js
-@@ -91,20 +91,25 @@ WebInspector.TimelineContentView = function(recording)
+@@ -92,20 +92,25 @@ WebInspector.TimelineContentView = function(recording)
      this._currentTime = NaN;
      this._lastUpdateTimestamp = NaN;
      this._startTimeNeedsReset = true;
@@ -569,7 +537,7 @@ index a203f2e..75f9902 100644
  WebInspector.TimelineContentView.ViewContainerStyleClassName = "view-container";
  
  WebInspector.TimelineContentView.SelectedTimelineTypeCookieKey = "timeline-content-view-selected-timeline-type";
-@@ -389,34 +394,59 @@ WebInspector.TimelineContentView.prototype = {
+@@ -390,34 +395,59 @@ WebInspector.TimelineContentView.prototype = {
      },
  
      _stopUpdatingCurrentTime: function()

@@ -1,23 +1,93 @@
-From bf8309e2f6024e61d387d65fa176d51eac5e3e21 Mon Sep 17 00:00:00 2001
+From 31cdc524861986e4acefb26b99566ae7230387b0 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 18 Sep 2014 22:17:34 -0700
-Subject: [PATCH] Make NavigationScheduler use deterministic timers. Add
- support for a memoized ReplayableTimer::nextFireInterval.
+Subject: [PATCH] Web Replay: NavigationScheduler should use a deterministic
+ timer Need the bug URL (OOPS!).
 
+Reviewed by NOBODY (OOPS!).
+
+Asynchronously-scheduled navigations should be deterministic during playback.
+
+Make ReplayableTimer support the nextFireInterval() API by memoizing its results. It is used by
+NavigationScheduler to compute the navigation action time, and forwarded to FrameLoaderClient
+(and on to delegates). It's also used elsewhere to implement simple threshold throttling
+which could affect JavaScript execution.
+
+No new tests (OOPS!).
+
+[TEST STRATEGY] Do some navigations(?). Not sure how to test interleaving.
+
+* WebCore.exp.in:
+* loader/NavigationScheduler.cpp:
+(WebCore::ScheduledNavigation::didStartTimer):
+(WebCore::NavigationScheduler::startTimer):
+* loader/NavigationScheduler.h:
+* replay/ReplayableTimer.cpp:
+(WebCore::ReplayableTimerBase::nextFireInterval):
+* replay/ReplayableTimer.h:
+(WebCore::ReplayableTimerBase::nextFireInterval): Add forwarding for !ENABLE(WEB_REPLAY).
+* replay/WebInputs.json:
 ---
+ Source/WebCore/ChangeLog                      | 29 +++++++++++++++++++++++++++
  Source/WebCore/WebCore.exp.in                 |  3 +++
- Source/WebCore/loader/NavigationScheduler.cpp | 10 +++++-----
- Source/WebCore/loader/NavigationScheduler.h   |  6 +++---
- Source/WebCore/replay/ReplayableTimer.cpp     | 27 +++++++++++++++++++++++++++
- Source/WebCore/replay/ReplayableTimer.h       |  2 ++
+ Source/WebCore/loader/NavigationScheduler.cpp | 10 ++++-----
+ Source/WebCore/loader/NavigationScheduler.h   |  4 ++--
+ Source/WebCore/replay/ReplayableTimer.cpp     | 27 +++++++++++++++++++++++++
+ Source/WebCore/replay/ReplayableTimer.h       |  7 +++++++
  Source/WebCore/replay/WebInputs.json          |  8 ++++++++
- 6 files changed, 48 insertions(+), 8 deletions(-)
+ 7 files changed, 81 insertions(+), 7 deletions(-)
 
+diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
+index 200f481..b0d83d1 100644
+--- a/Source/WebCore/ChangeLog
++++ b/Source/WebCore/ChangeLog
+@@ -1,12 +1,41 @@
+ 2015-01-12  Brian J. Burg  <burg@cs.washington.edu>
+ 
++        Web Replay: NavigationScheduler should use a deterministic timer
++        Need the bug URL (OOPS!).
++
++        Reviewed by NOBODY (OOPS!).
++
++        Asynchronously-scheduled navigations should be deterministic during playback.
++
++        Make ReplayableTimer support the nextFireInterval() API by memoizing its results. It is used by
++        NavigationScheduler to compute the navigation action time, and forwarded to FrameLoaderClient
++        (and on to delegates). It's also used elsewhere to implement simple threshold throttling
++        which could affect JavaScript execution.
++
++        No new tests (OOPS!).
++
++        [TEST STRATEGY] Do some navigations(?). Not sure how to test interleaving.
++
++        * WebCore.exp.in:
++        * loader/NavigationScheduler.cpp:
++        (WebCore::ScheduledNavigation::didStartTimer):
++        (WebCore::NavigationScheduler::startTimer):
++        * loader/NavigationScheduler.h:
++        * replay/ReplayableTimer.cpp:
++        (WebCore::ReplayableTimerBase::nextFireInterval):
++        * replay/ReplayableTimer.h:
++        (WebCore::ReplayableTimerBase::nextFireInterval): Add forwarding for !ENABLE(WEB_REPLAY).
++        * replay/WebInputs.json:
++
++2015-01-12  Brian J. Burg  <burg@cs.washington.edu>
++
+         Web Replay: ScriptRunner should use a deterministic timer
+         Need the bug URL (OOPS!).
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Scripts should run in a deterministic order.
+ 
+         No new tests (OOPS!).
+ 
+         [TEST STRATEGY] Find a small test case where we reliably hit ScriptRunner asynchrony.
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index 967587e..74f6ffb 100644
+index 277f177..702f63e 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -3514,20 +3514,23 @@ __ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6decodeERNS_12EncodedValueE
+@@ -3537,20 +3537,23 @@ __ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6decodeERNS_12EncodedValueE
  __ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -42,7 +112,7 @@ index 967587e..74f6ffb 100644
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE4typeEv
 diff --git a/Source/WebCore/loader/NavigationScheduler.cpp b/Source/WebCore/loader/NavigationScheduler.cpp
-index 21c3804..1fc984a 100644
+index 91cba06..9641fe5 100644
 --- a/Source/WebCore/loader/NavigationScheduler.cpp
 +++ b/Source/WebCore/loader/NavigationScheduler.cpp
 @@ -67,21 +67,21 @@ public:
@@ -56,8 +126,8 @@ index 21c3804..1fc984a 100644
      virtual void fire(Frame&) = 0;
  
      virtual bool shouldStartTimer(Frame&) { return true; }
--    virtual void didStartTimer(Frame&, Timer<NavigationScheduler>&) { }
-+    virtual void didStartTimer(Frame&, ReplayableTimer<NavigationScheduler>&) { }
+-    virtual void didStartTimer(Frame&, Timer&) { }
++    virtual void didStartTimer(Frame&, ReplayableTimer&) { }
      virtual void didStopTimer(Frame&, bool /* newLoadInProgress */) { }
  
      double delay() const { return m_delay; }
@@ -79,8 +149,8 @@ index 21c3804..1fc984a 100644
          frame.loader().changeLocation(m_securityOrigin.get(), m_url, m_referrer, lockHistory(), lockBackForwardList(), false);
      }
  
--    virtual void didStartTimer(Frame& frame, Timer<NavigationScheduler>& timer) override
-+    virtual void didStartTimer(Frame& frame, ReplayableTimer<NavigationScheduler>& timer) override
+-    virtual void didStartTimer(Frame& frame, Timer& timer) override
++    virtual void didStartTimer(Frame& frame, ReplayableTimer& timer) override
      {
          if (m_haveToldClient)
              return;
@@ -91,7 +161,8 @@ index 21c3804..1fc984a 100644
      }
  
      virtual void didStopTimer(Frame& frame, bool newLoadInProgress) override
-@@ -242,21 +242,21 @@ public:
+@@ -241,22 +241,22 @@ public:
+         // Now that the timer has fired, we need to repeat the security check which normally is done when
          // selecting a target, in case conditions have changed. Other code paths avoid this by targeting
          // without leaving a time window. If we fail the check just silently drop the form submission.
          Document* requestingDocument = m_submission->state()->sourceDocument();
@@ -101,9 +172,10 @@ index 21c3804..1fc984a 100644
          m_submission->populateFrameLoadRequest(frameRequest);
          frame.loader().loadFrameRequest(frameRequest, lockHistory(), lockBackForwardList(), m_submission->event(), m_submission->state(), MaybeSendReferrer, AllowNavigationToInvalidURL::Yes);
      }
-     
--    virtual void didStartTimer(Frame& frame, Timer<NavigationScheduler>& timer) override
-+    virtual void didStartTimer(Frame& frame, ReplayableTimer<NavigationScheduler>& timer) override
+-    
+-    virtual void didStartTimer(Frame& frame, Timer& timer) override
++
++    virtual void didStartTimer(Frame& frame, ReplayableTimer& timer) override
      {
          if (m_haveToldClient)
              return;
@@ -114,29 +186,6 @@ index 21c3804..1fc984a 100644
      }
  
      virtual void didStopTimer(Frame& frame, bool newLoadInProgress) override
-@@ -423,21 +423,21 @@ void NavigationScheduler::scheduleHistoryNavigation(int steps)
-     BackForwardController& backForward = m_frame.page()->backForward();
-     if (steps > backForward.forwardCount() || -steps > backForward.backCount()) {
-         cancel();
-         return;
-     }
- 
-     // In all other cases, schedule the history traversal to occur asynchronously.
-     schedule(std::make_unique<ScheduledHistoryNavigation>(steps));
- }
- 
--void NavigationScheduler::timerFired(Timer<NavigationScheduler>&)
-+void NavigationScheduler::timerFired(ReplayableTimer<NavigationScheduler>&)
- {
-     if (!m_frame.page())
-         return;
-     if (m_frame.page()->defersLoading()) {
-         InspectorInstrumentation::frameClearedScheduledNavigation(m_frame);
-         return;
-     }
- 
-     Ref<Frame> protect(m_frame);
- 
 @@ -478,21 +478,21 @@ void NavigationScheduler::startTimer()
      if (!m_redirect)
          return;
@@ -161,7 +210,7 @@ index 21c3804..1fc984a 100644
      m_timer.stop();
  
 diff --git a/Source/WebCore/loader/NavigationScheduler.h b/Source/WebCore/loader/NavigationScheduler.h
-index 7db21a7..be22e1c 100644
+index 8522840..bf34706 100644
 --- a/Source/WebCore/loader/NavigationScheduler.h
 +++ b/Source/WebCore/loader/NavigationScheduler.h
 @@ -25,21 +25,21 @@
@@ -187,26 +236,19 @@ index 7db21a7..be22e1c 100644
  class SecurityOrigin;
  class URL;
  
-@@ -76,23 +76,23 @@ public:
- 
-     void startTimer();
- 
-     void cancel(bool newLoadInProgress = false);
-     void clear();
- 
+@@ -82,17 +82,17 @@ public:
  private:
      bool shouldScheduleNavigation() const;
      bool shouldScheduleNavigation(const URL&) const;
  
--    void timerFired(Timer<NavigationScheduler>&);
-+    void timerFired(ReplayableTimer<NavigationScheduler>&);
+     void timerFired();
      void schedule(std::unique_ptr<ScheduledNavigation>);
  
      static LockBackForwardList mustLockBackForwardList(Frame& targetFrame);
  
      Frame& m_frame;
--    Timer<NavigationScheduler> m_timer;
-+    ReplayableTimer<NavigationScheduler> m_timer;
+-    Timer m_timer;
++    ReplayableTimer m_timer;
      std::unique_ptr<ScheduledNavigation> m_redirect;
  };
  
@@ -214,10 +256,10 @@ index 7db21a7..be22e1c 100644
  
  #endif // NavigationScheduler_h
 diff --git a/Source/WebCore/replay/ReplayableTimer.cpp b/Source/WebCore/replay/ReplayableTimer.cpp
-index df1f7fd..4637c09 100644
+index 6e6bee9..04523f0 100644
 --- a/Source/WebCore/replay/ReplayableTimer.cpp
 +++ b/Source/WebCore/replay/ReplayableTimer.cpp
-@@ -95,13 +95,40 @@ void ReplayableTimerBase::stop()
+@@ -93,13 +93,40 @@ void ReplayableTimerBase::stop()
  #if !LOG_DISABLED
      if (cursor.isCapturing() || cursor.isReplaying())
          LOG(WebReplay, "ReplayableTimer(%p)::stop m_document=%p, ordinal=%" PRIu64, this, m_document, m_ordinal);
@@ -259,37 +301,58 @@ index df1f7fd..4637c09 100644
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebCore/replay/ReplayableTimer.h b/Source/WebCore/replay/ReplayableTimer.h
-index e1c3e45..fc2b627 100644
+index 9b2a927..cf1b6cb 100644
 --- a/Source/WebCore/replay/ReplayableTimer.h
 +++ b/Source/WebCore/replay/ReplayableTimer.h
 @@ -44,20 +44,22 @@ friend class ReplayableTimers;
- 
  public:
      ReplayableTimerBase();
      virtual ~ReplayableTimerBase();
  
      void startOneShot(double interval, Document*);
+     void startOneShot(std::chrono::milliseconds interval, Document* document) { startOneShot(interval.count() * 0.001, document); }
  
      void stop();
-     bool isActive() const { return m_document; }
+     bool isActive() const;
  
 +    double nextFireInterval();
 +
+ #if ENABLE(WEB_REPLAY)
      uint64_t ordinal() const { return m_ordinal; }
+ #endif
  protected:
      virtual void fired() =0;
  private:
-     void timerFired(Timer<ReplayableTimerBase>&);
+     void timerFired();
  
-     Timer<ReplayableTimerBase> m_timer;
-     Document* m_document;
-     // Timers are often initialized without an associated document, but are always
-     // always fired when one is available. Assign timer ordinals on first fire.
+     Timer m_timer;
+ 
+@@ -101,15 +103,20 @@ inline bool ReplayableTimerBase::isActive() const
+ inline bool ReplayableTimerBase::isActive() const
+ {
+     return m_timer.isActive();
+ }
+ 
+ inline void ReplayableTimerBase::startOneShot(double interval, Document*)
+ {
+     m_timer.startOneShot(interval);
+ }
+ 
++inline void ReplayableTimerBase::nextFireInterval()
++{
++    return m_timer.nextFireInterval();
++}
++
+ #endif // !ENABLE(WEB_REPLAY)
+ 
+ } // namespace WebCore
+ 
+ #endif // ReplayableTimer_h
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
-index e975a1a..1606b8f 100644
+index 24ae72f..5329e14 100644
 --- a/Source/WebCore/replay/WebInputs.json
 +++ b/Source/WebCore/replay/WebInputs.json
-@@ -192,20 +192,28 @@
+@@ -158,20 +158,28 @@
          {
              "name": "AsyncTimerFired",
              "description": "A ReplayableTimer instance fired that was associated with the specified frame.",

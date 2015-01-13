@@ -1,4 +1,4 @@
-From c3216e833a3fba288a00da11657f3f3d8ad02d71 Mon Sep 17 00:00:00 2001
+From d59275b65c28c0d59b8aac8eaf4bf333f5008351 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 27 Aug 2014 15:49:33 -0700
 Subject: [PATCH] Web Replay: capture and replay changes to the page's
@@ -35,13 +35,13 @@ drawing area calls.
  Source/WebCore/replay/WebInputs.json               | 14 ++++++++++++++
  Source/WebKit2/ChangeLog                           | 22 ++++++++++++++++++++++
  Source/WebKit2/WebProcess/Replay/WKInputs.json     | 22 ++++++++++++++++++++++
- .../Replay/WKReplayInputDispatchMethods.cpp        |  5 +++++
+ .../Replay/WKReplayInputDispatchMethods.cpp        |  6 ++++++
  Source/WebKit2/WebProcess/WebPage/WebPage.cpp      | 22 ++++++++++++++++++++--
  Source/WebKit2/WebProcess/WebPage/WebPage.h        |  1 +
- 8 files changed, 98 insertions(+), 2 deletions(-)
+ 8 files changed, 99 insertions(+), 2 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 04a5bff..df5d661 100644
+index 75934e3..57eb7dc 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,24 @@
@@ -70,10 +70,10 @@ index 04a5bff..df5d661 100644
          Covered by existing generator tests.
  
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index 69d2417..967587e 100644
+index 9b3fff6..277f177 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -3541,20 +3541,22 @@ __ZN3JSC14EncodingTraitsIN7WebCore15KeypressCommandEE11encodeValueERKS2_
+@@ -3564,20 +3564,22 @@ __ZN3JSC14EncodingTraitsIN7WebCore15KeypressCommandEE11encodeValueERKS2_
  __ZN3JSC14EncodingTraitsIN7WebCore15ScrollDirectionEE11decodeValueERNS_12EncodedValueERS2_
  __ZN3JSC14EncodingTraitsIN7WebCore15ScrollDirectionEE11encodeValueERKS2_
  __ZN3JSC14EncodingTraitsIN7WebCore16FrameLoadRequestEE11decodeValueERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -97,10 +97,10 @@ index 69d2417..967587e 100644
  #if ENABLE(WEB_TIMING)
  __ZNK7WebCore20ResourceResponseBase18resourceLoadTimingEv
 diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
-index 2b005d2..e975a1a 100644
+index 19bcbde..24ae72f 100644
 --- a/Source/WebCore/replay/WebInputs.json
 +++ b/Source/WebCore/replay/WebInputs.json
-@@ -163,20 +163,34 @@
+@@ -129,20 +129,34 @@
                  "values": [
                      "Data",
                      "EncodedFile",
@@ -136,7 +136,7 @@ index 2b005d2..e975a1a 100644
              "queue": "EVENT_LOOP",
              "members": [
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 638dda4..db2b956 100644
+index dc3a883..4415fcf 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,32 @@
@@ -162,18 +162,18 @@ index 638dda4..db2b956 100644
 +        (WebKit::WebPage::setViewState):
 +        * WebProcess/WebPage/WebPage.h:
 +
- 2014-08-20  Brian J. Burg  <burg@cs.washington.edu>
+ 2015-01-11  Brian J. Burg  <burg@cs.washington.edu>
  
-         Web Replay: Encode replay inputs through ReplayClient
+         Web Replay: capture and dispatch navigation inputs from WebPage
          Need the bug URL (OOPS!).
  
          Reviewed by NOBODY (OOPS!).
  
-         Only WebKit2 can access all possible replay inputs, so it should contain
-         the big function with cases to encode each input based on its type tag.
+         Finish moving interception methods from UserInputBridge into WebPage.
+         Add handle* interception methods for navigation inputs and route through them.
  
 diff --git a/Source/WebKit2/WebProcess/Replay/WKInputs.json b/Source/WebKit2/WebProcess/Replay/WKInputs.json
-index 9ee7dd3..0ceef63 100644
+index c004f9e..f34a756 100644
 --- a/Source/WebKit2/WebProcess/Replay/WKInputs.json
 +++ b/Source/WebKit2/WebProcess/Replay/WKInputs.json
 @@ -24,20 +24,34 @@
@@ -238,11 +238,11 @@ index 9ee7dd3..0ceef63 100644
      ]
  }
 diff --git a/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp b/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp
-index cc24b09..8b0c2f3 100644
+index a193929..a98d195 100644
 --- a/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp
 +++ b/Source/WebKit2/WebProcess/Replay/WKReplayInputDispatchMethods.cpp
-@@ -72,18 +72,23 @@ void HandleFrameReload::dispatchOnWebPage(WebPage& page)
- void HandleFrameStop::dispatchOnWebPage(WebPage& page)
+@@ -72,18 +72,24 @@ void HandleFrameReload::dispatch(WebPage& page)
+ void HandleFrameStop::dispatch(WebPage& page)
  {
      WebCore::Frame* frame = WebCore::frameFromFrameIndex(page.corePage(), m_frameIndex);
      ASSERT(frame);
@@ -252,12 +252,13 @@ index cc24b09..8b0c2f3 100644
      page.handleFrameStop(*frame, WebPage::ActionSource::Synthetic);
  }
  
-+void HandleViewStateChange::dispatchOnWebPage(WebPage& page)
++void HandleViewStateChange::dispatch(WebPage& page)
 +{
-+    page.handleViewStateChange(state(), false, WebPage::ActionSource::Synthetic);
++    Vector<uint64_t> empty;
++    page.handleViewStateChange(state(), false, empty, WebPage::ActionSource::Synthetic);
 +}
 +
- void TryClosePage::dispatchOnWebPage(WebPage& page)
+ void TryClosePage::dispatch(WebPage& page)
  {
      page.handleTryClose(WebPage::ActionSource::Synthetic);
  }
@@ -266,10 +267,10 @@ index cc24b09..8b0c2f3 100644
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-index 9f0e04b..7c0bfc5 100644
+index 9204fbe..9d09ccc 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-@@ -2412,35 +2412,53 @@ void WebPage::updateIsInWindow(bool isInitialState)
+@@ -2471,38 +2471,56 @@ void WebPage::updateIsInWindow(bool isInitialState)
          if (m_mayStartMediaWhenInWindow)
              m_setCanStartMediaTimer.startOneShot(0);
  
@@ -280,8 +281,8 @@ index 9f0e04b..7c0bfc5 100644
          layoutIfNeeded();
  }
  
--void WebPage::setViewState(ViewState::Flags viewState, bool wantsDidUpdateViewState)
-+void WebPage::handleViewStateChange(WebCore::ViewState::Flags viewState, bool wantsDidUpdateViewState, ActionSource source)
+-void WebPage::setViewState(ViewState::Flags viewState, bool wantsDidUpdateViewState, const Vector<uint64_t>& callbackIDs)
++void WebPage::handleViewStateChange(ViewState::Flags viewState, bool wantsDidUpdateViewState, const Vector<uint64_t>& callbackIDs, ActionSource source)
  {
 -    ViewState::Flags changed = m_viewState ^ viewState;
 +#if ENABLE(WEB_REPLAY)
@@ -299,20 +300,23 @@ index 9f0e04b..7c0bfc5 100644
 +    ViewState::Flags changed = static_cast<ViewState::Flags>(m_viewState ^ viewState);
      m_viewState = viewState;
  
+     if (changed)
+         updateUserActivity();
+ 
      m_page->setViewState(viewState);
      for (auto* pluginView : m_pluginViews)
          pluginView->viewStateDidChange(changed);
  
-     m_drawingArea->viewStateDidChange(changed, wantsDidUpdateViewState);
+     m_drawingArea->viewStateDidChange(changed, wantsDidUpdateViewState, callbackIDs);
  
      if (changed & ViewState::IsInWindow)
          updateIsInWindow();
  }
  
 +
-+void WebPage::setViewState(uint32_t viewStateFlags, bool wantsDidUpdateViewState)
++void WebPage::setViewState(uint32_t viewStateFlags, bool wantsDidUpdateViewState, const Vector<uint64_t>& callbackIDs)
 +{
-+    handleViewStateChange(static_cast<ViewState::Flags>(viewStateFlags), wantsDidUpdateViewState, ActionSource::User);
++    handleViewStateChange(static_cast<ViewState::Flags>(viewStateFlags), wantsDidUpdateViewState, callbackIDs, ActionSource::User);
 +}
 +
  void WebPage::setLayerHostingMode(unsigned layerHostingMode)
@@ -326,10 +330,10 @@ index 9f0e04b..7c0bfc5 100644
  }
  
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.h b/Source/WebKit2/WebProcess/WebPage/WebPage.h
-index a6c6ad9..e23f8d3 100644
+index 3bb9d8d..c32fb1a 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.h
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.h
-@@ -851,20 +851,21 @@ public:
+@@ -874,20 +874,21 @@ public:
      // Entry points for actions that can be simulated during web replay.
      bool handleMouseEvent(const WebMouseEvent&, ActionSource);
      bool handleKeyEvent(const WebKeyboardEvent&, ActionSource);
@@ -340,7 +344,7 @@ index a6c6ad9..e23f8d3 100644
      void handleFrameReload(WebCore::Frame&, bool endToEndReload, ActionSource);
      void handleFrameStop(WebCore::Frame&, ActionSource);
      bool handleTryClose(ActionSource);
-+    void handleViewStateChange(WebCore::ViewState::Flags, bool wantsDidUpdateViewState, ActionSource);
++    void handleViewStateChange(WebCore::ViewState::Flags, bool wantsDidUpdateViewState, const Vector<uint64_t>& callbackIds, ActionSource);
  
      
  private:

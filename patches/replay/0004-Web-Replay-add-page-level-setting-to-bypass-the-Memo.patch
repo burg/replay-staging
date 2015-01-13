@@ -1,4 +1,4 @@
-From 508ff6e5fe40b0a25425af892702c5d1383f53c8 Mon Sep 17 00:00:00 2001
+From cb5c0b3a90e42e9c428338e087c9980cdc768a0d Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 11 Jun 2014 15:33:16 -0700
 Subject: [PATCH] Web Replay: add page-level setting to bypass the MemoryCache
@@ -6,7 +6,8 @@ Subject: [PATCH] Web Replay: add page-level setting to bypass the MemoryCache
 
 Reviewed by NOBODY (OOPS!).
 
-../../OpenSource/Source/WebCore:
+Source/WebCore:
+
 When replaying a specific Page we don't want to store its cached resources in the
 MemoryCache. This patch adds a page setting to prevent the page's resources from
 being saved in the MemoryCache.
@@ -17,7 +18,18 @@ act as if the memory cache is disabled if the resource has this special session 
 This new session id is considered non-ephemeral; it uses the same network session
 as the default session id, but doesn't add entries to MemoryCache.
 
+When the flag is set to false, existing cached resources are evicted. Otherwise,
+resources of the captured page will already be cached if the page was recently
+loaded.
+
+This strategy is used instead of simply disabling the memory cache, because the
+cache is shared as a static singleton, but replay affects a single Page. If we
+relied on a disabled memory cache, another page could mistakenly turn it back on.
+
 No new tests, as this functionality will be exercised by network replay tests.
+
+[TEST STRATEGY] write a test to ensure that a duplicate resource load during replay
+does not hit MemoryCache (i.e., recieves full resource loader callbacks).
 
 * loader/cache/CachedResourceLoader.cpp:
 (WebCore::CachedResourceLoader::requestResource):
@@ -34,13 +46,15 @@ No new tests, as this functionality will be exercised by network replay tests.
 * page/Settings.cpp:
 (WebCore::Settings::Settings):
 * page/Settings.h:
-(WebCore::Settings::setUsesMemoryCache): Added.
+(WebCore::Settings::setUsesMemoryCache): Added. Evict all resources from the
+memory cache if the flag is set to false.
 (WebCore::Settings::usesMemoryCache): Added.
 * replay/ReplayController.cpp: Also flip usesMemoryCache.
 (WebCore::ReplayController::setForceDeterministicSettings):
 * replay/ReplayController.h:
 
-../../OpenSource/Source/WebKit2:
+Source/WebKit2:
+
 Use the default session if the session id is not ephemeral. The default session id
 and bypass cache session id are both considered to be non-ephemeral.
 
@@ -48,24 +62,24 @@ and bypass cache session id are both considered to be non-ephemeral.
 (WebKit::SessionTracker::session):
 (WebKit::SessionTracker::setSession):
 ---
- Source/WebCore/ChangeLog                           | 48 ++++++++++++++++++++++
+ Source/WebCore/ChangeLog                           | 52 ++++++++++++++++++++++
  .../WebCore/loader/cache/CachedResourceLoader.cpp  |  5 ++-
  Source/WebCore/loader/cache/MemoryCache.cpp        |  3 ++
- Source/WebCore/page/Page.cpp                       |  7 +++-
+ Source/WebCore/page/Page.cpp                       |  7 ++-
  Source/WebCore/page/SessionID.h                    |  5 ++-
- Source/WebCore/page/Settings.cpp                   | 12 ++++++
+ Source/WebCore/page/Settings.cpp                   | 12 +++++
  Source/WebCore/page/Settings.h                     |  6 ++-
  Source/WebCore/replay/ReplayController.cpp         |  3 ++
  Source/WebCore/replay/ReplayController.h           |  4 +-
- Source/WebKit2/ChangeLog                           | 14 +++++++
+ Source/WebKit2/ChangeLog                           | 14 ++++++
  Source/WebKit2/Shared/SessionTracker.cpp           |  8 ++--
- 11 files changed, 104 insertions(+), 11 deletions(-)
+ 11 files changed, 108 insertions(+), 11 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 8d7b058..01179b7 100644
+index a89be29..0192e0c 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
-@@ -1,10 +1,58 @@
+@@ -1,10 +1,62 @@
 +2014-04-12  Brian J. Burg  <burg@cs.washington.edu>
 +
 +        Web Replay: add page-level setting to bypass the MemoryCache
@@ -83,7 +97,8 @@ index 8d7b058..01179b7 100644
 +        This new session id is considered non-ephemeral; it uses the same network session
 +        as the default session id, but doesn't add entries to MemoryCache.
 +
-+        When the flag is set to false, existing cached resources are evicted. Otherwise, resources of the captured page will already be cached if the page was recently
++        When the flag is set to false, existing cached resources are evicted. Otherwise,
++        resources of the captured page will already be cached if the page was recently
 +        loaded.
 +
 +        This strategy is used instead of simply disabling the memory cache, because the
@@ -91,6 +106,9 @@ index 8d7b058..01179b7 100644
 +        relied on a disabled memory cache, another page could mistakenly turn it back on.
 +
 +        No new tests, as this functionality will be exercised by network replay tests.
++
++        [TEST STRATEGY] write a test to ensure that a duplicate resource load during replay
++        does not hit MemoryCache (i.e., recieves full resource loader callbacks).
 +
 +        * loader/cache/CachedResourceLoader.cpp:
 +        (WebCore::CachedResourceLoader::requestResource):
@@ -125,10 +143,13 @@ index 8d7b058..01179b7 100644
          some elements. This can execute event handlers nondeterministically.
  
 diff --git a/Source/WebCore/loader/cache/CachedResourceLoader.cpp b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
-index d160849..e6e8a0a 100644
+index f4c6320..f1ab0ba 100644
 --- a/Source/WebCore/loader/cache/CachedResourceLoader.cpp
 +++ b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
-@@ -428,21 +428,21 @@ CachedResourceHandle<CachedResource> CachedResourceLoader::requestResource(Cache
+@@ -446,21 +446,21 @@ CachedResourceHandle<CachedResource> CachedResourceLoader::requestResource(Cache
+     
+     // If only the fragment identifiers differ, it is the same resource.
+     url = MemoryCache::removeFragmentIdentifierIfNeeded(url);
  
      if (!url.isValid())
          return 0;
@@ -136,10 +157,7 @@ index d160849..e6e8a0a 100644
      if (!canRequest(type, url, request.options(), request.forPreload()))
          return 0;
  
-     if (Frame* f = frame())
-         f->loader().client().dispatchWillRequestResource(&request);
- 
--    if (memoryCache()->disabled()) {
+-    if (memoryCache().disabled()) {
 +    if (memoryCache()->disabled() || sessionID() == SessionID::bypassCacheSessionID()) {
          DocumentResourceMap::iterator it = m_documentResources.find(url.string());
          if (it != m_documentResources.end()) {
@@ -151,9 +169,9 @@ index d160849..e6e8a0a 100644
      // See if we can use an existing resource from the cache.
      CachedResourceHandle<CachedResource> resource;
  #if ENABLE(CACHE_PARTITIONING)
-@@ -484,37 +484,40 @@ CachedResourceHandle<CachedResource> CachedResourceLoader::requestResource(Cache
+@@ -510,37 +510,40 @@ CachedResourceHandle<CachedResource> CachedResourceLoader::requestResource(Cache
              if (resource->inCache())
-                 memoryCache()->remove(resource.get());
+                 memoryCache().remove(resource.get());
              return 0;
          }
      }
@@ -177,7 +195,7 @@ index d160849..e6e8a0a 100644
  {
      ASSERT(resource);
      ASSERT(resource->inCache());
-     ASSERT(!memoryCache()->disabled());
+     ASSERT(!memoryCache().disabled());
      ASSERT(resource->canUseCacheValidator());
      ASSERT(!resource->resourceToRevalidate());
      ASSERT(resource->sessionID() == sessionID());
@@ -190,13 +208,13 @@ index d160849..e6e8a0a 100644
      LOG(ResourceLoading, "Resource %p created to revalidate %p", newResource.get(), resource);
      newResource->setResourceToRevalidate(resource);
      
-     memoryCache()->remove(resource);
-     memoryCache()->add(newResource.get());
+     memoryCache().remove(resource);
+     memoryCache().add(newResource.get());
 diff --git a/Source/WebCore/loader/cache/MemoryCache.cpp b/Source/WebCore/loader/cache/MemoryCache.cpp
-index b9fdb2b..0533c17 100644
+index 2d3804d..5de382b 100644
 --- a/Source/WebCore/loader/cache/MemoryCache.cpp
 +++ b/Source/WebCore/loader/cache/MemoryCache.cpp
-@@ -99,20 +99,23 @@ URL MemoryCache::removeFragmentIdentifierIfNeeded(const URL& originalURL)
+@@ -100,20 +100,23 @@ URL MemoryCache::removeFragmentIdentifierIfNeeded(const URL& originalURL)
      URL url = originalURL;
      url.removeFragmentIdentifier();
      return url;
@@ -221,10 +239,10 @@ index b9fdb2b..0533c17 100644
      }
      originMap->set(resource->cachePartition(), resource);
 diff --git a/Source/WebCore/page/Page.cpp b/Source/WebCore/page/Page.cpp
-index 8a2a028..8ba2403 100644
+index 4288fb6..886d53a 100644
 --- a/Source/WebCore/page/Page.cpp
 +++ b/Source/WebCore/page/Page.cpp
-@@ -1182,22 +1182,22 @@ void Page::storageBlockingStateChanged()
+@@ -1199,22 +1199,22 @@ void Page::storageBlockingStateChanged()
      // Collect the PluginViews in to a vector to ensure that action the plug-in takes
      // from below storageBlockingStateChanged does not affect their lifetime.
      auto views = pluginViews();
@@ -249,13 +267,13 @@ index 8a2a028..8ba2403 100644
      for (Frame* frame = &mainFrame(); frame; frame = frame->tree().traverseNext()) {
          if (frame->document()->isPlayingAudio()) {
              isPlayingAudio = true;
-@@ -1621,20 +1621,23 @@ void Page::setUserContentController(UserContentController* userContentController
- VisitedLinkStore& Page::visitedLinkStore()
- {
-     if (m_visitedLinkStore)
-         return *m_visitedLinkStore;
+@@ -1665,20 +1665,23 @@ void Page::setVisitedLinkStore(Ref<VisitedLinkStore>&& visitedLinkStore)
+     m_visitedLinkStore->removePage(*this);
+     m_visitedLinkStore = WTF::move(visitedLinkStore);
+     m_visitedLinkStore->addPage(*this);
  
-     return group().visitedLinkStore();
+     invalidateStylesForAllLinks();
+     pageCache()->markPagesForFullStyleRecalc(this);
  }
  
  SessionID Page::sessionID() const
@@ -274,10 +292,10 @@ index 8a2a028..8ba2403 100644
  
      m_sessionID = sessionID;
 diff --git a/Source/WebCore/page/SessionID.h b/Source/WebCore/page/SessionID.h
-index 5efd74a..883babb 100644
+index 976f4de..e8a7ba4 100644
 --- a/Source/WebCore/page/SessionID.h
 +++ b/Source/WebCore/page/SessionID.h
-@@ -28,25 +28,26 @@
+@@ -31,28 +31,29 @@
  
  namespace WebCore {
  
@@ -303,11 +321,14 @@ index 5efd74a..883babb 100644
      uint64_t m_sessionID;
  };
  
- } // namespace WebCore
+ }
  
- #endif // SessionID_h
+ namespace WTF {
+ 
+ // The empty value is emptySessionID(), the deleted value is (-1)
+ struct SessionIDHash {
 diff --git a/Source/WebCore/page/Settings.cpp b/Source/WebCore/page/Settings.cpp
-index e4093a4..d24bb64 100644
+index a90af37..e8acc55 100644
 --- a/Source/WebCore/page/Settings.cpp
 +++ b/Source/WebCore/page/Settings.cpp
 @@ -34,20 +34,21 @@
@@ -332,7 +353,7 @@ index e4093a4..d24bb64 100644
  
  namespace WebCore {
  
-@@ -177,20 +178,21 @@ Settings::Settings(Page* page)
+@@ -179,20 +180,21 @@ Settings::Settings(Page* page)
      SETTINGS_INITIALIZER_LIST
      , m_screenFontSubstitutionEnabled(shouldEnableScreenFontSubstitutionByDefault())
      , m_isJavaEnabled(false)
@@ -353,8 +374,8 @@ index e4093a4..d24bb64 100644
  #endif
      , m_scrollingPerformanceLoggingEnabled(false)
      , m_timeWithoutMouseMovementBeforeHidingControls(3)
-     , m_setImageLoadingSettingsTimer(this, &Settings::imageLoadingSettingsTimerFired)
-@@ -500,20 +502,30 @@ double Settings::domTimerAlignmentInterval() const
+     , m_setImageLoadingSettingsTimer(*this, &Settings::imageLoadingSettingsTimerFired)
+@@ -502,20 +504,30 @@ double Settings::domTimerAlignmentInterval() const
      return m_page->timerAlignmentInterval();
  }
  
@@ -386,10 +407,10 @@ index e4093a4..d24bb64 100644
          return;
  
 diff --git a/Source/WebCore/page/Settings.h b/Source/WebCore/page/Settings.h
-index 5d7bc19b..34077a0 100644
+index cbc28ac..724457e 100644
 --- a/Source/WebCore/page/Settings.h
 +++ b/Source/WebCore/page/Settings.h
-@@ -175,21 +175,24 @@ public:
+@@ -182,21 +182,24 @@ public:
      WEBCORE_EXPORT void setLayoutInterval(std::chrono::milliseconds);
      std::chrono::milliseconds layoutInterval() const { return m_layoutInterval; }
  
@@ -415,7 +436,7 @@ index 5d7bc19b..34077a0 100644
      static void setShouldUseHighResolutionTimers(bool);
      static bool shouldUseHighResolutionTimers() { return gShouldUseHighResolutionTimers; }
  #endif
-@@ -290,20 +293,21 @@ private:
+@@ -302,20 +305,21 @@ private:
  
      bool m_screenFontSubstitutionEnabled : 1;
      bool m_isJavaEnabled : 1;
@@ -438,7 +459,7 @@ index 5d7bc19b..34077a0 100644
      bool m_scrollingPerformanceLoggingEnabled : 1;
  
 diff --git a/Source/WebCore/replay/ReplayController.cpp b/Source/WebCore/replay/ReplayController.cpp
-index 96b1f14..854c8da 100644
+index 0457f8e..44e3f44 100644
 --- a/Source/WebCore/replay/ReplayController.cpp
 +++ b/Source/WebCore/replay/ReplayController.cpp
 @@ -123,24 +123,27 @@ ReplayController::ReplayController(Page& page)
@@ -470,7 +491,7 @@ index 96b1f14..854c8da 100644
  
  void ReplayController::setSessionState(SessionState state)
 diff --git a/Source/WebCore/replay/ReplayController.h b/Source/WebCore/replay/ReplayController.h
-index ea1419d..70a60d8 100644
+index 5e0796d..9b67ab0 100644
 --- a/Source/WebCore/replay/ReplayController.h
 +++ b/Source/WebCore/replay/ReplayController.h
 @@ -158,24 +158,26 @@ private:
@@ -502,7 +523,7 @@ index ea1419d..70a60d8 100644
      // The active cursor is set to nullptr when invalid.
      RefPtr<JSC::InputCursor> m_activeCursor;
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index bf6e376..ce90cea 100644
+index 8b528d3..c44342e 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,24 @@
@@ -529,7 +550,7 @@ index bf6e376..ce90cea 100644
  
          * CMakeLists.txt: Add replay/ directory to header include paths.
  
- 2014-10-29  Hunseop Jeong  <hs85.jeong@samsung.com>
+ 2015-01-08  Gwang Yoon Hwang  <yoon@igalia.com>
 diff --git a/Source/WebKit2/Shared/SessionTracker.cpp b/Source/WebKit2/Shared/SessionTracker.cpp
 index ac79a9d..0886af1 100644
 --- a/Source/WebKit2/Shared/SessionTracker.cpp

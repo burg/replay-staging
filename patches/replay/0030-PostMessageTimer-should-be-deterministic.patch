@@ -1,4 +1,4 @@
-From 79e1abddef15f5845354d81895cfa79a39c65892 Mon Sep 17 00:00:00 2001
+From 4495d6fd56b624357ae89eaaac9264222db0aa00 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 18 Sep 2014 21:43:41 -0700
 Subject: [PATCH] PostMessageTimer should be deterministic.
@@ -8,7 +8,7 @@ Subject: [PATCH] PostMessageTimer should be deterministic.
  1 file changed, 3 insertions(+), 2 deletions(-)
 
 diff --git a/Source/WebCore/page/DOMWindow.cpp b/Source/WebCore/page/DOMWindow.cpp
-index 08bf909..dc80ef25 100644
+index 7970880..c7416e2 100644
 --- a/Source/WebCore/page/DOMWindow.cpp
 +++ b/Source/WebCore/page/DOMWindow.cpp
 @@ -74,20 +74,21 @@
@@ -33,7 +33,7 @@ index 08bf909..dc80ef25 100644
  #include "Settings.h"
  #include "Storage.h"
  #include "StorageArea.h"
-@@ -132,21 +133,21 @@
+@@ -133,21 +134,21 @@
  #if ENABLE(GEOLOCATION)
  #include "NavigatorGeolocation.h"
  #endif
@@ -56,7 +56,7 @@ index 08bf909..dc80ef25 100644
          , m_targetOrigin(targetOrigin)
          , m_stackTrace(stackTrace)
      {
-@@ -912,21 +913,21 @@ void DOMWindow::postMessage(PassRefPtr<SerializedScriptValue> message, const Mes
+@@ -909,21 +910,21 @@ void DOMWindow::postMessage(PassRefPtr<SerializedScriptValue> message, const Mes
          return;
      String sourceOrigin = sourceDocument->securityOrigin()->toString();
  

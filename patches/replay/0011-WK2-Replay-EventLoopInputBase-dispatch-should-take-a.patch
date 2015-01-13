@@ -1,4 +1,4 @@
-From 7023806911708b8ae21415078b17ddd22e1dc09a Mon Sep 17 00:00:00 2001
+From bd726bac5167a12249c228c7b7c04aae6e1d43ff Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 19 Aug 2014 15:54:36 -0700
 Subject: [PATCH] WK2 Replay: EventLoopInputBase::dispatch should take a Page&
@@ -12,7 +12,7 @@ Subject: [PATCH] WK2 Replay: EventLoopInputBase::dispatch should take a Page&
  5 files changed, 53 insertions(+), 52 deletions(-)
 
 diff --git a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
-index df9b967..8991966 100644
+index 65f549a..7d1b408 100644
 --- a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
 +++ b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
 @@ -691,21 +691,21 @@ class Generator:
