@@ -1,0 +1,896 @@
+From 3dedfe155c9ac100a74e6f4d1699f96381a75366 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Wed, 27 Aug 2014 15:03:18 -0700
+Subject: [PATCH] Web Replay: code generator should be able to encode/decode
+ ViewState::Flags https://bugs.webkit.org/show_bug.cgi?id=136297
+
+Reviewed by NOBODY (OOPS!).
+
+ViewState::(enum) is an anonymous enum inside of a struct. ViewState::Flags is a typedef
+for unsigned, and the enum values are used to bitwise-construct and query an unsigned value
+containing several flags.
+
+For replay we still want to serialize ViewState with string names, since ViewState::Flags
+could change in the future and we don't want reordering the flags to break serialization.
+But, since the enum is un-named and ViewState::Flags is unsigned, the existing code will
+try to define new EncodingTraits specializations for unsigned, which isn't allowed.
+
+To sidestep this, we use phantom types so multiple specializations can exist for the same
+underlying type. Cases like ViewState will use a new flag in the inputs file to opt-in to
+this code generation behavior.
+
+Rebaseline some tests due to differences in spacing induced by this change.
+
+Test: Source/JavaScriptCore/replay/scripts/tests/generate-unchecked-enum.json
+
+* replay/EncodedValue.h: Add a dummy Phantom class.
+* replay/scripts/CodeGeneratorReplayInputs.py: Create an enum for each framework that contains names
+of each unchecked enum. This is used to construct the Phantom type argument.
+(Type.unchecked_enum_type_name):
+(Type.encoding_type_argument):
+(Generator.generate_header):
+(Generator.generate_unchecked_enum_declaration):
+(Generator.generate_unchecked_enum_declaration.UncheckedEnums):
+* replay/scripts/CodeGeneratorReplayInputsTemplates.py:
+* replay/scripts/tests/expected/generate-enum-encoding-helpers-with-guarded-values.json-TestReplayInputs.h:
+* replay/scripts/tests/expected/generate-enum-encoding-helpers.json-TestReplayInputs.h:
+* replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h:
+* replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.h:
+* replay/scripts/tests/expected/generate-input-with-guard.json-TestReplayInputs.h:
+* replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h:
+* replay/scripts/tests/expected/generate-inputs-with-flags.json-TestReplayInputs.h:
+* replay/scripts/tests/expected/generate-memoized-type-modes.json-TestReplayInputs.h:
+* replay/scripts/tests/expected/generate-unchecked-enum.json-TestReplayInputs.cpp: Added.
+* replay/scripts/tests/expected/generate-unchecked-enum.json-TestReplayInputs.h: Added.
+* replay/scripts/tests/generate-unchecked-enum.json: Added.
+---
+ Source/JavaScriptCore/ChangeLog                    |  45 +++++
+ Source/JavaScriptCore/replay/EncodedValue.h        |   4 +
+ .../replay/scripts/CodeGeneratorReplayInputs.py    |  27 +++
+ .../scripts/CodeGeneratorReplayInputsTemplates.py  |   1 +
+ ...ers-with-guarded-values.json-TestReplayInputs.h |   1 +
+ ...e-enum-encoding-helpers.json-TestReplayInputs.h |   1 +
+ ...enerate-enum-with-guard.json-TestReplayInputs.h |   1 +
+ ...ums-with-same-base-name.json-TestReplayInputs.h |   1 +
+ ...nerate-input-with-guard.json-TestReplayInputs.h |   1 +
+ ...put-with-vector-members.json-TestReplayInputs.h |   1 +
+ ...erate-inputs-with-flags.json-TestReplayInputs.h |   1 +
+ ...ate-memoized-type-modes.json-TestReplayInputs.h |   1 +
+ ...nerate-unchecked-enum.json-TestReplayInputs.cpp | 223 +++++++++++++++++++++
+ ...generate-unchecked-enum.json-TestReplayInputs.h | 114 +++++++++++
+ .../scripts/tests/generate-unchecked-enum.json     |  52 +++++
+ 15 files changed, 474 insertions(+)
+ create mode 100644 Source/JavaScriptCore/replay/scripts/tests/expected/generate-unchecked-enum.json-TestReplayInputs.cpp
+ create mode 100644 Source/JavaScriptCore/replay/scripts/tests/expected/generate-unchecked-enum.json-TestReplayInputs.h
+ create mode 100644 Source/JavaScriptCore/replay/scripts/tests/generate-unchecked-enum.json
+
+diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
+index 8d7fa7d..c8801ba 100644
+--- a/Source/JavaScriptCore/ChangeLog
++++ b/Source/JavaScriptCore/ChangeLog
+@@ -1,12 +1,57 @@
+ 2014-08-27  Brian J. Burg  <burg@cs.washington.edu>
+ 
++        Web Replay: code generator should be able to encode/decode ViewState::Flags
++        https://bugs.webkit.org/show_bug.cgi?id=136297
++
++        Reviewed by NOBODY (OOPS!).
++
++        ViewState::(enum) is an anonymous enum inside of a struct. ViewState::Flags is a typedef
++        for unsigned, and the enum values are used to bitwise-construct and query an unsigned value
++        containing several flags.
++
++        For replay we still want to serialize ViewState with string names, since ViewState::Flags
++        could change in the future and we don't want reordering the flags to break serialization.
++        But, since the enum is un-named and ViewState::Flags is unsigned, the existing code will
++        try to define new EncodingTraits specializations for unsigned, which isn't allowed.
++
++        To sidestep this, we use phantom types so multiple specializations can exist for the same
++        underlying type. Cases like ViewState will use a new flag in the inputs file to opt-in to
++        this code generation behavior.
++
++        Rebaseline some tests due to differences in spacing induced by this change.
++
++        Test: Source/JavaScriptCore/replay/scripts/tests/generate-unchecked-enum.json
++
++        * replay/EncodedValue.h: Add a dummy Phantom class.
++        * replay/scripts/CodeGeneratorReplayInputs.py: Create an enum for each framework that contains names
++        of each unchecked enum. This is used to construct the Phantom type argument.
++        (Type.unchecked_enum_type_name):
++        (Type.encoding_type_argument):
++        (Generator.generate_header):
++        (Generator.generate_unchecked_enum_declaration):
++        (Generator.generate_unchecked_enum_declaration.UncheckedEnums):
++        * replay/scripts/CodeGeneratorReplayInputsTemplates.py:
++        * replay/scripts/tests/expected/generate-enum-encoding-helpers-with-guarded-values.json-TestReplayInputs.h:
++        * replay/scripts/tests/expected/generate-enum-encoding-helpers.json-TestReplayInputs.h:
++        * replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h:
++        * replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.h:
++        * replay/scripts/tests/expected/generate-input-with-guard.json-TestReplayInputs.h:
++        * replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h:
++        * replay/scripts/tests/expected/generate-inputs-with-flags.json-TestReplayInputs.h:
++        * replay/scripts/tests/expected/generate-memoized-type-modes.json-TestReplayInputs.h:
++        * replay/scripts/tests/expected/generate-unchecked-enum.json-TestReplayInputs.cpp: Added.
++        * replay/scripts/tests/expected/generate-unchecked-enum.json-TestReplayInputs.h: Added.
++        * replay/scripts/tests/generate-unchecked-enum.json: Added.
++
++2014-08-27  Brian J. Burg  <burg@cs.washington.edu>
++
+         Web Replay: only generate EncodingTraits for enums defined in the target framework
+         https://bugs.webkit.org/show_bug.cgi?id=136311
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Don't generate EncodingTraits for enums unless they belong to the target framework.
+         Otherwise, enums used in multiple frameworks' inputs cannot be unambiguously encoded/decoded.
+ 
+         Also use Type.encoding_type_argument in more places.
+ 
+diff --git a/Source/JavaScriptCore/replay/EncodedValue.h b/Source/JavaScriptCore/replay/EncodedValue.h
+index 0057172..f56f085 100644
+--- a/Source/JavaScriptCore/replay/EncodedValue.h
++++ b/Source/JavaScriptCore/replay/EncodedValue.h
+@@ -163,20 +163,24 @@ template<> struct EncodingTraits<int64_t> : public ScalarEncodingTraits<int64_t>
+ template<> struct EncodingTraits<uint32_t> : public ScalarEncodingTraits<uint32_t> { };
+ template<> struct EncodingTraits<uint64_t> : public ScalarEncodingTraits<uint64_t> { };
+ 
+ template<> struct EncodingTraits<String> : public ScalarEncodingTraits<String> {
+     static EncodedValue encodeValue(const String& value)
+     {
+         return EncodedValue::createString(value);
+     }
+ };
+ 
++// Used to disambiguate EncodingTraits specializations with the same concrete type, such
++// as for ViewState::Flags which is typedef'd to unsigned. <https://webkit.org/b/136297>
++template <typename EnumType, EnumType tag> class Phantom {};
++    
+ // Base cases for loading and storing values.
+ template<> JS_EXPORT_PRIVATE
+ void EncodedValue::put<EncodedValue>(const String& key, const typename EncodingTraits<EncodedValue>::DecodedType&);
+ 
+ template<> JS_EXPORT_PRIVATE
+ void EncodedValue::append<EncodedValue>(const typename EncodingTraits<EncodedValue>::DecodedType&);
+ 
+ template<> JS_EXPORT_PRIVATE
+ bool EncodedValue::get<EncodedValue>(const String& key, typename EncodingTraits<EncodedValue>::DecodedType&);
+ 
+diff --git a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
+index 6bfe7e1..0a19087 100644
+--- a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
++++ b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
+@@ -359,21 +359,32 @@ class Type:
+             return "RefPtr<%s>" % self.type_name(qualified)
+         else:
+             return "const %s&" % self.type_name(qualified)
+ 
+     def argument_type(self, qualified=False):
+         if self.mode == TypeModes.SHARED:
+             return "RefPtr<%s>&&" % self.type_name(qualified)
+         else:
+             return self.storage_type(qualified)
+ 
++    def unchecked_enum_type_name(self):
++        components = [self._name]
++        if self.enclosing_class is not None:
++            components [:0] = [self.enclosing_class]
++
++        return "".join(components)
++
+     def encoding_type_argument(self, qualified=False):
++        if self.has_flag("UNCHECKED"):
++            prefix = "%s::" % self.framework.setting('namespace')
++            return "Phantom<%sUncheckedEnums, %sUncheckedEnums::%s>" % (prefix, prefix, self.unchecked_enum_type_name())
++
+         return self.type_name(qualified)
+ 
+ 
+ def check_for_required_properties(props, obj, what):
+     for prop in props:
+         if prop not in obj:
+             raise ParseException("When parsing %s, required property missing: %s" % (what, prop))
+ 
+ 
+ class VectorType(Type):
+@@ -606,20 +617,21 @@ class Generator:
+         template_arguments = {
+             'licenseBlock': self.generate_license(),
+             'headerGuard': re.sub('[-./]', '_', self.output_filename() + ".h"),
+             'filename': self.output_filename(),
+             'guardCondition': self.setting('guardCondition'),
+             'traitsNamespace': self.traits_framework.setting('namespace'),
+             'inputsNamespace': self.target_framework.setting('namespace'),
+             'includes': self.generate_includes(defaults=self.setting('headerIncludes')),
+             'typeForwardDeclarations': self.generate_type_forward_declarations(),
+             'inputForwardDeclarations': "\n".join([wrap_with_guard("class %s;", _input.guard) % _input.name for _input in self._model.inputs]),
++            'uncheckedEnumDeclarations': self.generate_unchecked_enum_declaration(),
+             'inputClassDeclarations': "\n\n".join([self.generate_class_declaration(_input) for _input in self._model.inputs]),
+             'inputTraitDeclarations': "\n\n".join([self.generate_input_trait_declaration(_input) for _input in self._model.inputs]),
+             'enumTraitDeclarations': "\n\n".join([wrap_with_guard(self.generate_enum_trait_declaration(_type), _type.guard) for _type in enums_to_generate]),
+             'forEachMacro': self.generate_for_each_macro(),
+         }
+ 
+         return Template(Templates.HeaderSkeleton).substitute(template_arguments)
+ 
+     def generate_implementation(self):
+         enums_to_generate = self._model.enum_types()
+@@ -720,20 +732,35 @@ class Generator:
+                 continue
+ 
+             decls_by_framework[framework].sort()
+             lines.append("namespace %s {" % framework.setting('namespace'))
+             lines.extend(decls_by_framework[framework])
+             lines.append("}")
+             lines.append("")
+ 
+         return "\n".join(lines)
+ 
++    def generate_unchecked_enum_declaration(self):
++        unchecked_enums = filter(lambda _type: _type.has_flag("UNCHECKED") and _type.framework is self.target_framework, self._model.enum_types())
++        if len(unchecked_enums) is 0:
++            return ""
++
++        lines = []
++        lines.append("namespace %s {" % self.target_framework.setting('namespace'))
++        lines.append("enum class UncheckedEnums {")
++        lines.extend(["    %s," % enum.unchecked_enum_type_name() for enum in unchecked_enums])
++        lines.append("};")
++        lines.append("}")
++        lines.append("")
++
++        return "\n".join(lines)
++
+     def generate_class_declaration(self, _input):
+         extra_declarations = []
+         if _input.queue == InputQueues.EVENT_LOOP:
+             if self.target_framework is Frameworks.WebKit:
+                 extra_declarations.extend([
+                     "",
+                     "    // WebEventLoopInput API",
+                     "    virtual void dispatch(WebKit::WebPage&) override final;",
+                 ])
+             else:
+diff --git a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputsTemplates.py b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputsTemplates.py
+index be00981..f2125ee 100644
+--- a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputsTemplates.py
++++ b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputsTemplates.py
+@@ -72,20 +72,21 @@ class Templates:
+ 
+ #if ${guardCondition}
+ ${includes}
+ 
+ ${typeForwardDeclarations}
+ 
+ namespace ${inputsNamespace} {
+ ${inputForwardDeclarations}
+ } // namespace ${inputsNamespace}
+ 
++${uncheckedEnumDeclarations}
+ namespace ${traitsNamespace} {
+ ${inputTraitDeclarations}
+ ${enumTraitDeclarations}
+ } // namespace ${traitsNamespace}
+ 
+ namespace ${inputsNamespace} {
+ ${inputClassDeclarations}
+ } // namespace ${inputsNamespace}
+ 
+ ${forEachMacro}
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers-with-guarded-values.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers-with-guarded-values.json-TestReplayInputs.h
+index 35527f8..f3f41b5 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers-with-guarded-values.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers-with-guarded-values.json-TestReplayInputs.h
+@@ -36,20 +36,21 @@
+ 
+ namespace WebCore {
+ enum MouseButton : unsigned;
+ }
+ 
+ 
+ namespace Test {
+ class SavedMouseButton;
+ } // namespace Test
+ 
++
+ namespace JSC {
+ template<> struct InputTraits<Test::SavedMouseButton> {
+     static InputQueue queue() { return InputQueue::ScriptMemoizedData; }
+     static const String& type();
+ 
+     static void encode(JSC::EncodedValue&, const Test::SavedMouseButton&);
+     static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::SavedMouseButton>&);
+ };
+ template<> struct EncodingTraits<WebCore::MouseButton> {
+     typedef WebCore::MouseButton DecodedType;
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers.json-TestReplayInputs.h
+index 5177f8b..390101a 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers.json-TestReplayInputs.h
+@@ -41,20 +41,21 @@ enum MouseButton : unsigned;
+ 
+ namespace JSC {
+ enum class InputQueue;
+ }
+ 
+ 
+ namespace Test {
+ class SavedMouseButton;
+ } // namespace Test
+ 
++
+ namespace JSC {
+ template<> struct InputTraits<Test::SavedMouseButton> {
+     static InputQueue queue() { return InputQueue::ScriptMemoizedData; }
+     static const String& type();
+ 
+     static void encode(JSC::EncodedValue&, const Test::SavedMouseButton&);
+     static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::SavedMouseButton>&);
+ };
+ template<> struct EncodingTraits<InputQueue> {
+     typedef InputQueue DecodedType;
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h
+index ef0d1ab..0ff18fb 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h
+@@ -37,20 +37,21 @@
+ namespace WebCore {
+ class PlatformWheelEvent;
+ enum PlatformWheelEventPhase : uint64_t;
+ }
+ 
+ 
+ namespace Test {
+ class HandleWheelEvent;
+ } // namespace Test
+ 
++
+ namespace JSC {
+ template<> struct InputTraits<Test::HandleWheelEvent> {
+     static InputQueue queue() { return InputQueue::EventLoopInput; }
+     static const String& type();
+ 
+     static void encode(JSC::EncodedValue&, const Test::HandleWheelEvent&);
+     static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::HandleWheelEvent>&);
+ };
+ #if ENABLE(DUMMY_FEATURE)
+ template<> struct EncodingTraits<WebCore::PlatformWheelEventPhase> {
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.h
+index 994014a..aa58fc7 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.h
+@@ -36,20 +36,21 @@
+ #include <replay/FormData1.h>
+ #include <replay/FormData2.h>
+ #include <replay/PlatformEvent.h>
+ 
+ 
+ 
+ namespace Test {
+ class FormCombo;
+ } // namespace Test
+ 
++
+ namespace JSC {
+ template<> struct InputTraits<Test::FormCombo> {
+     static InputQueue queue() { return InputQueue::ScriptMemoizedData; }
+     static const String& type();
+ 
+     static void encode(JSC::EncodedValue&, const Test::FormCombo&);
+     static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::FormCombo>&);
+ };
+ template<> struct EncodingTraits<WebCore::FormData1::Type> {
+     typedef WebCore::FormData1::Type DecodedType;
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-guard.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-guard.json-TestReplayInputs.h
+index b485ce7..2dc85e9 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-guard.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-guard.json-TestReplayInputs.h
+@@ -36,20 +36,21 @@
+ 
+ 
+ 
+ namespace Test {
+ #if ENABLE(DUMMY_FEATURE)
+ class GetCurrentTime;
+ #endif // ENABLE(DUMMY_FEATURE)
+ class SetRandomSeed;
+ } // namespace Test
+ 
++
+ namespace JSC {
+ #if ENABLE(DUMMY_FEATURE)
+ template<> struct InputTraits<Test::GetCurrentTime> {
+     static InputQueue queue() { return InputQueue::ScriptMemoizedData; }
+     static const String& type();
+ 
+     static void encode(JSC::EncodedValue&, const Test::GetCurrentTime&);
+     static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::GetCurrentTime>&);
+ };
+ #endif // ENABLE(DUMMY_FEATURE)
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h
+index 360e3bd..d8acfdc 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h
+@@ -38,20 +38,21 @@
+ namespace WebCore {
+ class HistoryItem;
+ }
+ 
+ 
+ namespace Test {
+ class ArrayOfThings;
+ class SavedHistory;
+ } // namespace Test
+ 
++
+ namespace JSC {
+ template<> struct InputTraits<Test::ArrayOfThings> {
+     static InputQueue queue() { return InputQueue::ScriptMemoizedData; }
+     static const String& type();
+ 
+     static void encode(JSC::EncodedValue&, const Test::ArrayOfThings&);
+     static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::ArrayOfThings>&);
+ };
+ 
+ template<> struct InputTraits<Test::SavedHistory> {
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-inputs-with-flags.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-inputs-with-flags.json-TestReplayInputs.h
+index 77f8f1f..fa31321 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-inputs-with-flags.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-inputs-with-flags.json-TestReplayInputs.h
+@@ -34,20 +34,21 @@
+ #include "InternalNamespaceHeaderIncludeDummy.h"
+ #include <platform/ExternalNamespaceHeaderIncludeDummy.h>
+ 
+ 
+ 
+ namespace Test {
+ class ScalarInput1;
+ class ScalarInput2;
+ } // namespace Test
+ 
++
+ namespace JSC {
+ template<> struct InputTraits<Test::ScalarInput1> {
+     static InputQueue queue() { return InputQueue::ScriptMemoizedData; }
+     static const String& type();
+ 
+     static void encode(JSC::EncodedValue&, const Test::ScalarInput1&);
+     static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::ScalarInput1>&);
+ };
+ 
+ template<> struct InputTraits<Test::ScalarInput2> {
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-memoized-type-modes.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-memoized-type-modes.json-TestReplayInputs.h
+index db98f06..465720d 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-memoized-type-modes.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-memoized-type-modes.json-TestReplayInputs.h
+@@ -34,20 +34,21 @@
+ #include "InternalNamespaceHeaderIncludeDummy.h"
+ #include <platform/ExternalNamespaceHeaderIncludeDummy.h>
+ 
+ 
+ 
+ namespace Test {
+ class ScalarInput;
+ class MapInput;
+ } // namespace Test
+ 
++
+ namespace JSC {
+ template<> struct InputTraits<Test::ScalarInput> {
+     static InputQueue queue() { return InputQueue::ScriptMemoizedData; }
+     static const String& type();
+ 
+     static void encode(JSC::EncodedValue&, const Test::ScalarInput&);
+     static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::ScalarInput>&);
+ };
+ 
+ template<> struct InputTraits<Test::MapInput> {
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-unchecked-enum.json-TestReplayInputs.cpp b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-unchecked-enum.json-TestReplayInputs.cpp
+new file mode 100644
+index 0000000..02811e2
+--- /dev/null
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-unchecked-enum.json-TestReplayInputs.cpp
+@@ -0,0 +1,223 @@
++/*
++ * Copyright (C) 2014 Apple Inc. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ * 1.  Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ * 2.  Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
++ * IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
++ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
++ * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
++ * HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
++ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
++ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++// DO NOT EDIT THIS FILE. It is automatically generated from generate-unchecked-enum.json
++// by the script: JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
++
++#include "config.h"
++#include "generate-unchecked-enum.json-TestReplayInputs.h"
++
++#if ENABLE(WEB_REPLAY)
++#include "InternalNamespaceImplIncludeDummy.h"
++#include <platform/ExternalNamespaceImplIncludeDummy.h>
++#include <platform/GamepadKey.h>
++
++namespace Test {
++HandleViewStateChange::HandleViewStateChange(WebCore::ViewState::Flags flags)
++    : WebCore::EventLoopInput<HandleViewStateChange>()
++    , m_flags(flags)
++{
++}
++
++HandleViewStateChange::~HandleViewStateChange()
++{
++}
++
++HandleGamepadPress::HandleGamepadPress(WebCore::GamepadKey keys)
++    : WebCore::EventLoopInput<HandleGamepadPress>()
++    , m_keys(keys)
++{
++}
++
++HandleGamepadPress::~HandleGamepadPress()
++{
++}
++} // namespace Test
++
++namespace JSC {
++const AtomicString& InputTraits<Test::HandleViewStateChange>::type()
++{
++    static NeverDestroyed<const AtomicString> type("HandleViewStateChange", AtomicString::ConstructFromLiteral);
++    return type;
++}
++
++void InputTraits<Test::HandleViewStateChange>::encode(EncodedValue& encodedValue, const Test::HandleViewStateChange& input)
++{
++    encodedValue.put<Phantom<WebCore::UncheckedEnums, WebCore::UncheckedEnums::ViewStateFlags>>(ASCIILiteral("flags"), input.flags());
++}
++
++bool InputTraits<Test::HandleViewStateChange>::decode(EncodedValue& encodedValue, std::unique_ptr<Test::HandleViewStateChange>& input)
++{
++    WebCore::ViewState::Flags flags;
++    if (!encodedValue.get<Phantom<WebCore::UncheckedEnums, WebCore::UncheckedEnums::ViewStateFlags>>(ASCIILiteral("flags"), flags))
++        return false;
++
++    input = std::make_unique<Test::HandleViewStateChange>(flags);
++    return true;
++}
++
++const AtomicString& InputTraits<Test::HandleGamepadPress>::type()
++{
++    static NeverDestroyed<const AtomicString> type("HandleGamepadPress", AtomicString::ConstructFromLiteral);
++    return type;
++}
++
++void InputTraits<Test::HandleGamepadPress>::encode(EncodedValue& encodedValue, const Test::HandleGamepadPress& input)
++{
++    encodedValue.put<Phantom<WebCore::UncheckedEnums, WebCore::UncheckedEnums::GamepadKey>>(ASCIILiteral("keys"), input.keys());
++}
++
++bool InputTraits<Test::HandleGamepadPress>::decode(EncodedValue& encodedValue, std::unique_ptr<Test::HandleGamepadPress>& input)
++{
++    WebCore::GamepadKey keys;
++    if (!encodedValue.get<Phantom<WebCore::UncheckedEnums, WebCore::UncheckedEnums::GamepadKey>>(ASCIILiteral("keys"), keys))
++        return false;
++
++    input = std::make_unique<Test::HandleGamepadPress>(keys);
++    return true;
++}
++EncodedValue EncodingTraits<Phantom<WebCore::UncheckedEnums, WebCore::UncheckedEnums::GamepadKey>>::encodeValue(const WebCore::GamepadKey& enumValue)
++{
++    EncodedValue encodedValue = EncodedValue::createArray();
++    if (enumValue & WebCore::OEM_UP) {
++        encodedValue.append<String>(ASCIILiteral("OEM_UP"));
++        if (enumValue == WebCore::OEM_UP)
++            return encodedValue;
++    }
++    if (enumValue & WebCore::OEM_DOWN) {
++        encodedValue.append<String>(ASCIILiteral("OEM_DOWN"));
++        if (enumValue == WebCore::OEM_DOWN)
++            return encodedValue;
++    }
++    if (enumValue & WebCore::OEM_LEFT) {
++        encodedValue.append<String>(ASCIILiteral("OEM_LEFT"));
++        if (enumValue == WebCore::OEM_LEFT)
++            return encodedValue;
++    }
++    if (enumValue & WebCore::OEM_RIGHT) {
++        encodedValue.append<String>(ASCIILiteral("OEM_RIGHT"));
++        if (enumValue == WebCore::OEM_RIGHT)
++            return encodedValue;
++    }
++    if (enumValue & WebCore::OEM_LT) {
++        encodedValue.append<String>(ASCIILiteral("OEM_LT"));
++        if (enumValue == WebCore::OEM_LT)
++            return encodedValue;
++    }
++    if (enumValue & WebCore::OEM_RT) {
++        encodedValue.append<String>(ASCIILiteral("OEM_RT"));
++        if (enumValue == WebCore::OEM_RT)
++            return encodedValue;
++    }
++    return encodedValue;
++}
++
++bool EncodingTraits<Phantom<WebCore::UncheckedEnums, WebCore::UncheckedEnums::GamepadKey>>::decodeValue(EncodedValue& encodedValue, WebCore::GamepadKey& enumValue)
++{
++    Vector<String> enumStrings;
++    if (!EncodingTraits<Vector<String>>::decodeValue(encodedValue, enumStrings))
++        return false;
++
++    for (String enumString : enumStrings) {
++        if (enumString == "OEM_UP")
++            enumValue = static_cast<WebCore::GamepadKey>(enumValue | WebCore::OEM_UP);
++        if (enumString == "OEM_DOWN")
++            enumValue = static_cast<WebCore::GamepadKey>(enumValue | WebCore::OEM_DOWN);
++        if (enumString == "OEM_LEFT")
++            enumValue = static_cast<WebCore::GamepadKey>(enumValue | WebCore::OEM_LEFT);
++        if (enumString == "OEM_RIGHT")
++            enumValue = static_cast<WebCore::GamepadKey>(enumValue | WebCore::OEM_RIGHT);
++        if (enumString == "OEM_LT")
++            enumValue = static_cast<WebCore::GamepadKey>(enumValue | WebCore::OEM_LT);
++        if (enumString == "OEM_RT")
++            enumValue = static_cast<WebCore::GamepadKey>(enumValue | WebCore::OEM_RT);
++    }
++
++    return true;
++}
++
++EncodedValue EncodingTraits<Phantom<WebCore::UncheckedEnums, WebCore::UncheckedEnums::ViewStateFlags>>::encodeValue(const WebCore::ViewState::Flags& enumValue)
++{
++    EncodedValue encodedValue = EncodedValue::createArray();
++    if (enumValue & WebCore::ViewState::WindowIsActive) {
++        encodedValue.append<String>(ASCIILiteral("WindowIsActive"));
++        if (enumValue == WebCore::ViewState::WindowIsActive)
++            return encodedValue;
++    }
++    if (enumValue & WebCore::ViewState::IsFocused) {
++        encodedValue.append<String>(ASCIILiteral("IsFocused"));
++        if (enumValue == WebCore::ViewState::IsFocused)
++            return encodedValue;
++    }
++    if (enumValue & WebCore::ViewState::IsVisible) {
++        encodedValue.append<String>(ASCIILiteral("IsVisible"));
++        if (enumValue == WebCore::ViewState::IsVisible)
++            return encodedValue;
++    }
++    if (enumValue & WebCore::ViewState::IsVisibleOrOccluded) {
++        encodedValue.append<String>(ASCIILiteral("IsVisibleOrOccluded"));
++        if (enumValue == WebCore::ViewState::IsVisibleOrOccluded)
++            return encodedValue;
++    }
++    if (enumValue & WebCore::ViewState::IsInWindow) {
++        encodedValue.append<String>(ASCIILiteral("IsInWindow"));
++        if (enumValue == WebCore::ViewState::IsInWindow)
++            return encodedValue;
++    }
++    if (enumValue & WebCore::ViewState::IsVisuallyIdle) {
++        encodedValue.append<String>(ASCIILiteral("IsVisuallyIdle"));
++        if (enumValue == WebCore::ViewState::IsVisuallyIdle)
++            return encodedValue;
++    }
++    return encodedValue;
++}
++
++bool EncodingTraits<Phantom<WebCore::UncheckedEnums, WebCore::UncheckedEnums::ViewStateFlags>>::decodeValue(EncodedValue& encodedValue, WebCore::ViewState::Flags& enumValue)
++{
++    Vector<String> enumStrings;
++    if (!EncodingTraits<Vector<String>>::decodeValue(encodedValue, enumStrings))
++        return false;
++
++    for (String enumString : enumStrings) {
++        if (enumString == "WindowIsActive")
++            enumValue = static_cast<WebCore::ViewState::Flags>(enumValue | WebCore::ViewState::WindowIsActive);
++        if (enumString == "IsFocused")
++            enumValue = static_cast<WebCore::ViewState::Flags>(enumValue | WebCore::ViewState::IsFocused);
++        if (enumString == "IsVisible")
++            enumValue = static_cast<WebCore::ViewState::Flags>(enumValue | WebCore::ViewState::IsVisible);
++        if (enumString == "IsVisibleOrOccluded")
++            enumValue = static_cast<WebCore::ViewState::Flags>(enumValue | WebCore::ViewState::IsVisibleOrOccluded);
++        if (enumString == "IsInWindow")
++            enumValue = static_cast<WebCore::ViewState::Flags>(enumValue | WebCore::ViewState::IsInWindow);
++        if (enumString == "IsVisuallyIdle")
++            enumValue = static_cast<WebCore::ViewState::Flags>(enumValue | WebCore::ViewState::IsVisuallyIdle);
++    }
++
++    return true;
++}
++} // namespace JSC
++
++#endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-unchecked-enum.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-unchecked-enum.json-TestReplayInputs.h
+new file mode 100644
+index 0000000..33d492b
+--- /dev/null
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-unchecked-enum.json-TestReplayInputs.h
+@@ -0,0 +1,114 @@
++/*
++ * Copyright (C) 2014 Apple Inc. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ * 1.  Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ * 2.  Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
++ * IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
++ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
++ * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
++ * HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
++ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
++ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++// DO NOT EDIT THIS FILE. It is automatically generated from generate-unchecked-enum.json
++// by the script: JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
++
++#ifndef generate_unchecked_enum_json_TestReplayInputs_h
++#define generate_unchecked_enum_json_TestReplayInputs_h
++
++#if ENABLE(WEB_REPLAY)
++#include "InternalNamespaceHeaderIncludeDummy.h"
++#include <page/ViewState.h>
++#include <platform/ExternalNamespaceHeaderIncludeDummy.h>
++
++namespace WebCore {
++enum GamepadKey : unsigned;
++}
++
++
++namespace Test {
++class HandleViewStateChange;
++class HandleGamepadPress;
++} // namespace Test
++
++
++namespace JSC {
++template<> struct InputTraits<Test::HandleViewStateChange> {
++    static InputQueue queue() { return InputQueue::EventLoopInput; }
++    static const AtomicString& type();
++
++    static void encode(JSC::EncodedValue&, const Test::HandleViewStateChange&);
++    static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::HandleViewStateChange>&);
++};
++
++template<> struct InputTraits<Test::HandleGamepadPress> {
++    static InputQueue queue() { return InputQueue::EventLoopInput; }
++    static const AtomicString& type();
++
++    static void encode(JSC::EncodedValue&, const Test::HandleGamepadPress&);
++    static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::HandleGamepadPress>&);
++};
++template<> struct EncodingTraits<Phantom<WebCore::UncheckedEnums, WebCore::UncheckedEnums::GamepadKey>> {
++    typedef WebCore::GamepadKey DecodedType;
++
++    static EncodedValue encodeValue(const WebCore::GamepadKey& value);
++    static bool decodeValue(EncodedValue&, WebCore::GamepadKey& value);
++};
++
++template<> struct EncodingTraits<Phantom<WebCore::UncheckedEnums, WebCore::UncheckedEnums::ViewStateFlags>> {
++    typedef WebCore::ViewState::Flags DecodedType;
++
++    static EncodedValue encodeValue(const WebCore::ViewState::Flags& value);
++    static bool decodeValue(EncodedValue&, WebCore::ViewState::Flags& value);
++};
++} // namespace JSC
++
++namespace Test {
++class HandleViewStateChange : public WebCore::EventLoopInput<HandleViewStateChange> {
++public:
++    HandleViewStateChange(WebCore::ViewState::Flags flags);
++    virtual ~HandleViewStateChange();
++
++    // EventLoopInput API
++    virtual void dispatchOnPage(WebCore::Page&) override final;
++    WebCore::ViewState::Flags flags() const { return m_flags; }
++private:
++    WebCore::ViewState::Flags m_flags;
++};
++
++class HandleGamepadPress : public WebCore::EventLoopInput<HandleGamepadPress> {
++public:
++    HandleGamepadPress(WebCore::GamepadKey keys);
++    virtual ~HandleGamepadPress();
++
++    // EventLoopInput API
++    virtual void dispatchOnPage(WebCore::Page&) override final;
++    WebCore::GamepadKey keys() const { return m_keys; }
++private:
++    WebCore::GamepadKey m_keys;
++};
++} // namespace Test
++
++#define TEST_REPLAY_INPUT_NAMES_FOR_EACH(macro) \
++    macro(HandleViewStateChange) \
++    macro(HandleGamepadPress) \
++    \
++// end of TEST_REPLAY_INPUT_NAMES_FOR_EACH
++
++#endif // ENABLE(WEB_REPLAY)
++
++#endif // generate-unchecked-enum.json-TestReplayInputs_h
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/generate-unchecked-enum.json b/Source/JavaScriptCore/replay/scripts/tests/generate-unchecked-enum.json
+new file mode 100644
+index 0000000..811420d
+--- /dev/null
++++ b/Source/JavaScriptCore/replay/scripts/tests/generate-unchecked-enum.json
+@@ -0,0 +1,52 @@
++{
++    "types": {
++        "WebCore": [
++            {
++                "name": "Flags", "mode": "SCALAR",
++                "flags": ["ENUM", "UNCHECKED"],
++                "enclosing_class": "ViewState",
++                "values": [
++                    "WindowIsActive",
++                    "IsFocused",
++                    "IsVisible",
++                    "IsVisibleOrOccluded",
++                    "IsInWindow",
++                    "IsVisuallyIdle"
++                ],
++                "header": "page/ViewState.h"
++            },
++            {
++                "name": "GamepadKey", "mode": "SCALAR", "storage": "unsigned",
++                "flags": ["ENUM", "UNCHECKED"],
++                "values": [
++                    "OEM_UP",
++                    "OEM_DOWN",
++                    "OEM_LEFT",
++                    "OEM_RIGHT",
++                    "OEM_LT",
++                    "OEM_RT"
++                ],
++                "header": "platform/GamepadKey.h"
++            }
++        ]
++    },
++
++    "inputs": [
++        {
++            "name": "HandleViewStateChange",
++            "description": "",
++            "queue": "EVENT_LOOP",
++            "members": [
++                { "name": "flags", "type": "ViewState::Flags" }
++            ]
++        },
++        {
++            "name": "HandleGamepadPress",
++            "description": "",
++            "queue": "EVENT_LOOP",
++            "members": [
++                { "name": "keys", "type": "GamepadKey" }
++            ]
++        }
++    ]
++}
+-- 
+2.0.1
+
