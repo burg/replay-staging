@@ -1,0 +1,1438 @@
+From d614f01078e98f473df210f01b859c743587ca0f Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Fri, 10 Oct 2014 15:07:22 -0700
+Subject: [PATCH] Web Replay: EventSender dispatches should be per-Document
+ https://bugs.webkit.org/show_bug.cgi?id=136051
+
+EventSender uses a Timer to asynchronously dispatch the same event to multiple
+elements of the same type on a future run loop. However, we previously dispatched events
+to elements from any Document rather than the one that requested the event send.
+
+This patch changes EventSender to be associated with a single Document. EventSenders
+for each Document are lazily allocated. Further per-Document or global optimizations
+are possible.
+
+This change also lays the groundwork for making EventSender-related DOM events
+deterministic during web replay, tracked at <https://webkit.org/b/137090>.
+
+No new tests, covered by fast/text/svg-font-trigger-load-event.html.
+
+* CMakeLists.txt:
+* WebCore.vcxproj/WebCore.vcxproj:
+* WebCore.vcxproj/WebCore.vcxproj.filters:
+* WebCore.xcodeproj/project.pbxproj:
+* dom/DOMAllInOne.cpp:
+* dom/Document.cpp:
+(WebCore::Document::Document):
+(WebCore::Document::implicitClose):
+Dispatch pending events for this document only. Rename local variable f to frame.
+
+* dom/Document.h:
+(WebCore::Document::sharedEventSenders):
+* dom/EventSender.h:
+(WebCore::EventSender<T>::dispatchPendingEvents): Pass this by reference.
+* dom/SharedEventSenders.cpp: Added. Lazily creates event senders as they are requested.
+(WebCore::SharedEventSenders::linkLoadEventSender):
+(WebCore::SharedEventSenders::styleLoadEventSender):
+(WebCore::SharedEventSenders::imageBeforeloadEventSender):
+(WebCore::SharedEventSenders::imageLoadEventSender):
+(WebCore::SharedEventSenders::imageErrorEventSender):
+* dom/SharedEventSenders.h: Added.
+(WebCore::SharedEventSenders::SharedEventSenders):
+* html/HTMLLinkElement.cpp:
+(WebCore::HTMLLinkElement::~HTMLLinkElement):
+(WebCore::HTMLLinkElement::dispatchPendingEvent):
+(WebCore::HTMLLinkElement::notifyLoadedSheetAndAllCriticalSubresources):
+(WebCore::linkLoadEventSender): Deleted.
+(WebCore::HTMLLinkElement::dispatchPendingLoadEvents): Deleted.
+* html/HTMLLinkElement.h:
+* html/HTMLStyleElement.cpp:
+(WebCore::HTMLStyleElement::~HTMLStyleElement):
+(WebCore::HTMLStyleElement::dispatchPendingEvent):
+(WebCore::HTMLStyleElement::notifyLoadedSheetAndAllCriticalSubresources):
+(WebCore::styleLoadEventSender): Deleted.
+(WebCore::HTMLStyleElement::dispatchPendingLoadEvents): Deleted.
+* html/HTMLStyleElement.h:
+* loader/ImageLoader.cpp:
+(WebCore::ImageLoader::beforeLoadEventSender):
+(WebCore::ImageLoader::loadEventSender):
+(WebCore::ImageLoader::errorEventSender):
+(WebCore::ImageLoader::dispatchPendingEvent):
+(WebCore::beforeLoadEventSender): Deleted.
+(WebCore::loadEventSender): Deleted.
+(WebCore::errorEventSender): Deleted.
+(WebCore::ImageLoader::dispatchPendingBeforeLoadEvents): Deleted.
+(WebCore::ImageLoader::dispatchPendingLoadEvents): Deleted.
+(WebCore::ImageLoader::dispatchPendingErrorEvents): Deleted.
+* loader/ImageLoader.h:
+* xml/parser/XMLDocumentParser.cpp:
+(WebCore::XMLDocumentParser::append): Remove an early call to the EventSender for image
+beforeload events. This was a performance optimization, but is no longer safe since the
+document (and thus the event sender) may not be available in a synchronous document write.
+---
+ Source/WebCore/CMakeLists.txt                      |  1 +
+ Source/WebCore/ChangeLog                           | 71 ++++++++++++++++++++
+ Source/WebCore/WebCore.vcxproj/WebCore.vcxproj     | 15 +++++
+ .../WebCore.vcxproj/WebCore.vcxproj.filters        |  6 ++
+ Source/WebCore/WebCore.xcodeproj/project.pbxproj   | 10 +++
+ Source/WebCore/dom/DOMAllInOne.cpp                 |  1 +
+ Source/WebCore/dom/Document.cpp                    | 38 +++++------
+ Source/WebCore/dom/Document.h                      |  5 ++
+ Source/WebCore/dom/EventSender.h                   |  2 +-
+ Source/WebCore/dom/SharedEventSenders.cpp          | 75 ++++++++++++++++++++++
+ Source/WebCore/dom/SharedEventSenders.h            | 58 +++++++++++++++++
+ Source/WebCore/html/HTMLLinkElement.cpp            | 20 ++----
+ Source/WebCore/html/HTMLLinkElement.h              |  4 +-
+ Source/WebCore/html/HTMLStyleElement.cpp           | 19 ++----
+ Source/WebCore/html/HTMLStyleElement.h             |  4 +-
+ Source/WebCore/loader/ImageLoader.cpp              | 38 +++--------
+ Source/WebCore/loader/ImageLoader.h                |  9 ++-
+ Source/WebCore/xml/parser/XMLDocumentParser.cpp    |  3 -
+ 18 files changed, 288 insertions(+), 91 deletions(-)
+ create mode 100644 Source/WebCore/dom/SharedEventSenders.cpp
+ create mode 100644 Source/WebCore/dom/SharedEventSenders.h
+
+diff --git a/Source/WebCore/CMakeLists.txt b/Source/WebCore/CMakeLists.txt
+index fddff1e..4fa2fc2 100644
+--- a/Source/WebCore/CMakeLists.txt
++++ b/Source/WebCore/CMakeLists.txt
+@@ -1391,20 +1391,21 @@ set(WebCore_SOURCES
+     dom/ScopedEventQueue.cpp
+     dom/ScriptElement.cpp
+     dom/ScriptExecutionContext.cpp
+     dom/ScriptRunner.cpp
+     dom/ScriptableDocumentParser.cpp
+     dom/ScriptedAnimationController.cpp
+     dom/SecurityContext.cpp
+     dom/SecurityOriginPolicy.cpp
+     dom/SelectorQuery.cpp
+     dom/ShadowRoot.cpp
++    dom/SharedEventSenders.cpp
+     dom/SpaceSplitString.cpp
+     dom/StaticNodeList.cpp
+     dom/StringCallback.cpp
+     dom/StyledElement.cpp
+     dom/TagNodeList.cpp
+     dom/Text.cpp
+     dom/TextEvent.cpp
+     dom/TextNodeTraversal.cpp
+     dom/Touch.cpp
+     dom/TouchEvent.cpp
+diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
+index cc1d365..18a3490 100644
+--- a/Source/WebCore/ChangeLog
++++ b/Source/WebCore/ChangeLog
+@@ -1,10 +1,81 @@
++2014-10-10  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Replay: EventSender dispatches should be per-Document
++        https://bugs.webkit.org/show_bug.cgi?id=136051
++
++        EventSender uses a Timer to asynchronously dispatch the same event to multiple
++        elements of the same type on a future run loop. However, we previously dispatched events
++        to elements from any Document rather than the one that requested the event send.
++
++        This patch changes EventSender to be associated with a single Document. EventSenders
++        for each Document are lazily allocated. Further per-Document or global optimizations
++        are possible.
++
++        This change also lays the groundwork for making EventSender-related DOM events
++        deterministic during web replay, tracked at <https://webkit.org/b/137090>.
++
++        No new tests, covered by fast/text/svg-font-trigger-load-event.html.
++
++        * CMakeLists.txt:
++        * WebCore.vcxproj/WebCore.vcxproj:
++        * WebCore.vcxproj/WebCore.vcxproj.filters:
++        * WebCore.xcodeproj/project.pbxproj:
++        * dom/DOMAllInOne.cpp:
++        * dom/Document.cpp:
++        (WebCore::Document::Document):
++        (WebCore::Document::implicitClose):
++        Dispatch pending events for this document only. Rename local variable f to frame.
++
++        * dom/Document.h:
++        (WebCore::Document::sharedEventSenders):
++        * dom/EventSender.h:
++        (WebCore::EventSender<T>::dispatchPendingEvents): Pass this by reference.
++        * dom/SharedEventSenders.cpp: Added. Lazily creates event senders as they are requested.
++        (WebCore::SharedEventSenders::linkLoadEventSender):
++        (WebCore::SharedEventSenders::styleLoadEventSender):
++        (WebCore::SharedEventSenders::imageBeforeloadEventSender):
++        (WebCore::SharedEventSenders::imageLoadEventSender):
++        (WebCore::SharedEventSenders::imageErrorEventSender):
++        * dom/SharedEventSenders.h: Added.
++        (WebCore::SharedEventSenders::SharedEventSenders):
++        * html/HTMLLinkElement.cpp:
++        (WebCore::HTMLLinkElement::~HTMLLinkElement):
++        (WebCore::HTMLLinkElement::dispatchPendingEvent):
++        (WebCore::HTMLLinkElement::notifyLoadedSheetAndAllCriticalSubresources):
++        (WebCore::linkLoadEventSender): Deleted.
++        (WebCore::HTMLLinkElement::dispatchPendingLoadEvents): Deleted.
++        * html/HTMLLinkElement.h:
++        * html/HTMLStyleElement.cpp:
++        (WebCore::HTMLStyleElement::~HTMLStyleElement):
++        (WebCore::HTMLStyleElement::dispatchPendingEvent):
++        (WebCore::HTMLStyleElement::notifyLoadedSheetAndAllCriticalSubresources):
++        (WebCore::styleLoadEventSender): Deleted.
++        (WebCore::HTMLStyleElement::dispatchPendingLoadEvents): Deleted.
++        * html/HTMLStyleElement.h:
++        * loader/ImageLoader.cpp:
++        (WebCore::ImageLoader::beforeLoadEventSender):
++        (WebCore::ImageLoader::loadEventSender):
++        (WebCore::ImageLoader::errorEventSender):
++        (WebCore::ImageLoader::dispatchPendingEvent):
++        (WebCore::beforeLoadEventSender): Deleted.
++        (WebCore::loadEventSender): Deleted.
++        (WebCore::errorEventSender): Deleted.
++        (WebCore::ImageLoader::dispatchPendingBeforeLoadEvents): Deleted.
++        (WebCore::ImageLoader::dispatchPendingLoadEvents): Deleted.
++        (WebCore::ImageLoader::dispatchPendingErrorEvents): Deleted.
++        * loader/ImageLoader.h:
++        * xml/parser/XMLDocumentParser.cpp:
++        (WebCore::XMLDocumentParser::append): Remove an early call to the EventSender for image
++        beforeload events. This was a performance optimization, but is no longer safe since the
++        document (and thus the event sender) may not be available in a synchronous document write.
++
+ 2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         Web Replay: make calls into FrameLoader::checkLoadComplete() deterministic
+         https://bugs.webkit.org/show_bug.cgi?id=129451
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         To ensure deterministic JavaScript execution, calls to checkLoadComplete()
+         that originate from asynchronous Timer firings should be captured and replayed.
+ 
+diff --git a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
+index 4c01e6d..bdfa9b9 100644
+--- a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
++++ b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
+@@ -13814,20 +13814,34 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug_WinCairo|x64'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|Win32'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|x64'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release_WinCairo|Win32'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release_WinCairo|x64'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Production|Win32'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Production|x64'">true</ExcludedFromBuild>
+     </ClCompile>
++    <ClCompile Include="..\dom\SharedEventSenders.cpp">
++      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
++      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
++      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug_WinCairo|Win32'">true</ExcludedFromBuild>
++      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug_WinCairo|x64'">true</ExcludedFromBuild>
++      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|Win32'">true</ExcludedFromBuild>
++      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|x64'">true</ExcludedFromBuild>
++      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
++      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
++      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release_WinCairo|Win32'">true</ExcludedFromBuild>
++      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release_WinCairo|x64'">true</ExcludedFromBuild>
++      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Production|Win32'">true</ExcludedFromBuild>
++      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Production|x64'">true</ExcludedFromBuild>
++    </ClCompile>
+     <ClCompile Include="..\dom\SpaceSplitString.cpp">
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug_WinCairo|Win32'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug_WinCairo|x64'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|Win32'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|x64'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release_WinCairo|Win32'">true</ExcludedFromBuild>
+@@ -20557,20 +20571,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+     <ClInclude Include="..\dom\ScopedEventQueue.h" />
+     <ClInclude Include="..\dom\ScriptableDocumentParser.h" />
+     <ClInclude Include="..\dom\ScriptedAnimationController.h" />
+     <ClInclude Include="..\dom\ScriptElement.h" />
+     <ClInclude Include="..\dom\ScriptExecutionContext.h" />
+     <ClInclude Include="..\dom\ScriptRunner.h" />
+     <ClInclude Include="..\dom\SecurityContext.h" />
+     <ClInclude Include="..\dom\SecurityOriginPolicy.h" />
+     <ClInclude Include="..\dom\SelectorQuery.h" />
+     <ClInclude Include="..\dom\SimulatedClickOptions.h" />
++    <ClInclude Include="..\dom\SharedEventSenders.h" />
+     <ClInclude Include="..\dom\SpaceSplitString.h" />
+     <ClInclude Include="..\dom\StaticHashSetNodeList.h" />
+     <ClInclude Include="..\dom\StaticNodeList.h" />
+     <ClInclude Include="..\dom\StringCallback.h" />
+     <ClInclude Include="..\dom\StyledElement.h" />
+     <ClInclude Include="..\dom\TagNodeList.h" />
+     <ClInclude Include="..\dom\TemplateContentDocumentFragment.h" />
+     <ClInclude Include="..\dom\Text.h" />
+     <ClInclude Include="..\dom\TextEvent.h" />
+     <ClInclude Include="..\dom\TextNodeTraversal.h" />
+diff --git a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
+index c2753fc..6b86c6d 100644
+--- a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
++++ b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
+@@ -3317,20 +3317,23 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+     </ClCompile>
+     <ClCompile Include="..\dom\SecurityContext.cpp">
+       <Filter>dom</Filter>
+     </ClCompile>
+     <ClCompile Include="..\dom\SecurityOriginPolicy.cpp">
+       <Filter>dom</Filter>
+     </ClCompile>
+     <ClCompile Include="..\dom\SelectorQuery.cpp">
+       <Filter>dom</Filter>
+     </ClCompile>
++    <ClCompile Include="..\dom\SharedEventSenders.cpp">
++      <Filter>dom</Filter>
++    </ClCompile>
+     <ClCompile Include="..\dom\SpaceSplitString.cpp">
+       <Filter>dom</Filter>
+     </ClCompile>
+     <ClCompile Include="..\dom\StaticHashSetNodeList.cpp">
+       <Filter>dom</Filter>
+     </ClCompile>
+     <ClCompile Include="..\dom\StaticNodeList.cpp">
+       <Filter>dom</Filter>
+     </ClCompile>
+     <ClCompile Include="..\dom\StringCallback.cpp">
+@@ -10349,20 +10352,23 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+     </ClInclude>
+     <ClInclude Include="..\dom\SecurityContext.h">
+       <Filter>dom</Filter>
+     </ClInclude>
+     <ClInclude Include="..\dom\SecurityOriginPolicy.h">
+       <Filter>dom</Filter>
+     </ClInclude>
+     <ClInclude Include="..\dom\SelectorQuery.h">
+       <Filter>dom</Filter>
+     </ClInclude>
++    <ClInclude Include="..\dom\SharedEventSenders.h">
++      <Filter>dom</Filter>
++    </ClInclude>
+     <ClInclude Include="..\dom\SimulatedClickOptions.h">
+       <Filter>dom</Filter>
+     </ClInclude>
+     <ClInclude Include="..\dom\SpaceSplitString.h">
+       <Filter>dom</Filter>
+     </ClInclude>
+     <ClInclude Include="..\dom\StaticHashSetNodeList.h">
+       <Filter>dom</Filter>
+     </ClInclude>
+     <ClInclude Include="..\dom\StaticNodeList.h">
+diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
+index 368275e..e1294d1 100644
+--- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
++++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
+@@ -5532,20 +5532,23 @@
+ 		C348612315FDE21E007A1CC9 /* InputTypeNames.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C348612115FDE21E007A1CC9 /* InputTypeNames.cpp */; };
+ 		C348612415FDE21E007A1CC9 /* InputTypeNames.h in Headers */ = {isa = PBXBuildFile; fileRef = C348612215FDE21E007A1CC9 /* InputTypeNames.h */; };
+ 		C375D7FD16639519006184AB /* TypeAhead.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C375D7FB16639519006184AB /* TypeAhead.cpp */; };
+ 		C375D7FE16639519006184AB /* TypeAhead.h in Headers */ = {isa = PBXBuildFile; fileRef = C375D7FC16639519006184AB /* TypeAhead.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C37CDEBD149EF2030042090D /* ColorChooserClient.h in Headers */ = {isa = PBXBuildFile; fileRef = C37CDEBC149EF2030042090D /* ColorChooserClient.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C3CF17A415B0063F00276D39 /* IdTargetObserver.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C3CF17A015B0063F00276D39 /* IdTargetObserver.cpp */; };
+ 		C3CF17A515B0063F00276D39 /* IdTargetObserver.h in Headers */ = {isa = PBXBuildFile; fileRef = C3CF17A115B0063F00276D39 /* IdTargetObserver.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C3CF17A615B0063F00276D39 /* IdTargetObserverRegistry.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C3CF17A215B0063F00276D39 /* IdTargetObserverRegistry.cpp */; };
+ 		C3CF17A715B0063F00276D39 /* IdTargetObserverRegistry.h in Headers */ = {isa = PBXBuildFile; fileRef = C3CF17A315B0063F00276D39 /* IdTargetObserverRegistry.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C400D10918F1C8F60090D863 /* EventLoopInput.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C400D10818F1C8F60090D863 /* EventLoopInput.cpp */; };
++		C49474A119A2847C009B3DE8 /* SharedEventSenders.h in Headers */ = {isa = PBXBuildFile; fileRef = C49474A019A2847C009B3DE8 /* SharedEventSenders.h */; };
++		C49474A819A2D612009B3DE8 /* EventSender.h in Headers */ = {isa = PBXBuildFile; fileRef = CE5CB1B314EDAB6F00BB2795 /* EventSender.h */; };
++		C49474AA19A2E2E5009B3DE8 /* SharedEventSenders.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C49474A919A2E2E5009B3DE8 /* SharedEventSenders.cpp */; };
+ 		C4CD629A18383766007EBAF1 /* FrameSnapshotting.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4CD629818383766007EBAF1 /* FrameSnapshotting.cpp */; };
+ 		C4CD629B18383766007EBAF1 /* FrameSnapshotting.h in Headers */ = {isa = PBXBuildFile; fileRef = C4CD629918383766007EBAF1 /* FrameSnapshotting.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C4D4F52B1975C88B003EF5BC /* ReplayableTimer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4D4F5271975C88B003EF5BC /* ReplayableTimer.cpp */; };
+ 		C4D4F52C1975C88B003EF5BC /* ReplayableTimer.h in Headers */ = {isa = PBXBuildFile; fileRef = C4D4F5281975C88B003EF5BC /* ReplayableTimer.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C4D4F52D1975C88B003EF5BC /* ReplayableTimers.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4D4F5291975C88B003EF5BC /* ReplayableTimers.cpp */; };
+ 		C4D4F52E1975C88B003EF5BC /* ReplayableTimers.h in Headers */ = {isa = PBXBuildFile; fileRef = C4D4F52A1975C88B003EF5BC /* ReplayableTimers.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C50D0E830FF4272900AC2644 /* StorageNamespace.h in Headers */ = {isa = PBXBuildFile; fileRef = C50D0E810FF4272900AC2644 /* StorageNamespace.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C5137CF211A58378004ADB99 /* JSDOMStringList.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */; };
+ 		C5137CF311A58378004ADB99 /* JSDOMStringList.h in Headers */ = {isa = PBXBuildFile; fileRef = C5137CF111A58378004ADB99 /* JSDOMStringList.h */; };
+ 		C5278B0C17F212EA003A2998 /* PlatformPasteboardIOS.mm in Sources */ = {isa = PBXBuildFile; fileRef = C5278B0B17F212EA003A2998 /* PlatformPasteboardIOS.mm */; };
+@@ -12963,20 +12966,22 @@
+ 		C348612215FDE21E007A1CC9 /* InputTypeNames.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = InputTypeNames.h; sourceTree = "<group>"; };
+ 		C375D7FB16639519006184AB /* TypeAhead.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = TypeAhead.cpp; sourceTree = "<group>"; };
+ 		C375D7FC16639519006184AB /* TypeAhead.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TypeAhead.h; sourceTree = "<group>"; };
+ 		C37CDEBC149EF2030042090D /* ColorChooserClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ColorChooserClient.h; sourceTree = "<group>"; };
+ 		C3CF17A015B0063F00276D39 /* IdTargetObserver.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = IdTargetObserver.cpp; sourceTree = "<group>"; };
+ 		C3CF17A115B0063F00276D39 /* IdTargetObserver.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = IdTargetObserver.h; sourceTree = "<group>"; };
+ 		C3CF17A215B0063F00276D39 /* IdTargetObserverRegistry.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = IdTargetObserverRegistry.cpp; sourceTree = "<group>"; };
+ 		C3CF17A315B0063F00276D39 /* IdTargetObserverRegistry.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = IdTargetObserverRegistry.h; sourceTree = "<group>"; };
+ 		C3E61C653A64807A83E76FB8 /* MathMLMencloseElement.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MathMLMencloseElement.cpp; sourceTree = "<group>"; };
+ 		C400D10818F1C8F60090D863 /* EventLoopInput.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = EventLoopInput.cpp; sourceTree = "<group>"; };
++		C49474A019A2847C009B3DE8 /* SharedEventSenders.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SharedEventSenders.h; sourceTree = "<group>"; };
++		C49474A919A2E2E5009B3DE8 /* SharedEventSenders.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SharedEventSenders.cpp; sourceTree = "<group>"; };
+ 		C4CD629818383766007EBAF1 /* FrameSnapshotting.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = FrameSnapshotting.cpp; sourceTree = "<group>"; };
+ 		C4CD629918383766007EBAF1 /* FrameSnapshotting.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FrameSnapshotting.h; sourceTree = "<group>"; };
+ 		C4D4F5271975C88B003EF5BC /* ReplayableTimer.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReplayableTimer.cpp; sourceTree = "<group>"; };
+ 		C4D4F5281975C88B003EF5BC /* ReplayableTimer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ReplayableTimer.h; sourceTree = "<group>"; };
+ 		C4D4F5291975C88B003EF5BC /* ReplayableTimers.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReplayableTimers.cpp; sourceTree = "<group>"; };
+ 		C4D4F52A1975C88B003EF5BC /* ReplayableTimers.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ReplayableTimers.h; sourceTree = "<group>"; };
+ 		C50D0E810FF4272900AC2644 /* StorageNamespace.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = StorageNamespace.h; sourceTree = "<group>"; };
+ 		C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = JSDOMStringList.cpp; sourceTree = "<group>"; };
+ 		C5137CF111A58378004ADB99 /* JSDOMStringList.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSDOMStringList.h; sourceTree = "<group>"; };
+ 		C5278B0B17F212EA003A2998 /* PlatformPasteboardIOS.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = PlatformPasteboardIOS.mm; path = ios/PlatformPasteboardIOS.mm; sourceTree = "<group>"; };
+@@ -22870,20 +22875,22 @@
+ 				976F36E814686225005E93B4 /* SecurityContext.cpp */,
+ 				976F36E914686225005E93B4 /* SecurityContext.h */,
+ 				1AF7AFC51A48A8BC00C8E4E7 /* SecurityOriginPolicy.cpp */,
+ 				1AF7AFC61A48A8BC00C8E4E7 /* SecurityOriginPolicy.h */,
+ 				2D5BC42516F882BE007048D0 /* SecurityPolicyViolationEvent.h */,
+ 				2D5BC42616F882BE007048D0 /* SecurityPolicyViolationEvent.idl */,
+ 				E45322A9140CE267005A0F92 /* SelectorQuery.cpp */,
+ 				E45322AA140CE267005A0F92 /* SelectorQuery.h */,
+ 				A6D169611346B49B000EB770 /* ShadowRoot.cpp */,
+ 				A6D169631346B4C1000EB770 /* ShadowRoot.h */,
++				C49474A919A2E2E5009B3DE8 /* SharedEventSenders.cpp */,
++				C49474A019A2847C009B3DE8 /* SharedEventSenders.h */,
+ 				31741AAB16635E45008A5B7E /* SimulatedClickOptions.h */,
+ 				D01A27AB10C9BFD800026A42 /* SpaceSplitString.cpp */,
+ 				D01A27AC10C9BFD800026A42 /* SpaceSplitString.h */,
+ 				BC7FA62C0D1F0EFF00DB22A9 /* StaticNodeList.cpp */,
+ 				BC7FA62B0D1F0EFF00DB22A9 /* StaticNodeList.h */,
+ 				8102C5871325BB1100DDE67A /* StringCallback.cpp */,
+ 				81AC6C35131C57D30009A7E0 /* StringCallback.h */,
+ 				81AC6C34131C57C20009A7E0 /* StringCallback.idl */,
+ 				A8C4A7EC09D563270003AC8D /* StyledElement.cpp */,
+ 				A8C4A7EB09D563270003AC8D /* StyledElement.h */,
+@@ -23464,20 +23471,21 @@
+ 				E124748410AA161D00B79493 /* AuthenticationClient.h in Headers */,
+ 				514C764C0CE9234E007EF3CD /* AuthenticationMac.h in Headers */,
+ 				A501920E132EBF2E008BFE55 /* Autocapitalize.h in Headers */,
+ 				760847CE19A6A27800428CCC /* AutocompleteErrorEvent.h in Headers */,
+ 				45830D4E1679B4F800ACF8C3 /* AutoscrollController.h in Headers */,
+ 				A8CFF04E0A154F09000A4234 /* AutoTableLayout.h in Headers */,
+ 				070363E0181A1CDC00C074A5 /* AVAudioCaptureSource.h in Headers */,
+ 				070363E2181A1CDC00C074A5 /* AVCaptureDeviceManager.h in Headers */,
+ 				CE12523F1A16AE1200864480 /* AVKitSPI.h in Headers */,
+ 				070363E4181A1CDC00C074A5 /* AVMediaCaptureSource.h in Headers */,
++				C49474A819A2D612009B3DE8 /* EventSender.h in Headers */,
+ 				CD336F6217F9F64700DDDCD0 /* AVTrackPrivateAVFObjCImpl.h in Headers */,
+ 				070363E6181A1CDC00C074A5 /* AVVideoCaptureSource.h in Headers */,
+ 				F478755419983AFF0024A287 /* AxisScrollSnapAnimator.h in Headers */,
+ 				F45C231E1995B73B00A6E2E3 /* AxisScrollSnapOffsets.h in Headers */,
+ 				29A812380FBB9C1D00510293 /* AXObjectCache.h in Headers */,
+ 				51741D0F0B07259A00ED442C /* BackForwardClient.h in Headers */,
+ 				BCA8C81E11E3D36900812FB7 /* BackForwardController.h in Headers */,
+ 				BCA8CA6011E4E6D100812FB7 /* BackForwardList.h in Headers */,
+ 				BC124EE80C2641CD009E2349 /* BarProp.h in Headers */,
+ 				379E61CA126CA5C400B63E8D /* BaseButtonInputType.h in Headers */,
+@@ -26536,20 +26544,21 @@
+ 				1419D2C50CEA6F6100FF507A /* TreeShared.h in Headers */,
+ 				854FE7390A2297BE0058D7AD /* TreeWalker.h in Headers */,
+ 				C375D7FE16639519006184AB /* TypeAhead.h in Headers */,
+ 				E46A2B1C17CA65B9000DBCD8 /* TypedElementDescendantIterator.h in Headers */,
+ 				37C28A6810F659CC008C7813 /* TypesettingFeatures.h in Headers */,
+ 				93309E1A099E64920056E581 /* TypingCommand.h in Headers */,
+ 				85031B4E0A44EFC700F992E0 /* UIEvent.h in Headers */,
+ 				85031B4F0A44EFC700F992E0 /* UIEventWithKeyState.h in Headers */,
+ 				AA4739D21757AFEC00E76767 /* UIRequestEvent.h in Headers */,
+ 				9B2D8A7914997CCF00ECEF3E /* UndoStep.h in Headers */,
++				C49474A119A2847C009B3DE8 /* SharedEventSenders.h in Headers */,
+ 				A863E2011343412000274926 /* UnicodeBidi.h in Headers */,
+ 				E4AFCFA50DAF29A300F5F55C /* UnitBezier.h in Headers */,
+ 				D086FE9809D53AAB005BC74D /* UnlinkCommand.h in Headers */,
+ 				FD1762E0176686D900D836A8 /* UpSampler.h in Headers */,
+ 				6593923809AE4346002C531F /* URL.h in Headers */,
+ 				BCBD21AB0E417AD400A070F2 /* URLHash.h in Headers */,
+ 				F55B3DDE1251F12D003EF269 /* URLInputType.h in Headers */,
+ 				A72763BF16689BFB002FCACB /* UserActionElementSet.h in Headers */,
+ 				868160D618766A130021E79D /* UserActivity.h in Headers */,
+ 				26255F0318878E110006E1FD /* UserAgent.h in Headers */,
+@@ -28199,20 +28208,21 @@
+ 				76FB9FF819A73E3A00420562 /* JSAutocompleteErrorEvent.cpp in Sources */,
+ 				BC124EFF0C26447A009E2349 /* JSBarProp.cpp in Sources */,
+ 				BC946346107A934B00857193 /* JSBeforeLoadEvent.cpp in Sources */,
+ 				70F546E8B8B5D7DC54EE144E /* JSBeforeUnloadEvent.cpp in Sources */,
+ 				FDF09DC81399B62200688E5B /* JSBiquadFilterNode.cpp in Sources */,
+ 				FD8AA63C1695148E00D2EA68 /* JSBiquadFilterNodeCustom.cpp in Sources */,
+ 				2E2D99CD10E2BBDA00496337 /* JSBlob.cpp in Sources */,
+ 				8931DE5B14C44C44000DC9D2 /* JSBlobCustom.cpp in Sources */,
+ 				1449E287107D4DB400B5793F /* JSCallbackData.cpp in Sources */,
+ 				65DF323909D1DE65000BE325 /* JSCanvasGradient.cpp in Sources */,
++				C49474AA19A2E2E5009B3DE8 /* SharedEventSenders.cpp in Sources */,
+ 				65DF323B09D1DE65000BE325 /* JSCanvasPattern.cpp in Sources */,
+ 				49EED1421051969400099FAB /* JSCanvasRenderingContext.cpp in Sources */,
+ 				49EED1441051969400099FAB /* JSCanvasRenderingContext2D.cpp in Sources */,
+ 				49EED14E1051971A00099FAB /* JSCanvasRenderingContext2DCustom.cpp in Sources */,
+ 				49EED1501051971A00099FAB /* JSCanvasRenderingContextCustom.cpp in Sources */,
+ 				073AB4B717F92ECF006E0D6F /* JSCapabilityRange.cpp in Sources */,
+ 				93F9B7A00BA6032600854064 /* JSCDATASection.cpp in Sources */,
+ 				93BA59B20F2AA5FE008E8E99 /* JSCDATASectionCustom.cpp in Sources */,
+ 				FDA15EA112B03EE1003A583A /* JSChannelMergerNode.cpp in Sources */,
+ 				FDA15EA312B03EE1003A583A /* JSChannelSplitterNode.cpp in Sources */,
+diff --git a/Source/WebCore/dom/DOMAllInOne.cpp b/Source/WebCore/dom/DOMAllInOne.cpp
+index 0d14eb4..41c6b57 100644
+--- a/Source/WebCore/dom/DOMAllInOne.cpp
++++ b/Source/WebCore/dom/DOMAllInOne.cpp
+@@ -118,20 +118,21 @@
+ #include "RegisteredEventListener.cpp"
+ #include "ScopedEventQueue.cpp"
+ #include "ScriptElement.cpp"
+ #include "ScriptExecutionContext.cpp"
+ #include "ScriptRunner.cpp"
+ #include "ScriptableDocumentParser.cpp"
+ #include "SecurityContext.cpp"
+ #include "SecurityOriginPolicy.cpp"
+ #include "SelectorQuery.cpp"
+ #include "ShadowRoot.cpp"
++#include "SharedEventSenders.cpp"
+ #include "SpaceSplitString.cpp"
+ #include "StaticNodeList.cpp"
+ #include "StyledElement.cpp"
+ #include "TagNodeList.cpp"
+ #include "Text.cpp"
+ #include "TextEvent.cpp"
+ #include "TextNodeTraversal.cpp"
+ #include "Touch.cpp"
+ #include "TouchEvent.cpp"
+ #include "TouchList.cpp"
+diff --git a/Source/WebCore/dom/Document.cpp b/Source/WebCore/dom/Document.cpp
+index 5d1efb9..2feca53 100644
+--- a/Source/WebCore/dom/Document.cpp
++++ b/Source/WebCore/dom/Document.cpp
+@@ -133,20 +133,21 @@
+ #include "ScriptRunner.h"
+ #include "ScriptSourceCode.h"
+ #include "ScrollingCoordinator.h"
+ #include "SecurityOrigin.h"
+ #include "SecurityOriginPolicy.h"
+ #include "SecurityPolicy.h"
+ #include "SegmentedString.h"
+ #include "SelectorQuery.h"
+ #include "Settings.h"
+ #include "ShadowRoot.h"
++#include "SharedEventSenders.h"
+ #include "StyleProperties.h"
+ #include "StyleResolver.h"
+ #include "StyleSheetContents.h"
+ #include "StyleSheetList.h"
+ #include "TextResourceDecoder.h"
+ #include "TransformSource.h"
+ #include "TreeWalker.h"
+ #include "VisitedLinkState.h"
+ #include "XMLDocumentParser.h"
+ #include "XMLNSNames.h"
+@@ -461,20 +462,21 @@ Document::Document(Frame* frame, const URL& url, unsigned documentClasses, unsig
+ #endif
+     , m_createRenderers(true)
+     , m_inPageCache(false)
+     , m_accessKeyMapValid(false)
+     , m_documentClasses(documentClasses)
+     , m_isSynthesized(constructionFlags & Synthesized)
+     , m_isNonRenderedPlaceholder(constructionFlags & NonRenderedPlaceholder)
+     , m_sawElementsInKnownNamespaces(false)
+     , m_isSrcdocDocument(false)
+     , m_eventQueue(*this)
++    , m_sharedEventSenders(std::make_unique<SharedEventSenders>())
+     , m_weakFactory(this)
+ #if ENABLE(FULLSCREEN_API)
+     , m_areKeysEnabledInFullScreen(0)
+     , m_fullScreenRenderer(nullptr)
+     , m_fullScreenChangeDelayTimer(*this, &Document::fullScreenChangeDelayTimerFired)
+     , m_isAnimatingFullScreen(false)
+ #endif
+     , m_loadEventDelayCount(0)
+     , m_loadEventDelayTimer(*this, &Document::loadEventDelayTimerFired)
+     , m_referrerPolicy(ReferrerPolicyDefault)
+@@ -2395,88 +2397,86 @@ void Document::implicitClose()
+     // We have to clear the parser, in case someone document.write()s from the
+     // onLoad event handler, as in Radar 3206524.
+     detachParser();
+ 
+     // FIXME: We kick off the icon loader when the Document is done parsing.
+     // There are earlier opportunities we could start it:
+     //  -When the <head> finishes parsing
+     //  -When any new HTMLLinkElement is inserted into the document
+     // But those add a dynamic component to the favicon that has UI 
+     // ramifications, and we need to decide what is the Right Thing To Do(tm)
+-    Frame* f = frame();
+-    if (f) {
+-        f->loader().icon().startLoader();
+-        f->animation().startAnimationsIfNotSuspended(this);
+-
+-        // FIXME: We shouldn't be dispatching pending events globally on all Documents here.
+-        // For now, only do this when there is a Frame, otherwise this could cause JS reentrancy
+-        // below SVG font parsing, for example. <https://webkit.org/b/136269>
+-        ImageLoader::dispatchPendingBeforeLoadEvents();
+-        ImageLoader::dispatchPendingLoadEvents();
+-        ImageLoader::dispatchPendingErrorEvents();
+-        HTMLLinkElement::dispatchPendingLoadEvents();
+-        HTMLStyleElement::dispatchPendingLoadEvents();
++    Frame* frame = this->frame();
++    if (frame) {
++        frame->loader().icon().startLoader();
++        frame->animation().startAnimationsIfNotSuspended(this);
+     }
+ 
++    sharedEventSenders().imageBeforeloadEventSender().dispatchPendingEvents();
++    sharedEventSenders().imageLoadEventSender().dispatchPendingEvents();
++    sharedEventSenders().imageErrorEventSender().dispatchPendingEvents();
++
++    sharedEventSenders().linkLoadEventSender().dispatchPendingEvents();
++    sharedEventSenders().styleLoadEventSender().dispatchPendingEvents();
++
+     // To align the HTML load event and the SVGLoad event for the outermost <svg> element, fire it from
+     // here, instead of doing it from SVGElement::finishedParsingChildren (if externalResourcesRequired="false",
+     // which is the default, for ='true' its fired at a later time, once all external resources finished loading).
+     if (svgExtensions())
+         accessSVGExtensions().dispatchSVGLoadEventToOutermostSVGElements();
+ 
+     dispatchWindowLoadEvent();
+     enqueuePageshowEvent(PageshowEventNotPersisted);
+     enqueuePopstateEvent(m_pendingStateObject ? m_pendingStateObject.release() : SerializedScriptValue::nullValue());
+     
+-    if (f)
+-        f->loader().handledOnloadEvents();
++    if (frame)
++        frame->loader().handledOnloadEvents();
+ #ifdef INSTRUMENT_LAYOUT_SCHEDULING
+     if (!ownerElement())
+         printf("onload fired at %lld\n", elapsedTime().count());
+ #endif
+ 
+     // An event handler may have removed the frame
+-    if (!frame()) {
++    if (!this->frame()) {
+         m_processingLoadEvent = false;
+         return;
+     }
+ 
+     // Make sure both the initial layout and reflow happen after the onload
+     // fires. This will improve onload scores, and other browsers do it.
+     // If they wanna cheat, we can too. -dwh
+ 
+-    if (frame()->navigationScheduler().locationChangePending() && elapsedTime() < settings()->layoutInterval()) {
++    if (this->frame()->navigationScheduler().locationChangePending() && elapsedTime() < settings()->layoutInterval()) {
+         // Just bail out. Before or during the onload we were shifted to another page.
+         // The old i-Bench suite does this. When this happens don't bother painting or laying out.        
+         m_processingLoadEvent = false;
+         view()->unscheduleRelayout();
+         return;
+     }
+ 
+-    frame()->loader().checkCallImplicitClose();
++    this->frame()->loader().checkCallImplicitClose();
+     
+     // We used to force a synchronous display and flush here.  This really isn't
+     // necessary and can in fact be actively harmful if pages are loading at a rate of > 60fps
+     // (if your platform is syncing flushes and limiting them to 60fps).
+     m_overMinimumLayoutThreshold = true;
+     if (!ownerElement() || (ownerElement()->renderer() && !ownerElement()->renderer()->needsLayout())) {
+         updateStyleIfNeeded();
+         
+         // Always do a layout after loading if needed.
+         if (view() && renderView() && (!renderView()->firstChild() || renderView()->needsLayout()))
+             view()->layout();
+     }
+ 
+     m_processingLoadEvent = false;
+ 
+ #if PLATFORM(COCOA) || PLATFORM(WIN) || PLATFORM(GTK) || PLATFORM(EFL)
+-    if (f && hasLivingRenderTree() && AXObjectCache::accessibilityEnabled()) {
++    if (frame && hasLivingRenderTree() && AXObjectCache::accessibilityEnabled()) {
+         // The AX cache may have been cleared at this point, but we need to make sure it contains an
+         // AX object to send the notification to. getOrCreate will make sure that an valid AX object
+         // exists in the cache (we ignore the return value because we don't need it here). This is 
+         // only safe to call when a layout is not in progress, so it can not be used in postNotification.
+         //
+         // This notification is now called AXNewDocumentLoadComplete because there are other handlers that will
+         // catch new AND page history loads, and that uses AXLoadComplete
+         
+         axObjectCache()->getOrCreate(renderView());
+         if (this == &topDocument())
+diff --git a/Source/WebCore/dom/Document.h b/Source/WebCore/dom/Document.h
+index 5d34e86..8c75538 100644
+--- a/Source/WebCore/dom/Document.h
++++ b/Source/WebCore/dom/Document.h
+@@ -138,20 +138,21 @@ class RenderView;
+ class RenderFullScreen;
+ class ScriptableDocumentParser;
+ class ScriptElementData;
+ class ScriptRunner;
+ class SecurityOrigin;
+ class SelectorQuery;
+ class SelectorQueryCache;
+ class SerializedScriptValue;
+ class SegmentedString;
+ class Settings;
++class SharedEventSenders;
+ class StyleResolver;
+ class StyleSheet;
+ class StyleSheetContents;
+ class StyleSheetList;
+ class SVGDocumentExtensions;
+ class Text;
+ class TextResourceDecoder;
+ class TreeWalker;
+ class VisitedLinkState;
+ class WebKitNamedFlow;
+@@ -1106,20 +1107,22 @@ public:
+     virtual bool isJSExecutionForbidden() const override final { return false; }
+ 
+     void enqueueWindowEvent(PassRefPtr<Event>);
+     void enqueueDocumentEvent(PassRefPtr<Event>);
+     void enqueueOverflowEvent(PassRefPtr<Event>);
+     void enqueuePageshowEvent(PageshowEventPersistence);
+     void enqueueHashchangeEvent(const String& oldURL, const String& newURL);
+     void enqueuePopstateEvent(PassRefPtr<SerializedScriptValue> stateObject);
+     virtual DocumentEventQueue& eventQueue() const override final { return m_eventQueue; }
+ 
++    SharedEventSenders& sharedEventSenders() const { return *m_sharedEventSenders; }
++
+     WEBCORE_EXPORT void addMediaCanStartListener(MediaCanStartListener*);
+     WEBCORE_EXPORT void removeMediaCanStartListener(MediaCanStartListener*);
+     MediaCanStartListener* takeAnyMediaCanStartListener();
+ 
+ #if ENABLE(FULLSCREEN_API)
+     bool webkitIsFullScreen() const { return m_fullScreenElement.get(); }
+     bool webkitFullScreenKeyboardInputAllowed() const { return m_fullScreenElement.get() && m_areKeysEnabledInFullScreen; }
+     Element* webkitCurrentFullScreenElement() const { return m_fullScreenElement.get(); }
+     
+     enum FullScreenCheckType {
+@@ -1569,20 +1572,22 @@ private:
+ 
+     bool m_isSynthesized;
+     bool m_isNonRenderedPlaceholder;
+ 
+     bool m_sawElementsInKnownNamespaces;
+     bool m_isSrcdocDocument;
+ 
+     RenderPtr<RenderView> m_renderView;
+     mutable DocumentEventQueue m_eventQueue;
+ 
++    const std::unique_ptr<SharedEventSenders> m_sharedEventSenders;
++
+     WeakPtrFactory<Document> m_weakFactory;
+ 
+     HashSet<MediaCanStartListener*> m_mediaCanStartListeners;
+ 
+ #if ENABLE(FULLSCREEN_API)
+     bool m_areKeysEnabledInFullScreen;
+     RefPtr<Element> m_fullScreenElement;
+     Vector<RefPtr<Element>> m_fullScreenElementStack;
+     RenderFullScreen* m_fullScreenRenderer;
+     Timer m_fullScreenChangeDelayTimer;
+diff --git a/Source/WebCore/dom/EventSender.h b/Source/WebCore/dom/EventSender.h
+index 7cd82e1..97a91e7 100644
+--- a/Source/WebCore/dom/EventSender.h
++++ b/Source/WebCore/dom/EventSender.h
+@@ -93,19 +93,19 @@ template<typename T> void EventSender<T>::dispatchPendingEvents()
+         return;
+ 
+     m_timer.stop();
+ 
+     m_dispatchSoonList.checkConsistency();
+ 
+     m_dispatchingList.swap(m_dispatchSoonList);
+     for (auto& event : m_dispatchingList) {
+         if (T* sender = event) {
+             event = nullptr;
+-            sender->dispatchPendingEvent(this);
++            sender->dispatchPendingEvent(*this);
+         }
+     }
+     m_dispatchingList.clear();
+ }
+ 
+ } // namespace WebCore
+ 
+ #endif // EventSender_h
+diff --git a/Source/WebCore/dom/SharedEventSenders.cpp b/Source/WebCore/dom/SharedEventSenders.cpp
+new file mode 100644
+index 0000000..2145dd4
+--- /dev/null
++++ b/Source/WebCore/dom/SharedEventSenders.cpp
+@@ -0,0 +1,75 @@
++/*
++ * Copyright (C) 2014 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
++ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
++ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
++ * THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#include "config.h"
++#include "SharedEventSenders.h"
++
++#include "HTMLLinkElement.h"
++#include "HTMLStyleElement.h"
++#include "ImageLoader.h"
++
++namespace WebCore {
++
++EventSender<HTMLLinkElement>& SharedEventSenders::linkLoadEventSender()
++{
++    if (!m_linkLoadEventSender)
++        m_linkLoadEventSender = std::make_unique<EventSender<HTMLLinkElement>>(eventNames().loadEvent);
++
++    return *m_linkLoadEventSender;
++}
++
++EventSender<HTMLStyleElement>& SharedEventSenders::styleLoadEventSender()
++{
++    if (!m_styleLoadEventSender)
++        m_styleLoadEventSender = std::make_unique<EventSender<HTMLStyleElement>>(eventNames().loadEvent);
++
++    return *m_styleLoadEventSender;
++}
++
++EventSender<ImageLoader>& SharedEventSenders::imageBeforeloadEventSender()
++{
++    if (!m_imageBeforeloadEventSender)
++        m_imageBeforeloadEventSender = std::make_unique<EventSender<ImageLoader>>(eventNames().beforeloadEvent);
++
++    return *m_imageBeforeloadEventSender;
++}
++
++EventSender<ImageLoader>& SharedEventSenders::imageLoadEventSender()
++{
++    if (!m_imageLoadEventSender)
++        m_imageLoadEventSender = std::make_unique<EventSender<ImageLoader>>(eventNames().loadEvent);
++
++    return *m_imageLoadEventSender;
++}
++
++EventSender<ImageLoader>& SharedEventSenders::imageErrorEventSender()
++{
++    if (!m_imageErrorEventSender)
++        m_imageErrorEventSender = std::make_unique<EventSender<ImageLoader>>(eventNames().errorEvent);
++
++    return *m_imageErrorEventSender;
++}
++
++} // namespace WebCore
+diff --git a/Source/WebCore/dom/SharedEventSenders.h b/Source/WebCore/dom/SharedEventSenders.h
+new file mode 100644
+index 0000000..d97c878
+--- /dev/null
++++ b/Source/WebCore/dom/SharedEventSenders.h
+@@ -0,0 +1,58 @@
++/*
++ * Copyright (C) 2014 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
++ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
++ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
++ * THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#ifndef SharedEventSenders_h
++#define SharedEventSenders_h
++
++#include "EventNames.h"
++#include "EventSender.h"
++
++namespace WebCore {
++
++class HTMLLinkElement;
++class HTMLStyleElement;
++class ImageLoader;
++
++class SharedEventSenders {
++    WTF_MAKE_NONCOPYABLE(SharedEventSenders); WTF_MAKE_FAST_ALLOCATED;
++public:
++    explicit SharedEventSenders() { }
++
++    EventSender<HTMLLinkElement>& linkLoadEventSender();
++    EventSender<HTMLStyleElement>& styleLoadEventSender();
++    EventSender<ImageLoader>& imageBeforeloadEventSender();
++    EventSender<ImageLoader>& imageLoadEventSender();
++    EventSender<ImageLoader>& imageErrorEventSender();
++private:
++    std::unique_ptr<EventSender<HTMLLinkElement>> m_linkLoadEventSender;
++    std::unique_ptr<EventSender<HTMLStyleElement>> m_styleLoadEventSender;
++    std::unique_ptr<EventSender<ImageLoader>> m_imageBeforeloadEventSender;
++    std::unique_ptr<EventSender<ImageLoader>> m_imageLoadEventSender;
++    std::unique_ptr<EventSender<ImageLoader>> m_imageErrorEventSender;
++};
++
++} // namespace WebCore
++
++#endif // SharedEventSenders_h
+diff --git a/Source/WebCore/html/HTMLLinkElement.cpp b/Source/WebCore/html/HTMLLinkElement.cpp
+index 4a576ac..33fae4d 100644
+--- a/Source/WebCore/html/HTMLLinkElement.cpp
++++ b/Source/WebCore/html/HTMLLinkElement.cpp
+@@ -26,53 +26,47 @@
+ #include "HTMLLinkElement.h"
+ 
+ #include "Attribute.h"
+ #include "CachedCSSStyleSheet.h"
+ #include "CachedResource.h"
+ #include "CachedResourceLoader.h"
+ #include "CachedResourceRequest.h"
+ #include "Document.h"
+ #include "DocumentStyleSheetCollection.h"
+ #include "Event.h"
+-#include "EventSender.h"
+ #include "Frame.h"
+ #include "FrameLoader.h"
+ #include "FrameLoaderClient.h"
+ #include "FrameTree.h"
+ #include "FrameView.h"
+ #include "HTMLAnchorElement.h"
+ #include "HTMLNames.h"
+ #include "HTMLParserIdioms.h"
+ #include "MediaList.h"
+ #include "MediaQueryEvaluator.h"
+ #include "MouseEvent.h"
+ #include "Page.h"
+ #include "RelList.h"
+ #include "RenderStyle.h"
+ #include "SecurityOrigin.h"
+ #include "Settings.h"
++#include "SharedEventSenders.h"
+ #include "StyleInheritedData.h"
+ #include "StyleResolveForDocument.h"
+ #include "StyleSheetContents.h"
+ #include <wtf/Ref.h>
+ #include <wtf/StdLibExtras.h>
+ 
+ namespace WebCore {
+ 
+ using namespace HTMLNames;
+ 
+-static LinkEventSender& linkLoadEventSender()
+-{
+-    DEPRECATED_DEFINE_STATIC_LOCAL(LinkEventSender, sharedLoadEventSender, (eventNames().loadEvent));
+-    return sharedLoadEventSender;
+-}
+-
+ inline HTMLLinkElement::HTMLLinkElement(const QualifiedName& tagName, Document& document, bool createdByParser)
+     : HTMLElement(tagName, document)
+     , m_linkLoader(this)
+     , m_sizes(DOMSettableTokenList::create())
+     , m_disabledState(Unset)
+     , m_loading(false)
+     , m_createdByParser(createdByParser)
+     , m_isInShadowTree(false)
+     , m_firedLoad(false)
+     , m_loadedSheet(false)
+@@ -90,21 +84,21 @@ HTMLLinkElement::~HTMLLinkElement()
+ {
+     if (m_sheet)
+         m_sheet->clearOwnerNode();
+ 
+     if (m_cachedSheet)
+         m_cachedSheet->removeClient(this);
+ 
+     if (inDocument())
+         document().styleSheetCollection().removeStyleSheetCandidateNode(*this);
+ 
+-    linkLoadEventSender().cancelEvent(*this);
++    document().sharedEventSenders().linkLoadEventSender().cancelEvent(*this);
+ }
+ 
+ void HTMLLinkElement::setDisabledState(bool disabled)
+ {
+     DisabledState oldDisabledState = m_disabledState;
+     m_disabledState = disabled ? Disabled : EnabledViaScript;
+     if (oldDisabledState != m_disabledState) {
+         // If we change the disabled state while the sheet is still loading, then we have to
+         // perform three checks:
+         if (styleSheetIsLoading()) {
+@@ -363,47 +357,43 @@ void HTMLLinkElement::linkLoadingErrored()
+ 
+ bool HTMLLinkElement::sheetLoaded()
+ {
+     if (!styleSheetIsLoading()) {
+         removePendingSheet();
+         return true;
+     }
+     return false;
+ }
+ 
+-void HTMLLinkElement::dispatchPendingLoadEvents()
++void HTMLLinkElement::dispatchPendingEvent(EventSender<HTMLLinkElement>& eventSender)
+ {
+-    linkLoadEventSender().dispatchPendingEvents();
+-}
++    ASSERT_UNUSED(eventSender, &eventSender == &document().sharedEventSenders().linkLoadEventSender());
+ 
+-void HTMLLinkElement::dispatchPendingEvent(LinkEventSender* eventSender)
+-{
+-    ASSERT_UNUSED(eventSender, eventSender == &linkLoadEventSender());
+     if (m_loadedSheet)
+         linkLoaded();
+     else
+         linkLoadingErrored();
+ }
+ 
+ DOMTokenList& HTMLLinkElement::relList()
+ {
+     if (!m_relList) 
+         m_relList = std::make_unique<RelList>(*this);
+     return *m_relList;
+ }
+ 
+ void HTMLLinkElement::notifyLoadedSheetAndAllCriticalSubresources(bool errorOccurred)
+ {
+     if (m_firedLoad)
+         return;
+     m_loadedSheet = !errorOccurred;
+-    linkLoadEventSender().dispatchEventSoon(*this);
++    document().sharedEventSenders().linkLoadEventSender().dispatchEventSoon(*this);
+     m_firedLoad = true;
+ }
+ 
+ void HTMLLinkElement::startLoadingDynamicSheet()
+ {
+     // We don't support multiple active sheets.
+     ASSERT(m_pendingSheetType < ActiveSheet);
+     addPendingSheet(ActiveSheet);
+ }
+ 
+diff --git a/Source/WebCore/html/HTMLLinkElement.h b/Source/WebCore/html/HTMLLinkElement.h
+index c47fff1..976010f 100644
+--- a/Source/WebCore/html/HTMLLinkElement.h
++++ b/Source/WebCore/html/HTMLLinkElement.h
+@@ -34,21 +34,20 @@
+ #include "LinkLoaderClient.h"
+ #include "LinkRelAttribute.h"
+ 
+ namespace WebCore {
+ 
+ class HTMLLinkElement;
+ class RelList;
+ class URL;
+ 
+ template<typename T> class EventSender;
+-typedef EventSender<HTMLLinkElement> LinkEventSender;
+ 
+ class HTMLLinkElement final : public HTMLElement, public CachedStyleSheetClient, public LinkLoaderClient {
+ public:
+     static Ref<HTMLLinkElement> create(const QualifiedName&, Document&, bool createdByParser);
+     virtual ~HTMLLinkElement();
+ 
+     URL href() const;
+     const AtomicString& rel() const;
+ 
+     virtual String target() const override;
+@@ -62,22 +61,21 @@ public:
+ 
+     CSSStyleSheet* sheet() const { return m_sheet.get(); }
+ 
+     bool styleSheetIsLoading() const;
+ 
+     bool isDisabled() const { return m_disabledState == Disabled; }
+     bool isEnabledViaScript() const { return m_disabledState == EnabledViaScript; }
+     void setSizes(const String&);
+     DOMSettableTokenList& sizes() { return m_sizes.get(); }
+ 
+-    void dispatchPendingEvent(LinkEventSender*);
+-    static void dispatchPendingLoadEvents();
++    void dispatchPendingEvent(EventSender<HTMLLinkElement>&);
+ 
+     DOMTokenList& relList();
+ 
+ private:
+     virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
+ 
+     virtual bool shouldLoadLink() override;
+     void process();
+     static void processCallback(Node*);
+     void clearSheet();
+diff --git a/Source/WebCore/html/HTMLStyleElement.cpp b/Source/WebCore/html/HTMLStyleElement.cpp
+index 4dfb22a..10d2ae4 100644
+--- a/Source/WebCore/html/HTMLStyleElement.cpp
++++ b/Source/WebCore/html/HTMLStyleElement.cpp
+@@ -20,54 +20,49 @@
+  * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
+  * Boston, MA 02110-1301, USA.
+  */
+ 
+ #include "config.h"
+ #include "HTMLStyleElement.h"
+ 
+ #include "Attribute.h"
+ #include "Document.h"
+ #include "Event.h"
+-#include "EventSender.h"
+ #include "HTMLNames.h"
+ #include "MediaList.h"
+ #include "RuntimeEnabledFeatures.h"
+ #include "ScriptableDocumentParser.h"
+ #include "ShadowRoot.h"
++#include "SharedEventSenders.h"
+ #include "StyleSheetContents.h"
+ 
+ namespace WebCore {
+ 
+ using namespace HTMLNames;
+ 
+-static StyleEventSender& styleLoadEventSender()
+-{
+-    DEPRECATED_DEFINE_STATIC_LOCAL(StyleEventSender, sharedLoadEventSender, (eventNames().loadEvent));
+-    return sharedLoadEventSender;
+-}
+ 
+ inline HTMLStyleElement::HTMLStyleElement(const QualifiedName& tagName, Document& document, bool createdByParser)
+     : HTMLElement(tagName, document)
+     , m_styleSheetOwner(document, createdByParser)
+     , m_firedLoad(false)
+     , m_loadedSheet(false)
+ {
+     ASSERT(hasTagName(styleTag));
+ }
+ 
+ HTMLStyleElement::~HTMLStyleElement()
+ {
+     // During tear-down, willRemove isn't called, so m_scopedStyleRegistrationState may still be RegisteredAsScoped or RegisteredInShadowRoot here.
+     // Therefore we can't ASSERT(m_scopedStyleRegistrationState == NotRegistered).
+     m_styleSheetOwner.clearDocumentData(document(), *this);
+ 
+-    styleLoadEventSender().cancelEvent(*this);
++    document().sharedEventSenders().styleLoadEventSender().cancelEvent(*this);
+ }
+ 
+ Ref<HTMLStyleElement> HTMLStyleElement::create(const QualifiedName& tagName, Document& document, bool createdByParser)
+ {
+     return adoptRef(*new HTMLStyleElement(tagName, document, createdByParser));
+ }
+ 
+ void HTMLStyleElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
+ {
+     if (name == titleAttr && sheet())
+@@ -107,40 +102,36 @@ void HTMLStyleElement::removedFrom(ContainerNode& insertionPoint)
+     if (insertionPoint.inDocument())
+         m_styleSheetOwner.removedFromDocument(document(), *this);
+ }
+ 
+ void HTMLStyleElement::childrenChanged(const ChildChange& change)
+ {
+     HTMLElement::childrenChanged(change);
+     m_styleSheetOwner.childrenChanged(*this);
+ }
+ 
+-void HTMLStyleElement::dispatchPendingLoadEvents()
++void HTMLStyleElement::dispatchPendingEvent(EventSender<HTMLStyleElement>& eventSender)
+ {
+-    styleLoadEventSender().dispatchPendingEvents();
+-}
++    ASSERT_UNUSED(eventSender, &eventSender == &document().sharedEventSenders().styleLoadEventSender());
+ 
+-void HTMLStyleElement::dispatchPendingEvent(StyleEventSender* eventSender)
+-{
+-    ASSERT_UNUSED(eventSender, eventSender == &styleLoadEventSender());
+     if (m_loadedSheet)
+         dispatchEvent(Event::create(eventNames().loadEvent, false, false));
+     else
+         dispatchEvent(Event::create(eventNames().errorEvent, false, false));
+ }
+ 
+ void HTMLStyleElement::notifyLoadedSheetAndAllCriticalSubresources(bool errorOccurred)
+ {
+     if (m_firedLoad)
+         return;
+     m_loadedSheet = !errorOccurred;
+-    styleLoadEventSender().dispatchEventSoon(*this);
++    document().sharedEventSenders().styleLoadEventSender().dispatchEventSoon(*this);
+     m_firedLoad = true;
+ }
+ 
+ void HTMLStyleElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
+ {    
+     HTMLElement::addSubresourceAttributeURLs(urls);
+ 
+     if (CSSStyleSheet* styleSheet = const_cast<HTMLStyleElement*>(this)->sheet())
+         styleSheet->contents().addSubresourceStyleURLs(urls);
+ }
+diff --git a/Source/WebCore/html/HTMLStyleElement.h b/Source/WebCore/html/HTMLStyleElement.h
+index 7776d1e..83cd797 100644
+--- a/Source/WebCore/html/HTMLStyleElement.h
++++ b/Source/WebCore/html/HTMLStyleElement.h
+@@ -25,34 +25,32 @@
+ 
+ #include "HTMLElement.h"
+ #include "InlineStyleSheetOwner.h"
+ 
+ namespace WebCore {
+ 
+ class HTMLStyleElement;
+ class StyleSheet;
+ 
+ template<typename T> class EventSender;
+-typedef EventSender<HTMLStyleElement> StyleEventSender;
+ 
+ class HTMLStyleElement final : public HTMLElement {
+ public:
+     static Ref<HTMLStyleElement> create(const QualifiedName&, Document&, bool createdByParser);
+     virtual ~HTMLStyleElement();
+ 
+     CSSStyleSheet* sheet() const { return m_styleSheetOwner.sheet(); }
+ 
+     bool disabled() const;
+     void setDisabled(bool);
+ 
+-    void dispatchPendingEvent(StyleEventSender*);
+-    static void dispatchPendingLoadEvents();
++    void dispatchPendingEvent(EventSender<HTMLStyleElement>&);
+ 
+ private:
+     HTMLStyleElement(const QualifiedName&, Document&, bool createdByParser);
+ 
+     // overload from HTMLElement
+     virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
+     virtual InsertionNotificationRequest insertedInto(ContainerNode&) override;
+     virtual void removedFrom(ContainerNode&) override;
+     virtual void childrenChanged(const ChildChange&) override;
+ 
+diff --git a/Source/WebCore/loader/ImageLoader.cpp b/Source/WebCore/loader/ImageLoader.cpp
+index 8b556ad..879058a 100644
+--- a/Source/WebCore/loader/ImageLoader.cpp
++++ b/Source/WebCore/loader/ImageLoader.cpp
+@@ -22,29 +22,29 @@
+ #include "config.h"
+ #include "ImageLoader.h"
+ 
+ #include "CachedImage.h"
+ #include "CachedResourceLoader.h"
+ #include "CachedResourceRequest.h"
+ #include "CrossOriginAccessControl.h"
+ #include "Document.h"
+ #include "Element.h"
+ #include "Event.h"
+-#include "EventSender.h"
+ #include "Frame.h"
+ #include "HTMLNames.h"
+ #include "HTMLObjectElement.h"
+ #include "HTMLParserIdioms.h"
+ #include "Page.h"
+ #include "RenderImage.h"
+ #include "RenderSVGImage.h"
+ #include "SecurityOrigin.h"
++#include "SharedEventSenders.h"
+ #include <wtf/NeverDestroyed.h>
+ 
+ #if ENABLE(VIDEO)
+ #include "RenderVideo.h"
+ #endif
+ 
+ #if !ASSERT_DISABLED
+ // ImageLoader objects are allocated as members of other objects, so generic pointer check would always fail.
+ namespace WTF {
+ 
+@@ -56,36 +56,33 @@ template<> struct ValueCheck<WebCore::ImageLoader*> {
+             return;
+         ValueCheck<WebCore::Element*>::checkConsistency(&p->element());
+     }
+ };
+ 
+ }
+ #endif
+ 
+ namespace WebCore {
+ 
+-static ImageEventSender& beforeLoadEventSender()
++EventSender<ImageLoader>& ImageLoader::beforeLoadEventSender() const
+ {
+-    static NeverDestroyed<ImageEventSender> sender(eventNames().beforeloadEvent);
+-    return sender;
++    return m_element.document().sharedEventSenders().imageBeforeloadEventSender();
+ }
+ 
+-static ImageEventSender& loadEventSender()
++EventSender<ImageLoader>& ImageLoader::loadEventSender() const
+ {
+-    static NeverDestroyed<ImageEventSender> sender(eventNames().loadEvent);
+-    return sender;
++    return m_element.document().sharedEventSenders().imageLoadEventSender();
+ }
+ 
+-static ImageEventSender& errorEventSender()
++EventSender<ImageLoader>& ImageLoader::errorEventSender() const
+ {
+-    static NeverDestroyed<ImageEventSender> sender(eventNames().errorEvent);
+-    return sender;
++    return m_element.document().sharedEventSenders().imageErrorEventSender();
+ }
+ 
+ static inline bool pageIsBeingDismissed(Document& document)
+ {
+     Frame* frame = document.frame();
+     return frame && frame->loader().pageDismissalEventBeingDispatched() != FrameLoader::NoDismissal;
+ }
+ 
+ ImageLoader::ImageLoader(Element& element)
+     : m_element(element)
+@@ -372,24 +369,24 @@ void ImageLoader::updatedHasPendingEvent()
+         ASSERT(!m_derefElementTimer.isActive());
+         m_derefElementTimer.startOneShot(0);
+     }   
+ }
+ 
+ void ImageLoader::timerFired()
+ {
+     element().deref();
+ }
+ 
+-void ImageLoader::dispatchPendingEvent(ImageEventSender* eventSender)
++void ImageLoader::dispatchPendingEvent(EventSender<ImageLoader>& eventSender)
+ {
+-    ASSERT(eventSender == &beforeLoadEventSender() || eventSender == &loadEventSender() || eventSender == &errorEventSender());
+-    const AtomicString& eventType = eventSender->eventType();
++    ASSERT(&eventSender == &beforeLoadEventSender() || &eventSender == &loadEventSender() || &eventSender == &errorEventSender());
++    const AtomicString& eventType = eventSender.eventType();
+     if (eventType == eventNames().beforeloadEvent)
+         dispatchPendingBeforeLoadEvent();
+     if (eventType == eventNames().loadEvent)
+         dispatchPendingLoadEvent();
+     if (eventType == eventNames().errorEvent)
+         dispatchPendingErrorEvent();
+ }
+ 
+ void ImageLoader::dispatchPendingBeforeLoadEvent()
+ {
+@@ -441,35 +438,20 @@ void ImageLoader::dispatchPendingErrorEvent()
+         return;
+     m_hasPendingErrorEvent = false;
+     if (element().document().hasLivingRenderTree())
+         element().dispatchEvent(Event::create(eventNames().errorEvent, false, false));
+ 
+     // Only consider updating the protection ref-count of the Element immediately before returning
+     // from this function as doing so might result in the destruction of this ImageLoader.
+     updatedHasPendingEvent();
+ }
+ 
+-void ImageLoader::dispatchPendingBeforeLoadEvents()
+-{
+-    beforeLoadEventSender().dispatchPendingEvents();
+-}
+-
+-void ImageLoader::dispatchPendingLoadEvents()
+-{
+-    loadEventSender().dispatchPendingEvents();
+-}
+-
+-void ImageLoader::dispatchPendingErrorEvents()
+-{
+-    errorEventSender().dispatchPendingEvents();
+-}
+-
+ void ImageLoader::elementDidMoveToNewDocument()
+ {
+     clearFailedLoadURL();
+     setImage(0);
+ }
+ 
+ inline void ImageLoader::clearFailedLoadURL()
+ {
+     m_failedLoadURL = AtomicString();
+ }
+diff --git a/Source/WebCore/loader/ImageLoader.h b/Source/WebCore/loader/ImageLoader.h
+index cfb48c3..1cddae8 100644
+--- a/Source/WebCore/loader/ImageLoader.h
++++ b/Source/WebCore/loader/ImageLoader.h
+@@ -28,21 +28,20 @@
+ #include "Timer.h"
+ #include <wtf/text/AtomicString.h>
+ 
+ namespace WebCore {
+ 
+ class Element;
+ class ImageLoader;
+ class RenderImageResource;
+ 
+ template<typename T> class EventSender;
+-typedef EventSender<ImageLoader> ImageEventSender;
+ 
+ class ImageLoader : public CachedImageClient {
+     WTF_MAKE_FAST_ALLOCATED;
+ public:
+     virtual ~ImageLoader();
+ 
+     // This function should be called when the element is attached to a document; starts
+     // loading if a load hasn't already been started.
+     void updateFromElement();
+ 
+@@ -58,25 +57,25 @@ public:
+     bool imageComplete() const { return m_imageComplete; }
+ 
+     CachedImage* image() const { return m_image.get(); }
+     void setImage(CachedImage*); // Cancels pending beforeload and load events, and doesn't dispatch new ones.
+ 
+     void setLoadManually(bool loadManually) { m_loadManually = loadManually; }
+ 
+     bool hasPendingBeforeLoadEvent() const { return m_hasPendingBeforeLoadEvent; }
+     bool hasPendingActivity() const { return m_hasPendingLoadEvent || m_hasPendingErrorEvent; }
+ 
+-    void dispatchPendingEvent(ImageEventSender*);
++    void dispatchPendingEvent(EventSender<ImageLoader>&);
+ 
+-    static void dispatchPendingBeforeLoadEvents();
+-    static void dispatchPendingLoadEvents();
+-    static void dispatchPendingErrorEvents();
++    EventSender<ImageLoader>& beforeLoadEventSender() const;
++    EventSender<ImageLoader>& loadEventSender() const;
++    EventSender<ImageLoader>& errorEventSender() const;
+ 
+ protected:
+     explicit ImageLoader(Element&);
+     virtual void notifyFinished(CachedResource*) override;
+ 
+ private:
+     virtual void dispatchLoadEvent() = 0;
+     virtual String sourceURI(const AtomicString&) const = 0;
+ 
+     void updatedHasPendingEvent();
+diff --git a/Source/WebCore/xml/parser/XMLDocumentParser.cpp b/Source/WebCore/xml/parser/XMLDocumentParser.cpp
+index f55a615..537ba2d 100644
+--- a/Source/WebCore/xml/parser/XMLDocumentParser.cpp
++++ b/Source/WebCore/xml/parser/XMLDocumentParser.cpp
+@@ -113,23 +113,20 @@ void XMLDocumentParser::append(PassRefPtr<StringImpl> inputSource)
+ 
+     if (isStopped() || m_sawXSLTransform)
+         return;
+ 
+     if (m_parserPaused) {
+         m_pendingSrc.append(source);
+         return;
+     }
+ 
+     doWrite(source.toString());
+-
+-    // After parsing, go ahead and dispatch image beforeload events.
+-    ImageLoader::dispatchPendingBeforeLoadEvents();
+ }
+ 
+ void XMLDocumentParser::handleError(XMLErrors::ErrorType type, const char* m, TextPosition position)
+ {
+     if (!m_xmlErrors)
+         m_xmlErrors = std::make_unique<XMLErrors>(document());
+     m_xmlErrors->handleError(type, m, position);
+     if (type != XMLErrors::warning)
+         m_sawError = true;
+     if (type == XMLErrors::fatal)
+-- 
+2.0.1
+
