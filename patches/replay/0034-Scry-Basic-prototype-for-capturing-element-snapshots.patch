@@ -1,4 +1,4 @@
-From 113ea864e3a72a0f8eff14b85aedbe1808f59169 Mon Sep 17 00:00:00 2001
+From 9d84ff0f396b25cd5a422a515fa206a19cf7fc48 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Fri, 23 Jan 2015 15:03:00 -0800
 Subject: [PATCH] [Scry] Basic prototype for capturing element snapshots.
@@ -11,30 +11,32 @@ the old one if its bounding box is different (changed size or position).
 * Send snapshot created notifications to the frontend.
 * Convert will/didPaint to use references in the agents.
 ---
- .../inspector/protocol/DOMTracing.json             |  83 +++++++-
+ .../inspector/protocol/DOMTracing.json             |  83 ++++++-
  Source/WTF/wtf/WeakPtr.h                           |   1 +
  Source/WebCore/inspector/InspectorController.cpp   |   2 +-
  Source/WebCore/inspector/InspectorDOMAgent.h       |   2 +-
- .../WebCore/inspector/InspectorDOMTracingAgent.cpp | 226 +++++++++++++++++++--
- .../WebCore/inspector/InspectorDOMTracingAgent.h   |  61 ++++--
+ .../WebCore/inspector/InspectorDOMTracingAgent.cpp | 249 +++++++++++++++++++--
+ .../WebCore/inspector/InspectorDOMTracingAgent.h   |  65 ++++--
  .../WebCore/inspector/InspectorInstrumentation.cpp |  13 +-
  .../WebCore/inspector/InspectorInstrumentation.h   |  20 +-
  Source/WebCore/inspector/InspectorPageAgent.cpp    |   6 +-
  Source/WebCore/inspector/InspectorPageAgent.h      |   2 +-
  .../WebCore/inspector/InspectorTimelineAgent.cpp   |  21 +-
  Source/WebCore/inspector/InspectorTimelineAgent.h  |   3 +-
+ Source/WebCore/platform/graphics/ImageBuffer.cpp   |  32 +++
+ Source/WebCore/platform/graphics/ImageBuffer.h     |   2 +
  .../Localizations/en.lproj/localizedStrings.js     | Bin 56390 -> 56496 bytes
  Source/WebInspectorUI/UserInterface/Base/Main.js   |   3 +
- .../UserInterface/Controllers/DOMTracingManager.js |  91 +++++++++
+ .../UserInterface/Controllers/DOMTracingManager.js |  95 ++++++++
  Source/WebInspectorUI/UserInterface/Main.html      |   2 +
  .../UserInterface/Protocol/DOMTracingObserver.js   |  39 ++++
  .../UserInterface/Views/DOMTreeElement.js          |   5 +
- 18 files changed, 511 insertions(+), 69 deletions(-)
+ 20 files changed, 571 insertions(+), 74 deletions(-)
  create mode 100644 Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js
  create mode 100644 Source/WebInspectorUI/UserInterface/Protocol/DOMTracingObserver.js
 
 diff --git a/Source/JavaScriptCore/inspector/protocol/DOMTracing.json b/Source/JavaScriptCore/inspector/protocol/DOMTracing.json
-index 9559dc0..9f33184 100644
+index 9559dc0..b6c9883 100644
 --- a/Source/JavaScriptCore/inspector/protocol/DOMTracing.json
 +++ b/Source/JavaScriptCore/inspector/protocol/DOMTracing.json
 @@ -1,24 +1,91 @@
@@ -81,10 +83,10 @@ index 9559dc0..9f33184 100644
 +            "type": "object",
 +            "properties": [
 +                { "name": "nodeId", "$ref": "DOM.NodeId", "description": "The transient id for the element that was snapshotted. Can change between runs."},
-+                { "name": "stableNodeId", "$ref": "StableNodeId", "description": "The stable id for the element that was snapshotted. Is stable across runs."},
 +                { "name": "snapshotId", "$ref": "SnapshotId" },
 +                { "name": "boundingBox", "$ref": "FloatRect", "description": "Bounding box for the element's fragments in root view (global, absolute) coordinates." },
 +                { "name": "elapsedTimestamp", "type": "number", "description": "Elapsed time since the start of page execution when the snapshot was created." },
++                { "name": "stableNodeId", "$ref": "StableNodeId", "optional": true, "description": "The stable id for the element that was snapshotted. Is stable across runs."},
 +                { "name": "timeIndex", "$ref": "ReplayPosition", "optional": true, "description": "Replay position at which the snapshot was taken." }
 +            ]
 +        },
@@ -239,10 +241,10 @@ index f839792..89eb1fc 100644
      Ref<Inspector::Protocol::DOM::EventListener> buildObjectForEventListener(const RegisteredEventListener&, const AtomicString& eventType, Node*, const String* objectGroupId);
      RefPtr<Inspector::Protocol::DOM::AccessibilityProperties> buildObjectForAccessibilityProperties(Node*);
 diff --git a/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp b/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp
-index 7a30419..6e24889 100644
+index 7a30419..53ed73f 100644
 --- a/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp
 +++ b/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp
-@@ -3,116 +3,310 @@
+@@ -3,116 +3,327 @@
   *
   * Redistribution and use in source and binary forms, with or without
   * modification, are permitted provided that the following conditions
@@ -305,31 +307,23 @@ index 7a30419..6e24889 100644
 +ElementSnapshot::ElementSnapshot() { }
 +ElementSnapshot::~ElementSnapshot() { }
 +
-+ElementSnapshot::ElementSnapshot(std::unique_ptr<ImageBuffer> data, const LayoutRect& bounds)
++ElementSnapshot::ElementSnapshot(std::unique_ptr<ImageBuffer> data, const LayoutRect& bounds, uint64_t snapshotId)
 +    : imageData(std::move(data))
 +    , boundingBox(bounds)
++    , snapshotId(snapshotId)
 +{
 +}
 +
-+std::unique_ptr<ElementSnapshot> ElementSnapshot::create(Element& element)
-+{
-+    if (!element.renderer())
-+        return ElementSnapshot::createEmpty();
-+
-+    std::unique_ptr<ImageBuffer> imageData = snapshotNode(element.renderer()->frame().mainFrame(), element);
-+    IntRect bounds = element.boundsInRootViewSpace();
-+    return std::make_unique<ElementSnapshot>(std::move(imageData), bounds);
-+}
-+
-+bool ElementSnapshot::equals(const ElementSnapshot& other)
++bool operator==(const ElementSnapshot& a, const ElementSnapshot& b)
 +{
 +    // These are root frame view coordinates, so scrolling will not affect equality.
-+    if (this->boundingBox != other.boundingBox)
++    if (a.boundingBox != b.boundingBox)
 +        return false;
 +
-+    // TODO: compare image data
++    ASSERT(a.imageData->logicalSize() == b.imageData->logicalSize());
 +
-+    return true;
++    float diffPercent = ImageBuffer::computeDifference(*a.imageData, *b.imageData);
++    return diffPercent < 0.01f;
 +}
 +
 +InspectorDOMTracingAgent::InspectorDOMTracingAgent(InstrumentingAgents* instrumentingAgents, InspectorDOMAgent* domAgent)
@@ -345,7 +339,13 @@ index 7a30419..6e24889 100644
 +std::unique_ptr<ElementSnapshot> InspectorDOMTracingAgent::createSnapshot(Element& element)
 +{
 +    TemporaryChange<bool> suppressDidPaintCalls(m_isSnapshottingElement, true);
-+    return ElementSnapshot::create(element);
++
++    if (!element.renderer())
++        return std::make_unique<ElementSnapshot>();
++
++    std::unique_ptr<ImageBuffer> imageData = snapshotNode(element.renderer()->frame().mainFrame(), element);
++    IntRect bounds = element.boundsInRootViewSpace();
++    return std::make_unique<ElementSnapshot>(std::move(imageData), bounds, m_nextSnapshotId++);
 +}
 +
  void InspectorDOMTracingAgent::didCreateFrontendAndBackend(InspectorFrontendChannel* frontendChannel, InspectorBackendDispatcher* backendDispatcher)
@@ -361,12 +361,20 @@ index 7a30419..6e24889 100644
      m_frontendDispatcher = nullptr;
      m_backendDispatcher.clear();
  
++#if ENABLE(WEB_REPLAY)
++    m_stableNodeIdMap.clear();
++#endif
++    m_savedSnapshotMap.clear();
++
      m_instrumentingAgents->setInspectorDOMTracingAgent(nullptr);
  }
  
+-void InspectorDOMTracingAgent::didInsertDOMNode(Node& node)
 +// Calls from the Inspector frontend.
 +void InspectorDOMTracingAgent::startTrackingElement(ErrorString& error, int nodeId)
-+{
+ {
+-    if (!m_nodeIdMap.contains(&node))
+-        m_nodeIdMap.set(&node, m_nextNodeId++);
 +    Node* node = m_domAgent->nodeForId(nodeId);
 +    if (!node) {
 +        error = ASCIILiteral("Could not locate DOM element for id");
@@ -382,10 +390,11 @@ index 7a30419..6e24889 100644
 +        error = ASCIILiteral("Could not track DOM element because it is not being rendered.");
 +        return;
 +    }
-+}
-+
+ }
+ 
+-void InspectorDOMTracingAgent::didRemoveDOMNode(Node&)
 +void InspectorDOMTracingAgent::stopTracking(ErrorString& error, int nodeId)
-+{
+ {
 +    Node* node = m_domAgent->nodeForId(nodeId);
 +    if (!is<Element>(node)) {
 +        error = ASCIILiteral("Could not locate DOM element for id");
@@ -396,10 +405,10 @@ index 7a30419..6e24889 100644
 +        error = ASCIILiteral("Specified DOM element is not currently being tracked.");
 +        return;
 +    }
-+
+ 
 +    setTargetElement(nullptr);
-+}
-+
+ }
+ 
 +void InspectorDOMTracingAgent::getSnapshotPayload(ErrorString& error, int snapshotId, RefPtr<Inspector::Protocol::DOMTracing::ElementSnapshotPayload>& out_snapshotPayload)
 +{
 +    uint64_t lookupKey = static_cast<uint64_t>(snapshotId);
@@ -409,42 +418,39 @@ index 7a30419..6e24889 100644
 +    }
 +
 +    auto findResult = m_savedSnapshotMap.find(lookupKey);
-+    if (findResult == m_savedSnapshotMap.end()) {
++
++    ImageBuffer* buffer = nullptr;
++    ASSERT(m_previousSnapshot);
++    if (m_previousSnapshot->snapshotId == lookupKey)
++        buffer = m_previousSnapshot->imageData.get();
++    else if (findResult == m_savedSnapshotMap.end()) {
 +        error = ASCIILiteral("Unknown snapshot id.");
 +        return;
-+    }
++    } else
++        buffer = findResult->value->imageData.get();
 +
-+    const ImageBuffer& buffer = *findResult->value->imageData;
-+    
 +    out_snapshotPayload = Inspector::Protocol::DOMTracing::ElementSnapshotPayload::create()
 +        .setSnapshotId(lookupKey)
-+        .setImageData(buffer.toDataURL(ASCIILiteral("image/png")))
++        .setImageData(buffer->toDataURL(ASCIILiteral("image/png")))
 +        .release();
 +}
 +
 +// InspectorInstrumentation entry points.
 +
- void InspectorDOMTracingAgent::didInsertDOMNode(Node& node)
- {
--    if (!m_nodeIdMap.contains(&node))
--        m_nodeIdMap.set(&node, m_nextNodeId++);
-+    if (!m_stableNodeIdMap.contains(&node))
-+        m_stableNodeIdMap.set(&node, m_nextStableNodeId++);
- }
- 
- void InspectorDOMTracingAgent::didRemoveDOMNode(Node&)
- {
- 
- }
- 
  void InspectorDOMTracingAgent::frameNavigated(Frame& frame)
  {
++    // If the target node was in this frame, its document will soon be detached.
++    if (!m_targetElement || m_targetElement->document().frame() == &frame)
++        setTargetElement(nullptr);
++
++#if ENABLE(WEB_REPLAY)
      if (!frame.isMainFrame())
          return;
  
      resetCounters();
- }
- 
++#endif
++}
++
 +void InspectorDOMTracingAgent::didPaint(RenderObject& renderer, const LayoutRect& layerRect)
 +{
 +    if (!m_targetElement)
@@ -452,7 +458,7 @@ index 7a30419..6e24889 100644
 +
 +    if (m_isSnapshottingElement)
 +        return;
-+    
++
 +    LayoutRect absoluteLayerRect = LayoutRect(renderer.localToAbsoluteQuad(FloatRect(layerRect)).boundingBox());
 +    FrameView* view = renderer.document().view();
 +    ASSERT(view);
@@ -464,7 +470,7 @@ index 7a30419..6e24889 100644
 +    LayoutRect elementRect = m_targetElement->boundsInRootViewSpace();
 +    if (elementRect.intersects(rootLayerRect)) {
 +        auto snapshot = createSnapshot(*m_targetElement);
-+        if (!m_previousSnapshot || !snapshot->equals(*m_previousSnapshot)) {
++        if (!m_previousSnapshot || *m_previousSnapshot != *snapshot) {
 +            elementAppearanceChanged(*snapshot);
 +            m_previousSnapshot = WTF::move(snapshot);
 +
@@ -474,9 +480,20 @@ index 7a30419..6e24889 100644
 +                elementRect.width().toDouble(), elementRect.height().toDouble());
 +        }
 +    }
+ }
+ 
+ #if ENABLE(WEB_REPLAY)
++void InspectorDOMTracingAgent::didInsertDOMNode(Node& node)
++{
++    if (!m_stableNodeIdMap.contains(&node))
++        m_stableNodeIdMap.set(&node, m_nextStableNodeId++);
 +}
 +
- #if ENABLE(WEB_REPLAY)
++void InspectorDOMTracingAgent::didRemoveDOMNode(Node&)
++{
++
++}
++
  void InspectorDOMTracingAgent::replaySegmentCreated(RefPtr<ReplaySessionSegment>&&)
  {
      resetCounters();
@@ -486,7 +503,8 @@ index 7a30419..6e24889 100644
  {
      resetCounters();
  }
- #endif // ENABLE(WEB_REPLAY)
+-#endif // ENABLE(WEB_REPLAY)
++#endif
  
 -// Methods called from the frontend.
 -void InspectorDOMTracingAgent::commandDummy(ErrorString&)
@@ -496,16 +514,18 @@ index 7a30419..6e24889 100644
 +        LOG(WebReplay, "DOM Tracing: Stopped tracking element: %p\n", m_targetElement.get());
 +
 +        m_targetElement = WeakPtr<Element>();
-+        m_previousSnapshot = ElementSnapshot::createEmpty();
++        m_previousSnapshot = std::make_unique<ElementSnapshot>();
 +        return false;
 +    }
 +
 +    LOG(WebReplay, "DOM Tracing: Started tracking element: %p\n", targetElement);
 +    m_targetElement = targetElement->createWeakPtr();
 +    m_previousSnapshot = createSnapshot(*m_targetElement);
++    elementAppearanceChanged(*m_previousSnapshot);
 +    return true;
  }
  
++#if ENABLE(WEB_REPLAY)
  void InspectorDOMTracingAgent::resetCounters()
  {
 -    m_nodeIdMap.clear();
@@ -515,6 +535,7 @@ index 7a30419..6e24889 100644
 +    m_stableNodeIdMap.clear();
 +    m_nextStableNodeId = 1;
  }
++#endif
  
 -} // namespace WebCore
 +static Ref<Inspector::Protocol::DOMTracing::FloatRect> createProtocolObjectForFloatRect(const FloatRect& rect)
@@ -540,26 +561,27 @@ index 7a30419..6e24889 100644
 +void InspectorDOMTracingAgent::elementAppearanceChanged(const ElementSnapshot& snapshot)
 +{
 +    ASSERT(m_targetElement);
-+
-+    int nodeId = m_domAgent->pushNodePathToFrontend(m_targetElement.get());
-+    ASSERT(nodeId); // This should get an already assigned id, or bind the node and get a new one.
  
 -#endif // ENABLE(INSPECTOR)
-+    ASSERT(m_stableNodeIdMap.contains(m_targetElement.get()));
-+    uint64_t stableNodeId = m_stableNodeIdMap.get(m_targetElement.get());
++    int nodeId = m_domAgent->pushNodePathToFrontend(m_targetElement.get());
++    ASSERT(nodeId); // This should get an already assigned id, or bind the node and get a new one.
 +
 +    double elapsedTime = m_instrumentingAgents->inspectorEnvironment().executionStopwatch()->elapsedTime();
 +
 +    auto snapshotObject = Inspector::Protocol::DOMTracing::ElementSnapshot::create()
 +        .setNodeId(nodeId)
-+        .setStableNodeId(stableNodeId)
-+        .setSnapshotId(m_nextSnapshotId++)
++        .setSnapshotId(snapshot.snapshotId)
 +        .setBoundingBox(createProtocolObjectForFloatRect(FloatRect(snapshot.boundingBox)))
 +        .setElapsedTimestamp(elapsedTime)
 +        .release();
 +
 +#if ENABLE(WEB_REPLAY)
-+    // TODO: if replaying, capture time index.
++    // Nodes will not be in the map unless they were appended to the document after the Inspector opened.
++    uint64_t stableNodeId = 0;
++    if (m_stableNodeIdMap.contains(m_targetElement.get()))
++        stableNodeId = m_stableNodeIdMap.get(m_targetElement.get());
++    snapshotObject->setStableNodeId(stableNodeId);
++
 +    Page* page = m_domAgent->pageAgent()->page();
 +    if (page && page->replayController().sessionState() == SessionState::Replaying)
 +        snapshotObject->setTimeIndex(createProtocolObjectForPosition(page->replayController().currentPosition()));
@@ -570,7 +592,7 @@ index 7a30419..6e24889 100644
 +
 +} // namespace WebCore
 diff --git a/Source/WebCore/inspector/InspectorDOMTracingAgent.h b/Source/WebCore/inspector/InspectorDOMTracingAgent.h
-index 9ec6d9a..9664d9a 100644
+index 9ec6d9a..ca1f335 100644
 --- a/Source/WebCore/inspector/InspectorDOMTracingAgent.h
 +++ b/Source/WebCore/inspector/InspectorDOMTracingAgent.h
 @@ -3,88 +3,123 @@
@@ -629,24 +651,20 @@ index 9ec6d9a..9664d9a 100644
 +struct ElementSnapshot {
 +    std::unique_ptr<ImageBuffer> imageData;
 +    LayoutRect boundingBox;
-+    uint64_t snapshotId;
++    uint64_t snapshotId {0};
  
 -class InspectorDOMTracingAgent final : public InspectorAgentBase
 -                                     , public Inspector::InspectorDOMTracingBackendDispatcherHandler {
 +    bool isEmpty() const { return !imageData || boundingBox.isEmpty(); }
-+    bool equals(const ElementSnapshot& other);
-+
-+    static std::unique_ptr<ElementSnapshot> create(Element&);
-+    static std::unique_ptr<ElementSnapshot> createEmpty()
-+    {
-+        return std::make_unique<ElementSnapshot>();
-+    }
 +
 +    ElementSnapshot();
 +    ~ElementSnapshot();
-+    ElementSnapshot(std::unique_ptr<ImageBuffer>, const LayoutRect& bounds);
++    ElementSnapshot(std::unique_ptr<ImageBuffer>, const LayoutRect& bounds, uint64_t snapshotId);
 +};
 +
++bool operator==(const ElementSnapshot&, const ElementSnapshot&);
++inline bool operator!=(const ElementSnapshot& a, const ElementSnapshot& b) { return !(a == b); }
++    
 +class InspectorDOMTracingAgent final : public InspectorAgentBase, public Inspector::InspectorDOMTracingBackendDispatcherHandler {
  
      WTF_MAKE_NONCOPYABLE(InspectorDOMTracingAgent);
@@ -666,32 +684,38 @@ index 9ec6d9a..9664d9a 100644
 +    virtual void getSnapshotPayload(Inspector::ErrorString&, int nodeId, RefPtr<Inspector::Protocol::DOMTracing::ElementSnapshotPayload>&) override;
  
      // InspectorInstrumentation callbacks.
-     void didInsertDOMNode(Node&);
-     void didRemoveDOMNode(Node&);
+-    void didInsertDOMNode(Node&);
+-    void didRemoveDOMNode(Node&);
      void frameNavigated(Frame&);
 +    void didPaint(RenderObject&, const LayoutRect&);
  
  #if ENABLE(WEB_REPLAY)
++    void didInsertDOMNode(Node&);
++    void didRemoveDOMNode(Node&);
      void replaySegmentCreated(RefPtr<ReplaySessionSegment>&&);
      void replaySegmentLoaded(RefPtr<ReplaySessionSegment>&&);
  #endif
  
 +    bool setTargetElement(Element*);
  private:
++#if ENABLE(WEB_REPLAY)
      void resetCounters();
++#endif
 +    void elementAppearanceChanged(const ElementSnapshot&);
- 
++
 +    // Use this rather than manually constructing ElementSnapshot to avoid reentrancy issues.
 +    std::unique_ptr<ElementSnapshot> createSnapshot(Element&);
-+    
+ 
      std::unique_ptr<Inspector::InspectorDOMTracingFrontendDispatcher> m_frontendDispatcher;
      RefPtr<Inspector::InspectorDOMTracingBackendDispatcher> m_backendDispatcher;
  
 -    HashMap<Node*, uint64_t> m_nodeIdMap;
 -    uint64_t m_nextNodeId {1};
 -};
++#if ENABLE(WEB_REPLAY)
 +    HashMap<Node*, uint64_t> m_stableNodeIdMap;
 +    uint64_t m_nextStableNodeId {1};
++#endif
 +    HashMap<uint64_t, std::unique_ptr<ElementSnapshot>> m_savedSnapshotMap;
 +    uint64_t m_nextSnapshotId {1};
 +
@@ -701,12 +725,12 @@ index 9ec6d9a..9664d9a 100644
 +    WeakPtr<Element> m_targetElement;
 +    // Used to detect rendering differences between paint events.
 +    std::unique_ptr<ElementSnapshot> m_previousSnapshot;
-+    
+ 
 +    // Used to prevent re-entrancy to didPaint(). This could happen because
 +    // didPaint() instrumentation fires underneath the node snapshotting code.
 +    bool m_isSnapshottingElement {false};
 +};
- 
++    
  } // namespace WebCore
  
  #endif // !defined(InspectorDOMTracingAgent_h)
@@ -1051,6 +1075,90 @@ index ea4485b..deeaa60 100644
  
      Vector<TimelineRecordEntry> m_recordStack;
  
+diff --git a/Source/WebCore/platform/graphics/ImageBuffer.cpp b/Source/WebCore/platform/graphics/ImageBuffer.cpp
+index b384372..0d1a34f 100644
+--- a/Source/WebCore/platform/graphics/ImageBuffer.cpp
++++ b/Source/WebCore/platform/graphics/ImageBuffer.cpp
+@@ -92,20 +92,52 @@ inline void ImageBuffer::genericConvertToLuminanceMask()
+     }
+     putByteArray(Unmultiplied, srcPixelArray.get(), luminanceRect.size(), luminanceRect, IntPoint());
+ }
+ 
+ void ImageBuffer::convertToLuminanceMask()
+ {
+     // Add platform specific functions with platformConvertToLuminanceMask here later.
+     genericConvertToLuminanceMask();
+ }
+ 
++float ImageBuffer::computeDifference(const ImageBuffer& aBuffer, const ImageBuffer& bBuffer)
++{
++    ASSERT(aBuffer.logicalSize() == bBuffer.logicalSize());
++
++    IntRect luminanceRectA(IntPoint(), aBuffer.internalSize());
++    RefPtr<Uint8ClampedArray> aPixels = aBuffer.getUnmultipliedImageData(luminanceRectA);
++    ASSERT(aPixels);
++
++    IntRect luminanceRectB(IntPoint(), bBuffer.internalSize());
++    RefPtr<Uint8ClampedArray> bPixels = bBuffer.getUnmultipliedImageData(luminanceRectB);
++    ASSERT(bPixels);
++
++    float difference = 0.0;
++    unsigned pixelCount = aPixels->length() / 4;
++
++    ASSERT(aPixels->length() == bPixels->length());
++    // Actual pixel storage (ARGB, RGBA) is not significant for computing grayscale difference.
++    for (unsigned i = 0; i < aPixels->length(); i += 4) {
++        float r = (aPixels->item(i + 0) - bPixels->item(i + 0)) / std::max<float>(255 - bPixels->item(i + 0), bPixels->item(i + 0));
++        float g = (aPixels->item(i + 1) - bPixels->item(i + 1)) / std::max<float>(255 - bPixels->item(i + 1), bPixels->item(i + 1));
++        float b = (aPixels->item(i + 2) - bPixels->item(i + 2)) / std::max<float>(255 - bPixels->item(i + 2), bPixels->item(i + 2));
++        float a = (aPixels->item(i + 3) - bPixels->item(i + 3)) / std::max<float>(255 - bPixels->item(i + 3), bPixels->item(i + 3));
++        float distance = sqrtf(r * r + g * g + b * b + a * a) / 2.0f;
++        if (distance > 1.0 / 255.0)
++            difference += distance;
++    }
++
++    // Difference is the average distance over the entire image.
++    ASSERT(difference >= 0.0f);
++    return difference / float(pixelCount);
++}
++
+ #if !USE(CAIRO)
+ PlatformLayer* ImageBuffer::platformLayer() const
+ {
+     return 0;
+ }
+ #endif
+ 
+ bool ImageBuffer::copyToPlatformTexture(GraphicsContext3D&, Platform3DObject, GC3Denum, bool, bool)
+ {
+     return false;
+diff --git a/Source/WebCore/platform/graphics/ImageBuffer.h b/Source/WebCore/platform/graphics/ImageBuffer.h
+index 1955712..f305253 100644
+--- a/Source/WebCore/platform/graphics/ImageBuffer.h
++++ b/Source/WebCore/platform/graphics/ImageBuffer.h
+@@ -93,20 +93,22 @@ public:
+     const IntSize& internalSize() const { return m_size; }
+     const IntSize& logicalSize() const { return m_logicalSize; }
+ 
+     WEBCORE_EXPORT GraphicsContext* context() const;
+ 
+     WEBCORE_EXPORT PassRefPtr<Image> copyImage(BackingStoreCopy = CopyBackingStore, ScaleBehavior = Scaled) const;
+     // Give hints on the faster copyImage Mode, return DontCopyBackingStore if it supports the DontCopyBackingStore behavior
+     // or return CopyBackingStore if it doesn't.  
+     static BackingStoreCopy fastCopyImageMode();
+ 
++    static float computeDifference(const ImageBuffer&, const ImageBuffer&);
++
+     enum CoordinateSystem { LogicalCoordinateSystem, BackingStoreCoordinateSystem };
+ 
+     PassRefPtr<Uint8ClampedArray> getUnmultipliedImageData(const IntRect&, CoordinateSystem = LogicalCoordinateSystem) const;
+     PassRefPtr<Uint8ClampedArray> getPremultipliedImageData(const IntRect&, CoordinateSystem = LogicalCoordinateSystem) const;
+ 
+     void putByteArray(Multiply multiplied, Uint8ClampedArray*, const IntSize& sourceSize, const IntRect& sourceRect, const IntPoint& destPoint, CoordinateSystem = LogicalCoordinateSystem);
+     
+     void convertToLuminanceMask();
+     
+     String toDataURL(const String& mimeType, const double* quality = 0, CoordinateSystem = LogicalCoordinateSystem) const;
 diff --git a/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js b/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js
 index 95f0fe71b094ce402920bc08549b8454e40a34e7..e4b08017c6382d65b745bee57a98f6e255bf2954 100644
 GIT binary patch
@@ -1111,10 +1219,10 @@ index 5c73e0e..abeba1a 100644
      this.layerTreeManager = new WebInspector.LayerTreeManager;
 diff --git a/Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js b/Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js
 new file mode 100644
-index 0000000..57aa648
+index 0000000..0f44692
 --- /dev/null
 +++ b/Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,95 @@
 +/*
 + * Copyright (C) 2014 Apple Inc. All rights reserved.
 + *
@@ -1144,26 +1252,29 @@ index 0000000..57aa648
 +{
 +    this.nodeId = payload.nodeId;
 +    this.snapshotId = payload.snapshotId;
-+    this.stableNodeId = payload.stableNodeId;
-+    this.elapsedTime = payload.elapsedTime;
-+    this.bounds = payload.bounds;
-+    this.timeIndex = payload.timeIndex;
++    this.elapsedTime = payload.elapsedTimestamp;
++    this.bounds = payload.boundingBox;
++
++    if (WebInspector.ReplayManager) {
++        // These are only available if ENABLE(WEB_REPLAY).
++        this.stableNodeId = payload.stableNodeId;
++        this.timeIndex = payload.timeIndex || NaN;
++    }
 +
 +    this._payloadPromise = null;
-+    this._targetNode = null;
 +}
 +
 +WebInspector.ElementSnapshot.prototype = {
 +    constructor: WebInspector.ElementSnapshot,
 +    __proto__: WebInspector.Object.prototype,
 +
-+    get fetchImageData()
++    fetchImageData: function()
 +    {
 +        if (!this._payloadPromise)
-+            this._payloadPromise = DOMTracingAgent.getSnapshotPayload(this.snapshotId).promise();
++            this._payloadPromise = DOMTracingAgent.getSnapshotPayload(this.snapshotId);
 +
-+        return this._payloadPromise.then(function(payload) {
-+            return payload.imageData;
++        return this._payloadPromise.then(function(result) {
++            return result.payload.imageData;
 +        });
 +    }
 +}
@@ -1184,14 +1295,15 @@ index 0000000..57aa648
 +
 +    startTrackingElement: function(node)
 +    {
-+        return DOMTracingAgent.startTrackingElement(node.id).promise();
++        this._targetNode = node;
++        return DOMTracingAgent.startTrackingElement(node.id);
 +    },
 +
 +    stopTracking: function()
 +    {
 +        console.assert(this._targetNode, "Tried to clear target element, but none was set.");
 +
-+        return DOMTracingAgent.stopTracking().promise();
++        return DOMTracingAgent.stopTracking();
 +    },
 +
 +    get targetElement()
