@@ -1,4 +1,4 @@
-From 397ab0426568db5b69d768916025a2625512eb26 Mon Sep 17 00:00:00 2001
+From ac0147541b4b7a630430188881cc64593257d58e Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 12 Jun 2014 16:49:07 -0700
 Subject: [PATCH] Web Replay: capture and replay ResourceLoader callbacks
@@ -90,7 +90,7 @@ from taking over and fulfilling the loads nondeterministically.
 ---
  Source/JavaScriptCore/replay/EncodedValue.h        |   4 +-
  Source/WebCore/ChangeLog                           |  79 ++++++++++
- Source/WebCore/WebCore.exp.in                      |   8 +
+ Source/WebCore/WebCore.exp.in                      |   4 +
  Source/WebCore/loader/DocumentLoader.cpp           |  40 ++++-
  Source/WebCore/loader/DocumentLoader.h             |   8 +
  Source/WebCore/loader/ResourceLoadScheduler.cpp    |   9 ++
@@ -107,7 +107,7 @@ from taking over and fulfilling the loads nondeterministically.
  Source/WebCore/replay/WebInputs.json               |  64 ++++++++
  Source/WebKit2/ChangeLog                           |  15 +-
  .../Network/WebResourceLoadScheduler.cpp           |  13 +-
- 19 files changed, 608 insertions(+), 12 deletions(-)
+ 19 files changed, 604 insertions(+), 12 deletions(-)
 
 diff --git a/Source/JavaScriptCore/replay/EncodedValue.h b/Source/JavaScriptCore/replay/EncodedValue.h
 index 8659b4f..0057172 100644
@@ -139,7 +139,7 @@ index 8659b4f..0057172 100644
      {
          decodedValue = encodedValue.convertTo<DecodedType>();
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index d1ee06c..6ab4a9d 100644
+index 5d82e80..2752831 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,91 @@
@@ -235,10 +235,10 @@ index d1ee06c..6ab4a9d 100644
  
          No new tests, no behavior was changed.
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index 0aa6ff4..946b72f 100644
+index a8ac87b..e1dd159 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -3511,10 +3511,18 @@ __ZN7WebCore32WebVideoFullscreenInterfaceAVKitC2Ev
+@@ -3500,10 +3500,14 @@ __ZN7WebCore32WebVideoFullscreenInterfaceAVKitC2Ev
  __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
  #endif
  
@@ -253,12 +253,8 @@ index 0aa6ff4..946b72f 100644
 +#if ENABLE(WEB_REPLAY)
 +__ZNK7WebCore14ResourceLoader17activeInputCursorEv
 +#endif
-+
-+#if ENABLE(WEB_TIMING)
-+__ZNK7WebCore20ResourceResponseBase18resourceLoadTimingEv
-+#endif
 diff --git a/Source/WebCore/loader/DocumentLoader.cpp b/Source/WebCore/loader/DocumentLoader.cpp
-index ac711a7..52343a0 100644
+index 8d4baae..6193605 100644
 --- a/Source/WebCore/loader/DocumentLoader.cpp
 +++ b/Source/WebCore/loader/DocumentLoader.cpp
 @@ -68,20 +68,24 @@
@@ -356,7 +352,7 @@ index ac711a7..52343a0 100644
 +
  } // namespace WebCore
 diff --git a/Source/WebCore/loader/DocumentLoader.h b/Source/WebCore/loader/DocumentLoader.h
-index aa585f9..bae2eb1 100644
+index 2af407e..d9ab97b 100644
 --- a/Source/WebCore/loader/DocumentLoader.h
 +++ b/Source/WebCore/loader/DocumentLoader.h
 @@ -224,20 +224,24 @@ namespace WebCore {
@@ -581,10 +577,10 @@ index 0abc832..72977bc 100644
      void didFinishLoadingOnePart(double finishTime);
      void cleanupForError(const ResourceError&);
 diff --git a/Source/WebCore/loader/SubresourceLoader.cpp b/Source/WebCore/loader/SubresourceLoader.cpp
-index fd94457..cd52987 100644
+index b322fd1..302ecae 100644
 --- a/Source/WebCore/loader/SubresourceLoader.cpp
 +++ b/Source/WebCore/loader/SubresourceLoader.cpp
-@@ -44,20 +44,28 @@
+@@ -43,20 +43,28 @@
  #include "Settings.h"
  #include <wtf/Ref.h>
  #include <wtf/RefCountedLeakCounter.h>
@@ -607,11 +603,11 @@ index fd94457..cd52987 100644
  
  DEFINE_DEBUG_ONLY_GLOBAL(WTF::RefCountedLeakCounter, subresourceLoaderCounter, ("SubresourceLoader"));
  
- SubresourceLoader::RequestCountTracker::RequestCountTracker(CachedResourceLoader* cachedResourceLoader, CachedResource* resource)
+ SubresourceLoader::RequestCountTracker::RequestCountTracker(CachedResourceLoader& cachedResourceLoader, CachedResource* resource)
      : m_cachedResourceLoader(cachedResourceLoader)
      , m_resource(resource)
  {
-     m_cachedResourceLoader->incrementRequestCount(m_resource);
+     m_cachedResourceLoader.incrementRequestCount(m_resource);
  }
 @@ -180,35 +188,54 @@ void SubresourceLoader::willSendRequest(ResourceRequest& newRequest, const Resou
  
@@ -663,12 +659,12 @@ index fd94457..cd52987 100644
              // 304 Not modified / Use local copy
              // Existing resource is ok, just use it updating the expiration time.
              m_resource->setResponse(response);
-             memoryCache().revalidationSucceeded(m_resource, response);
-             FEATURE_COUNTER_INCREMENT_KEY(m_frame ? m_frame->page() : nullptr, FeatureCounterCachedResourceRevalidationSuccessKey);
+             memoryCache().revalidationSucceeded(*m_resource, response);
+             if (m_frame)
+                 m_frame->mainFrame().diagnosticLoggingClient().logDiagnosticMessageWithResult(DiagnosticLoggingKeys::cachedResourceRevalidationKey(), emptyString(), DiagnosticLoggingResultPass);
              if (!reachedTerminalState())
                  ResourceLoader::didReceiveResponse(response);
-             return;
-@@ -267,21 +294,35 @@ void SubresourceLoader::didReceiveDataOrBuffer(const char* data, int length, Pas
+@@ -269,21 +296,35 @@ void SubresourceLoader::didReceiveDataOrBuffer(const char* data, int length, Pas
  {
      if (m_resource->response().httpStatusCode() >= 400 && !m_resource->shouldIgnoreHTTPStatusCodeErrors())
          return;
@@ -705,7 +701,7 @@ index fd94457..cd52987 100644
      }
  }
  
-@@ -348,20 +389,29 @@ void SubresourceLoader::didFinishLoading(double finishTime)
+@@ -350,20 +391,29 @@ void SubresourceLoader::didFinishLoading(double finishTime)
      if (m_state != Initialized)
          return;
      ASSERT(!reachedTerminalState());
@@ -735,7 +731,7 @@ index fd94457..cd52987 100644
          return;
      m_resource->finish();
      ASSERT(!reachedTerminalState());
-@@ -373,20 +423,29 @@ void SubresourceLoader::didFinishLoading(double finishTime)
+@@ -375,20 +425,29 @@ void SubresourceLoader::didFinishLoading(double finishTime)
  }
  
  void SubresourceLoader::didFail(const ResourceError& error)
@@ -758,14 +754,14 @@ index fd94457..cd52987 100644
      CachedResourceHandle<CachedResource> protectResource(m_resource);
      m_state = Finishing;
      if (m_resource->resourceToRevalidate())
-         memoryCache().revalidationFailed(m_resource);
+         memoryCache().revalidationFailed(*m_resource);
      m_resource->setResourceError(error);
      if (!m_resource->isPreloaded())
-         memoryCache().remove(m_resource);
+         memoryCache().remove(*m_resource);
      m_resource->error(CachedResource::LoadError);
      cleanupForError(error);
      notifyDone();
-@@ -452,11 +511,22 @@ void SubresourceLoader::releaseResources()
+@@ -454,11 +513,22 @@ void SubresourceLoader::releaseResources()
  #if PLATFORM(IOS)
      if (m_state != Uninitialized && m_state != CancelledWhileInitializing)
  #else
@@ -789,7 +785,7 @@ index fd94457..cd52987 100644
 +
  }
 diff --git a/Source/WebCore/loader/SubresourceLoader.h b/Source/WebCore/loader/SubresourceLoader.h
-index e270f24..2514f9bb 100644
+index df0432a..6252fb3 100644
 --- a/Source/WebCore/loader/SubresourceLoader.h
 +++ b/Source/WebCore/loader/SubresourceLoader.h
 @@ -89,20 +89,24 @@ private:
@@ -1520,7 +1516,7 @@ index 6ba632d..b527ef5 100644
          ]
      }
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 60731fb..405b643 100644
+index 57fb71b..0445d5d 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,11 +1,24 @@
@@ -1550,7 +1546,7 @@ index 60731fb..405b643 100644
  
          * Shared/SessionTracker.cpp:
 diff --git a/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp b/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
-index 434790a..b86e650 100644
+index 80245fb..f81e2ea 100644
 --- a/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
 +++ b/Source/WebKit2/WebProcess/Network/WebResourceLoadScheduler.cpp
 @@ -45,20 +45,24 @@
@@ -1609,5 +1605,5 @@ index 434790a..b86e650 100644
      WebFrame* webFrame = webFrameLoaderClient ? webFrameLoaderClient->webFrame() : 0;
      WebPage* webPage = webFrame ? webFrame->page() : 0;
 -- 
-2.0.1
+2.2.2
 

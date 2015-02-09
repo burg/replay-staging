@@ -1,4 +1,4 @@
-From f0d989be408d3dc569fb1bc8af1d1f3ee98b2130 Mon Sep 17 00:00:00 2001
+From 51866f3ba8c6109ab3d962402a6057429fc0fab7 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Fri, 10 Oct 2014 16:41:36 -0700
 Subject: [PATCH] Web Replay: EventSender dispatches should be deterministic
@@ -44,7 +44,7 @@ this functionality, doing capture/replay for each separately.
  5 files changed, 55 insertions(+), 12 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 18a3490..9a74002 100644
+index 3072185..3d0b0de 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,49 @@
@@ -98,10 +98,10 @@ index 18a3490..9a74002 100644
          for each Document are lazily allocated. Further per-Document or global optimizations
          are possible.
 diff --git a/Source/WebCore/dom/Document.cpp b/Source/WebCore/dom/Document.cpp
-index 2feca53..09036c2 100644
+index a07c442..725519f 100644
 --- a/Source/WebCore/dom/Document.cpp
 +++ b/Source/WebCore/dom/Document.cpp
-@@ -462,21 +462,21 @@ Document::Document(Frame* frame, const URL& url, unsigned documentClasses, unsig
+@@ -464,21 +464,21 @@ Document::Document(Frame* frame, const URL& url, unsigned documentClasses, unsig
  #endif
      , m_createRenderers(true)
      , m_inPageCache(false)
@@ -302,5 +302,5 @@ index d97c878..8ad67ae 100644
  
  #endif // SharedEventSenders_h
 -- 
-2.0.1
+2.2.2
 

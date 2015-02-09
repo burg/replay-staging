@@ -1,4 +1,4 @@
-From a2c31f24aadbf5461287746222f59c0b9ff5ad81 Mon Sep 17 00:00:00 2001
+From 0f760c98ce5bb460ae3aa51b727fe977467eae5b Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 18 Sep 2014 21:43:08 -0700
 Subject: [PATCH] Web Replay: ScriptRunner should use a deterministic timer
@@ -26,7 +26,7 @@ caused by PageGroupLoadDeferrer. See https://bugs.webkit.org/show_bug.cgi?id=140
  3 files changed, 25 insertions(+), 4 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 0152221..50a3643 100644
+index f0d621b..dba5a65 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,31 @@
@@ -150,5 +150,5 @@ index 27cdbf8..456d9ce 100644
  
  #endif
 -- 
-2.0.1
+2.2.2
 

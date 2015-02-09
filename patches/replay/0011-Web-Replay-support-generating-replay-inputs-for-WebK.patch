@@ -1,4 +1,4 @@
-From 6c0ab496b7ec0b8758164efd537f8e08ed3e3e62 Mon Sep 17 00:00:00 2001
+From 5281279dfd6d12232d01b456e1bed9469d97a707 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 19 Aug 2014 18:50:22 -0700
 Subject: [PATCH] Web Replay: support generating replay inputs for WebKit
@@ -89,7 +89,7 @@ so that we can use the inputs code generator.
  create mode 100644 Source/WebKit2/WebProcess/Replay/WKInputs.json
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index c238983..65c3f59 100644
+index 37c034b..55d0a90 100644
 --- a/Source/JavaScriptCore/ChangeLog
 +++ b/Source/JavaScriptCore/ChangeLog
 @@ -1,10 +1,51 @@
@@ -134,16 +134,16 @@ index c238983..65c3f59 100644
 +        * replay/scripts/tests/expected/generate-memoized-type-modes.json-TestReplayInputs.cpp:
 +        * replay/scripts/tests/expected/generate-memoized-type-modes.json-TestReplayInputs.h:
 +
- 2015-01-21  Csaba Osztrogonác  <ossy@webkit.org>
+ 2015-01-31  Michael Saboff  <msaboff@apple.com>
  
-         Remove ENABLE(INSPECTOR) ifdef guards
-         https://bugs.webkit.org/show_bug.cgi?id=140668
+         Crash (DFG assertion) beneath AbstractInterpreter::verifyEdge() @ http://experilous.com/1/planet-generator/2014-09-28/version-1
+         https://bugs.webkit.org/show_bug.cgi?id=141111
  
-         Reviewed by Darin Adler.
+         Reviewed by Filip Pizlo.
  
-         * Configurations/FeatureDefines.xcconfig:
-         * bindings/ScriptValue.cpp:
-         (Deprecated::ScriptValue::toInspectorValue):
+         In LowerDFGToLLVM::compileNode(), if we determine while compiling a node that we would have
+         exited, we don't need to process the OSR availability or abstract interpreter.
+ 
 diff --git a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
 index d8294b7..089e388 100644
 --- a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
@@ -1075,7 +1075,7 @@ index d77bcff..648ab91 100644
  } // namespace Test
  
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 8ef8c12..faceb52 100644
+index 41ef031..44e4972 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,23 @@
@@ -1103,10 +1103,10 @@ index 8ef8c12..faceb52 100644
          dispatching inputs to a WebPage's WebReplayClient.
  
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index 0089245..4e51880 100644
+index ed15e44..2a00536 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -3660,21 +3660,21 @@
+@@ -3680,21 +3680,21 @@
  		99CC0B5618BE984A006CEBCC /* ReplayingInputCursor.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4118BE9849006CEBCC /* ReplayingInputCursor.h */; };
  		99CC0B5718BE984A006CEBCC /* ReplayInputCreationMethods.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4218BE9849006CEBCC /* ReplayInputCreationMethods.cpp */; };
  		99CC0B5818BE984A006CEBCC /* ReplayInputDispatchMethods.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4318BE9849006CEBCC /* ReplayInputDispatchMethods.cpp */; };
@@ -1129,7 +1129,7 @@ index 0089245..4e51880 100644
  		9A528E8317D7F52F00AA9518 /* FloatingObjects.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9A528E8117D7F52F00AA9518 /* FloatingObjects.cpp */; };
  		9A528E8417D7F52F00AA9518 /* FloatingObjects.h in Headers */ = {isa = PBXBuildFile; fileRef = 9A528E8217D7F52F00AA9518 /* FloatingObjects.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		9AB1F38018E2489A00534743 /* CSSToLengthConversionData.h in Headers */ = {isa = PBXBuildFile; fileRef = 9AB1F37E18E2489A00534743 /* CSSToLengthConversionData.h */; };
-@@ -5536,20 +5536,21 @@
+@@ -5555,20 +5555,21 @@
  		C37CDEBD149EF2030042090D /* ColorChooserClient.h in Headers */ = {isa = PBXBuildFile; fileRef = C37CDEBC149EF2030042090D /* ColorChooserClient.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		C3CF17A415B0063F00276D39 /* IdTargetObserver.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C3CF17A015B0063F00276D39 /* IdTargetObserver.cpp */; };
  		C3CF17A515B0063F00276D39 /* IdTargetObserver.h in Headers */ = {isa = PBXBuildFile; fileRef = C3CF17A115B0063F00276D39 /* IdTargetObserver.h */; settings = {ATTRIBUTES = (Private, ); }; };
@@ -1151,7 +1151,7 @@ index 0089245..4e51880 100644
  		C5137CF211A58378004ADB99 /* JSDOMStringList.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */; };
  		C5137CF311A58378004ADB99 /* JSDOMStringList.h in Headers */ = {isa = PBXBuildFile; fileRef = C5137CF111A58378004ADB99 /* JSDOMStringList.h */; };
  		C5278B0C17F212EA003A2998 /* PlatformPasteboardIOS.mm in Sources */ = {isa = PBXBuildFile; fileRef = C5278B0B17F212EA003A2998 /* PlatformPasteboardIOS.mm */; };
-@@ -23349,20 +23350,21 @@
+@@ -23414,20 +23415,21 @@
  				2D97F04819DD4140001EE9C3 /* MockPageOverlayClient.h in Headers */,
  				AA5F3B8D16CC33D100455EB0 /* PlatformSpeechSynthesizerMock.h in Headers */,
  				41815C1F138319830057AAA4 /* WebCoreTestSupport.h in Headers */,
@@ -1174,10 +1174,10 @@ index 0089245..4e51880 100644
  				07B0113F1032242200FBDC33 /* AccessibilityMediaControls.h in Headers */,
  				76CDD2F31103DA6600680521 /* AccessibilityMenuList.h in Headers */,
 diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
-index 68821f3..c2b6dbd 100644
+index 6f91a03..ec09b72 100644
 --- a/Source/WebKit2/CMakeLists.txt
 +++ b/Source/WebKit2/CMakeLists.txt
-@@ -51,20 +51,21 @@ set(WebKit2_INCLUDE_DIRECTORIES
+@@ -56,20 +56,21 @@ set(WebKit2_INCLUDE_DIRECTORIES
      "${WEBKIT2_DIR}/WebProcess/InjectedBundle/API/c"
      "${WEBKIT2_DIR}/WebProcess/InjectedBundle/DOM"
      "${WEBKIT2_DIR}/WebProcess/Launching"
@@ -1199,9 +1199,9 @@ index 68821f3..c2b6dbd 100644
      "${WEBCORE_DIR}/Modules/mediastream"
      "${WEBCORE_DIR}/Modules/networkinfo"
      "${WEBCORE_DIR}/Modules/notifications"
-@@ -767,20 +768,32 @@ if (ENABLE_PLUGIN_PROCESS)
-     if (WebKit2_PluginProcess_OUTPUT_NAME)
-       set_target_properties(PluginProcess PROPERTIES OUTPUT_NAME ${WebKit2_PluginProcess_OUTPUT_NAME})
+@@ -816,20 +817,32 @@ if (ENABLE_DATABASE_PROCESS)
+     if (WebKit2_DatabaseProcess_OUTPUT_NAME)
+         set_target_properties(DatabaseProcess PROPERTIES OUTPUT_NAME ${WebKit2_DatabaseProcess_OUTPUT_NAME})
      endif ()
  endif ()
  
@@ -1233,7 +1233,7 @@ index 68821f3..c2b6dbd 100644
  install(TARGETS WebKit2 DESTINATION "${LIB_INSTALL_DIR}")
  install(TARGETS WebProcess DESTINATION "${LIBEXEC_INSTALL_DIR}")
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index a72c7c2..dfedf5c 100644
+index e3aeca0..2039d26 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,12 +1,28 @@
@@ -1342,10 +1342,10 @@ index b31b14f..b6b411d 100644
 +	python $(WebReplayScripts)/CodeGeneratorReplayInputs.py --outputDir . --framework WebKit $(INPUT_GENERATOR_SPECIFICATIONS)
 +
 diff --git a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
-index 068c21b..8c309ea 100644
+index 60d7f47..b49a983 100644
 --- a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
 +++ b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
-@@ -1595,20 +1595,22 @@
+@@ -1604,20 +1604,22 @@
  		C06C6095124C144B0001682F /* WebPageCreationParameters.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C06C6093124C14430001682F /* WebPageCreationParameters.cpp */; };
  		C09AE5E9125257C20025825D /* WKNativeEvent.h in Headers */ = {isa = PBXBuildFile; fileRef = C09AE5E8125257C20025825D /* WKNativeEvent.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		C0CE72A01247E71D00BC0EC4 /* WebPageMessageReceiver.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0CE729E1247E71D00BC0EC4 /* WebPageMessageReceiver.cpp */; };
@@ -1368,7 +1368,7 @@ index 068c21b..8c309ea 100644
  		C54256BA18BEC18C00DE4179 /* WKFormSelectControl.h in Headers */ = {isa = PBXBuildFile; fileRef = C54256B418BEC18C00DE4179 /* WKFormSelectControl.h */; };
  		C55CB5B718C269CF00CA81E1 /* WKFormSelectPopover.mm in Sources */ = {isa = PBXBuildFile; fileRef = C57193BA18C149D0002D0F12 /* WKFormSelectPopover.mm */; };
  		C55CB5B818C2A5D600CA81E1 /* WKFormSelectPicker.mm in Sources */ = {isa = PBXBuildFile; fileRef = C57193B918C149D0002D0F12 /* WKFormSelectPicker.mm */; };
-@@ -3774,20 +3776,23 @@
+@@ -3808,20 +3810,23 @@
  		C0CE729F1247E71D00BC0EC4 /* WebPageMessages.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WebPageMessages.h; sourceTree = "<group>"; };
  		C0CE72AC1247E78D00BC0EC4 /* HandleMessage.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = HandleMessage.h; sourceTree = "<group>"; };
  		C0CE72DB1247E8F700BC0EC4 /* DerivedSources.make */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = DerivedSources.make; sourceTree = "<group>"; };
@@ -1392,7 +1392,7 @@ index 068c21b..8c309ea 100644
  		C54256B418BEC18C00DE4179 /* WKFormSelectControl.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WKFormSelectControl.h; path = ios/forms/WKFormSelectControl.h; sourceTree = "<group>"; };
  		C554FFA212E4E8EA002F22C0 /* WebDragClientMac.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = WebDragClientMac.mm; sourceTree = "<group>"; };
  		C57193B918C149D0002D0F12 /* WKFormSelectPicker.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WKFormSelectPicker.mm; path = ios/forms/WKFormSelectPicker.mm; sourceTree = "<group>"; };
-@@ -5817,20 +5822,21 @@
+@@ -5867,20 +5872,21 @@
  				BC0E5FCB12D696DD0012A72A /* Geolocation */,
  				51FBB9C1132E079200F327B4 /* IconDatabase */,
  				BC204EDF11C83E72008F3375 /* InjectedBundle */,
@@ -1414,7 +1414,7 @@ index 068c21b..8c309ea 100644
  				BCE9C0D01485965D00E33D61 /* WebConnectionToUIProcess.h */,
  				BC111AE3112F5C2600337BAB /* WebProcess.cpp */,
  				BC032D9110F437AF0058C15A /* WebProcess.h */,
-@@ -7068,20 +7074,22 @@
+@@ -7123,20 +7129,22 @@
  				2D1B5D5B185869C8006C6596 /* ViewGestureControllerMessageReceiver.cpp */,
  				2D1B5D5C185869C8006C6596 /* ViewGestureControllerMessages.h */,
  				2D819B9F1862800E001F03D1 /* ViewGestureGeometryCollectorMessageReceiver.cpp */,
@@ -1437,7 +1437,7 @@ index 068c21b..8c309ea 100644
  				330934441315B9220097A7BC /* WebCookieManagerMessages.h */,
  				330934451315B9220097A7BC /* WebCookieManagerProxyMessageReceiver.cpp */,
  				330934461315B9220097A7BC /* WebCookieManagerProxyMessages.h */,
-@@ -7164,20 +7172,28 @@
+@@ -7219,20 +7227,28 @@
  				C0CE73371247F70E00BC0EC4 /* generate-messages-header.py */,
  				0FC0856F187CE0A900780D86 /* messages.py */,
  				0FC08570187CE0A900780D86 /* model.py */,
@@ -1466,10 +1466,10 @@ index 068c21b..8c309ea 100644
  				C54256AF18BEC18B00DE4179 /* WKFormInputControl.h */,
  				C54256B018BEC18B00DE4179 /* WKFormInputControl.mm */,
  				C54256B118BEC18B00DE4179 /* WKFormPeripheral.h */,
-@@ -8110,20 +8126,21 @@
- 				1A3CC16918907EB0001E6ED8 /* WKProcessPoolInternal.h in Headers */,
+@@ -8171,20 +8187,21 @@
  				1A6509CE18B4146200614332 /* WKProcessPoolPrivate.h in Headers */,
  				512F58FC12A88A5400629530 /* WKProtectionSpace.h in Headers */,
+ 				2DF9EEEE1A786EAD00B6CFBE /* APINavigationResponse.h in Headers */,
  				518ACAEA12AEE6BB00B04B83 /* WKProtectionSpaceTypes.h in Headers */,
  				1AD01BCD1905D54900C9C45F /* WKReloadFrameErrorRecoveryAttempter.h in Headers */,
  				1A9E329B1822E1CC00F5D04C /* WKRemoteObject.h in Headers */,
@@ -1488,7 +1488,7 @@ index 068c21b..8c309ea 100644
  				BC407604124FF0270068F20A /* WKSerializedScriptValue.h in Headers */,
  				F67DD7BA125E40D9007BDCB8 /* WKSerializedScriptValuePrivate.h in Headers */,
  				75A8D2D7187D303A00C39C9E /* WKSessionRef.h in Headers */,
-@@ -8976,21 +8993,21 @@
+@@ -9065,21 +9082,21 @@
  			buildActionMask = 2147483647;
  			files = (
  			);
@@ -1511,7 +1511,7 @@ index 068c21b..8c309ea 100644
  			);
  			name = "Add CFBundle Localization Info.plist Key";
  			outputPaths = (
-@@ -9796,20 +9813,21 @@
+@@ -9887,20 +9904,21 @@
  				BCBAACEC145225E30053F82F /* WKProcessGroup.mm in Sources */,
  				1A158419189044F50017616C /* WKProcessPool.mm in Sources */,
  				512F58FB12A88A5400629530 /* WKProtectionSpace.cpp in Sources */,
@@ -1555,5 +1555,5 @@ index 0000000..8951d77
 +    }
 +}
 -- 
-2.0.1
+2.2.2
 

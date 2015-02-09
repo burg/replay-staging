@@ -1,4 +1,4 @@
-From ee456c0117f86523273d9ea01f72e25bddf899e6 Mon Sep 17 00:00:00 2001
+From a4f059b5e589a0f1808bd67e37848e6c3cb8ab67 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 18 Sep 2014 14:34:55 -0700
 Subject: [PATCH] Make timelines code less likely to assert or crash.
@@ -9,7 +9,7 @@ Subject: [PATCH] Make timelines code less likely to assert or crash.
  2 files changed, 4 insertions(+)
 
 diff --git a/Source/WebCore/inspector/InspectorTimelineAgent.cpp b/Source/WebCore/inspector/InspectorTimelineAgent.cpp
-index 80db19d..1a0fd9b 100644
+index b922c78..f6276cc 100644
 --- a/Source/WebCore/inspector/InspectorTimelineAgent.cpp
 +++ b/Source/WebCore/inspector/InspectorTimelineAgent.cpp
 @@ -98,20 +98,23 @@ void InspectorTimelineAgent::start(ErrorString&, const int* maxCallStackDepth)
@@ -63,5 +63,5 @@ index e04c1ca..8b0c0b0 100644
      var usesActiveStartTime = false;
      var lastRecordType = null;
 -- 
-2.0.1
+2.2.2
 

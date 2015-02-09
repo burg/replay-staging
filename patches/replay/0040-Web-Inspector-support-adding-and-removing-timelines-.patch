@@ -1,0 +1,2067 @@
+From a01b53e7071b3b9969bb5b31205b5f306eddfd4d Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Sun, 8 Feb 2015 00:42:26 -0800
+Subject: [PATCH] Web Inspector: support adding and removing timelines to the
+ timeline sidebar panel and overview
+ https://bugs.webkit.org/show_bug.cgi?id=138434
+
+Reviewed by NOBODY (OOPS!).
+
+A timeline recording's timelines should not be static. This patch adds relevant machinery to
+dynamically add and remove timelines from the Timeline model object and its various views.
+
+From the model side, this is a simple change that adds TimelineAdded and TimelineRemoved events.
+The timeline views and timeline sidebar require more extensive changes to support this functionality.
+Instead of keeping a fixed set of timeline tree elements, the sidebar view now adds and removes
+tree elements to reflect the available timelines for the displayed timeline recording.
+
+This change also includes several minor cleanups, such as appending 'Element' to view properties that
+are DOM elements, and renaming TimelineContentView to TimelineRecordingContentView.
+
+* UserInterface/Controllers/TimelineManager.js:
+(WebInspector.TimelineManager.prototype._loadNewRecording):
+Populate predefined network, layout, and script timelines here after constructing the recording.
+
+* UserInterface/Main.html:
+* UserInterface/Models/Timeline.js:
+Move hardcoded class names and localized strings to these base class methods. This is not implemented
+using overridden methods because not all timeline types have their own subclasses. Add a dummy
+implementation of saveIdentityToCookie() to avoid warnings when saving sidebar panel selection state.
+
+(WebInspector.Timeline.prototype.get type):
+(WebInspector.Timeline.prototype.get displayName): Added.
+(WebInspector.Timeline.prototype.get iconClassName): Added.
+(WebInspector.Timeline.prototype.addRecord):
+* UserInterface/Models/TimelineRecording.js:
+(WebInspector.TimelineRecording):
+(WebInspector.TimelineRecording.prototype.addTimeline.set timeline): Added.
+(WebInspector.TimelineRecording.prototype.addTimeline): Added.
+(WebInspector.TimelineRecording.prototype.removeTimeline.get this): Added.
+(WebInspector.TimelineRecording.prototype.removeTimeline): Added.
+* UserInterface/Views/ContentView.js:
+(WebInspector.ContentView):
+* UserInterface/Views/LayoutTimelineView.css:
+(.sidebar > .panel.navigation.timeline.timeline-recording-content-view-showing .navigation-sidebar-panel-content-tree-outline.layout .item .subtitle):
+(.sidebar > .panel.navigation.timeline.timeline-content-view-showing .navigation-sidebar-panel-content-tree-outline.layout .item .subtitle): Deleted.
+* UserInterface/Views/LayoutTimelineView.js:
+(WebInspector.LayoutTimelineView.prototype._treeElementSelected):
+(WebInspector.LayoutTimelineView.prototype._closeStatusButtonClicked):
+* UserInterface/Views/NavigationSidebarPanel.js:
+(WebInspector.NavigationSidebarPanel.prototype.saveStateToCookie): Fix error message formatting.
+(WebInspector.NavigationSidebarPanel.prototype._updateFilter):
+* UserInterface/Views/NetworkTimelineView.css:
+(.sidebar > .panel.navigation.timeline.timeline-recording-content-view-showing .navigation-sidebar-panel-content-tree-outline.network .item .subtitle):
+(.sidebar > .panel.navigation.timeline.timeline-content-view-showing .navigation-sidebar-panel-content-tree-outline.network .item .subtitle): Deleted.
+* UserInterface/Views/NetworkTimelineView.js:
+(WebInspector.NetworkTimelineView.prototype._closeStatusButtonClicked):
+* UserInterface/Views/ScriptTimelineView.css:
+(.sidebar > .panel.navigation.timeline.timeline-recording-content-view-showing .navigation-sidebar-panel-content-tree-outline.script .item .subtitle):
+(.sidebar > .panel.navigation.timeline.timeline-content-view-showing .navigation-sidebar-panel-content-tree-outline.script .item .subtitle): Deleted.
+* UserInterface/Views/ScriptTimelineView.js:
+(WebInspector.ScriptTimelineView.prototype._treeElementSelected):
+(WebInspector.ScriptTimelineView.prototype._closeStatusButtonClicked):
+* UserInterface/Views/TimelineOverview.js:
+Convert this class to use the representedObject class pattern. It manages its own mapping from timelines
+to overview graph views. Append 'Element' to some properties holding DOM elements.
+(WebInspector.TimelineOverview):
+(WebInspector.TimelineOverview.prototype.get visibleDuration):
+(WebInspector.TimelineOverview.prototype.reset):
+(WebInspector.TimelineOverview.prototype.updateLayout):
+(WebInspector.TimelineOverview.prototype._handleScrollEvent):
+(WebInspector.TimelineOverview.prototype._handleWheelEvent):
+(WebInspector.TimelineOverview.prototype._timelineRemoved):
+(WebInspector.TimelineOverview.prototype.updateLayoutIfNeeded):
+(WebInspector.TimelineOverview.prototype._timeRangeSelectionChanged):
+* UserInterface/Views/TimelineRecordingContentView.css: Renamed from Source/WebInspectorUI/UserInterface/Views/TimelineContentView.css.
+Remove hard-coded top offsets and heights that need to be dynamically calculated.
+(.content-view.timeline-recording > .timeline-overview):
+(.content-view.timeline-recording > .view-container):
+(.content-view.timeline-recording > .view-container > .timeline-view > .data-grid td):
+(.content-view.timeline-recording > .view-container > .timeline-view > .data-grid table.data):
+* UserInterface/Views/TimelineRecordingContentView.js: Renamed from Source/WebInspectorUI/UserInterface/Views/TimelineContentView.js.
+Manage timeline views and path components dynamically. Adjust view heights as necessary. Append 'Element'
+to some properties holding DOM elements.
+(WebInspector.TimelineRecordingContentView):
+(WebInspector.TimelineRecordingContentView.prototype.showOverviewTimelineView):
+(WebInspector.TimelineRecordingContentView.prototype.showTimelineViewForTimeline):
+(WebInspector.TimelineRecordingContentView.prototype.get allowedNavigationSidebarPanels):
+(WebInspector.TimelineRecordingContentView.prototype.get supportsSplitContentBrowser):
+(WebInspector.TimelineRecordingContentView.prototype.get navigationItems):
+(WebInspector.TimelineRecordingContentView.prototype.get currentTimelineView):
+(WebInspector.TimelineRecordingContentView.prototype.shown):
+(WebInspector.TimelineRecordingContentView.prototype.hidden):
+(WebInspector.TimelineRecordingContentView.prototype.filterDidChange):
+(WebInspector.TimelineRecordingContentView.prototype.updateLayout):
+(WebInspector.TimelineRecordingContentView.prototype.saveToCookie):
+(WebInspector.TimelineRecordingContentView.prototype.restoreFromCookie):
+(WebInspector.TimelineRecordingContentView.prototype.get matchTreeElementAgainstCustomFilters.checkTimeBounds):
+(WebInspector.TimelineRecordingContentView.prototype.get matchTreeElementAgainstCustomFilters):
+(WebInspector.TimelineRecordingContentView.prototype._pathComponentSelected):
+(WebInspector.TimelineRecordingContentView.prototype._timelineViewSelectionPathComponentsDidChange):
+(WebInspector.TimelineRecordingContentView.prototype._showTimelineView):
+(WebInspector.TimelineRecordingContentView.prototype._update):
+(WebInspector.TimelineRecordingContentView.prototype._updateTimes):
+(WebInspector.TimelineRecordingContentView.prototype._startUpdatingCurrentTime):
+(WebInspector.TimelineRecordingContentView.prototype._stopUpdatingCurrentTime):
+(WebInspector.TimelineRecordingContentView.prototype._capturingStarted):
+(WebInspector.TimelineRecordingContentView.prototype._capturingStopped):
+(WebInspector.TimelineRecordingContentView.prototype._replayCaptureStarted):
+(WebInspector.TimelineRecordingContentView.prototype._replayCaptureStopped):
+(WebInspector.TimelineRecordingContentView.prototype._playbackSessionChanged):
+(WebInspector.TimelineRecordingContentView.prototype._playbackPositionChanged):
+(WebInspector.TimelineRecordingContentView.prototype._debuggerPaused):
+(WebInspector.TimelineRecordingContentView.prototype._debuggerResumed):
+(WebInspector.TimelineRecordingContentView.prototype._recordingTimesUpdated):
+(WebInspector.TimelineRecordingContentView.prototype._clearTimeline):
+(WebInspector.TimelineRecordingContentView.prototype._timelineRemoved):
+(WebInspector.TimelineRecordingContentView.prototype._timelineCountChanged):
+(WebInspector.TimelineRecordingContentView.prototype._recordingReset):
+(WebInspector.TimelineRecordingContentView.prototype._recordingUnloaded):
+(WebInspector.TimelineRecordingContentView.prototype._timeRangeSelectionChanged):
+* UserInterface/Views/TimelineSidebarPanel.css:
+(.sidebar > .panel.navigation.timeline.timeline-recording-content-view-showing > .content):
+(.sidebar > .panel.navigation.timeline.timeline-content-view-showing > .content): Deleted.
+* UserInterface/Views/TimelineSidebarPanel.js:
+Manage timeline tree elements dynamically. Adjust view heights as necessary. Append 'Element'
+to some properties holding DOM elements. Keep track of the displayed recording and view explicitly.
+(WebInspector.TimelineSidebarPanel):
+(WebInspector.TimelineSidebarPanel.prototype.shown):
+(WebInspector.TimelineSidebarPanel.prototype.showDefaultContentView):
+(WebInspector.TimelineSidebarPanel.prototype.treeElementForRepresentedObject.looselyCompareRepresentedObjects):
+(WebInspector.TimelineSidebarPanel.prototype.showTimelineOverview):
+(WebInspector.TimelineSidebarPanel.prototype.updateFilter):
+(WebInspector.TimelineSidebarPanel.prototype.matchTreeElementAgainstCustomFilters):
+(WebInspector.TimelineSidebarPanel.prototype.canShowDifferentContentView):
+(WebInspector.TimelineSidebarPanel.prototype.saveStateToCookie):
+(WebInspector.TimelineSidebarPanel.prototype.get if):
+(WebInspector.TimelineSidebarPanel.prototype._contentBrowserCurrentContentViewDidChange):
+(WebInspector.TimelineSidebarPanel.prototype._recordingCountChanged):
+(WebInspector.TimelineSidebarPanel.prototype._recordingSelected):
+(WebInspector.TimelineSidebarPanel.prototype._recordingLoaded):
+(WebInspector.TimelineSidebarPanel.prototype._timelineRemoved):
+(WebInspector.TimelineSidebarPanel.prototype._timelineCountChanged):
+(WebInspector.TimelineSidebarPanel.createTimelineTreeElement): Deleted.
+(WebInspector.TimelineSidebarPanel.prototype.restoreStateFromCookie):
+* UserInterface/Views/TimelineView.css:
+(.panel.navigation.timeline.timeline-recording-content-view-showing > .content > .navigation-sidebar-panel-content-tree-outline):
+(.panel.navigation.timeline.timeline-content-view-showing > .content > .navigation-sidebar-panel-content-tree-outline): Deleted.
+---
+ Source/WebInspectorUI/ChangeLog                    | 147 +++++++++++++++
+ .../UserInterface/Controllers/TimelineManager.js   |   4 +
+ Source/WebInspectorUI/UserInterface/Main.html      |   4 +-
+ .../UserInterface/Models/Timeline.js               |  31 ++++
+ .../UserInterface/Models/TimelineRecording.js      |  37 +++-
+ .../UserInterface/Views/ContentView.js             |   2 +-
+ .../UserInterface/Views/LayoutTimelineView.css     |   2 +-
+ .../UserInterface/Views/LayoutTimelineView.js      |   4 +-
+ .../UserInterface/Views/NavigationSidebarPanel.js  |   4 +-
+ .../UserInterface/Views/NetworkTimelineView.css    |   2 +-
+ .../UserInterface/Views/NetworkTimelineView.js     |   2 +-
+ .../UserInterface/Views/ScriptTimelineView.css     |   2 +-
+ .../UserInterface/Views/ScriptTimelineView.js      |   4 +-
+ .../UserInterface/Views/TimelineOverview.js        |  72 ++++++--
+ ...ntView.css => TimelineRecordingContentView.css} |  10 +-
+ ...tentView.js => TimelineRecordingContentView.js} | 147 +++++++++------
+ .../UserInterface/Views/TimelineSidebarPanel.css   |   2 +-
+ .../UserInterface/Views/TimelineSidebarPanel.js    | 205 +++++++++++++++------
+ .../UserInterface/Views/TimelineView.css           |   2 +-
+ 19 files changed, 514 insertions(+), 169 deletions(-)
+ rename Source/WebInspectorUI/UserInterface/Views/{TimelineContentView.css => TimelineRecordingContentView.css} (85%)
+ rename Source/WebInspectorUI/UserInterface/Views/{TimelineContentView.js => TimelineRecordingContentView.js} (80%)
+
+diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
+index b50e72e..36a3fef 100644
+--- a/Source/WebInspectorUI/ChangeLog
++++ b/Source/WebInspectorUI/ChangeLog
+@@ -1,10 +1,157 @@
++2015-02-08  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Inspector: support adding and removing timelines to the timeline sidebar panel and overview
++        https://bugs.webkit.org/show_bug.cgi?id=138434
++
++        Reviewed by NOBODY (OOPS!).
++
++        A timeline recording's timelines should not be static. This patch adds relevant machinery to
++        dynamically add and remove timelines from the Timeline model object and its various views.
++
++        From the model side, this is a simple change that adds TimelineAdded and TimelineRemoved events.
++        The timeline views and timeline sidebar require more extensive changes to support this functionality.
++        Instead of keeping a fixed set of timeline tree elements, the sidebar view now adds and removes
++        tree elements to reflect the available timelines for the displayed timeline recording.
++
++        This change also includes several minor cleanups, such as appending 'Element' to view properties that
++        are DOM elements, and renaming TimelineContentView to TimelineRecordingContentView.
++
++
++        * UserInterface/Controllers/TimelineManager.js:
++        (WebInspector.TimelineManager.prototype._loadNewRecording):
++        Populate predefined network, layout, and script timelines here after constructing the recording.
++
++        * UserInterface/Main.html:
++        * UserInterface/Models/Timeline.js:
++        Move hardcoded class names and localized strings to these base class methods. This is not implemented
++        using overridden methods because not all timeline types have their own subclasses. Add a dummy
++        implementation of saveIdentityToCookie() to avoid warnings when saving sidebar panel selection state.
++
++        (WebInspector.Timeline.prototype.get type):
++        (WebInspector.Timeline.prototype.get displayName): Added.
++        (WebInspector.Timeline.prototype.get iconClassName): Added.
++        (WebInspector.Timeline.prototype.addRecord):
++        * UserInterface/Models/TimelineRecording.js:
++        (WebInspector.TimelineRecording):
++        (WebInspector.TimelineRecording.prototype.addTimeline.set timeline): Added.
++        (WebInspector.TimelineRecording.prototype.addTimeline): Added.
++        (WebInspector.TimelineRecording.prototype.removeTimeline.get this): Added.
++        (WebInspector.TimelineRecording.prototype.removeTimeline): Added.
++        * UserInterface/Views/ContentView.js:
++        (WebInspector.ContentView):
++        * UserInterface/Views/LayoutTimelineView.css:
++        (.sidebar > .panel.navigation.timeline.timeline-recording-content-view-showing .navigation-sidebar-panel-content-tree-outline.layout .item .subtitle):
++        (.sidebar > .panel.navigation.timeline.timeline-content-view-showing .navigation-sidebar-panel-content-tree-outline.layout .item .subtitle): Deleted.
++        * UserInterface/Views/LayoutTimelineView.js:
++        (WebInspector.LayoutTimelineView.prototype._treeElementSelected):
++        (WebInspector.LayoutTimelineView.prototype._closeStatusButtonClicked):
++        * UserInterface/Views/NavigationSidebarPanel.js:
++        (WebInspector.NavigationSidebarPanel.prototype.saveStateToCookie): Fix error message formatting.
++        (WebInspector.NavigationSidebarPanel.prototype._updateFilter):
++        * UserInterface/Views/NetworkTimelineView.css:
++        (.sidebar > .panel.navigation.timeline.timeline-recording-content-view-showing .navigation-sidebar-panel-content-tree-outline.network .item .subtitle):
++        (.sidebar > .panel.navigation.timeline.timeline-content-view-showing .navigation-sidebar-panel-content-tree-outline.network .item .subtitle): Deleted.
++        * UserInterface/Views/NetworkTimelineView.js:
++        (WebInspector.NetworkTimelineView.prototype._closeStatusButtonClicked):
++        * UserInterface/Views/ScriptTimelineView.css:
++        (.sidebar > .panel.navigation.timeline.timeline-recording-content-view-showing .navigation-sidebar-panel-content-tree-outline.script .item .subtitle):
++        (.sidebar > .panel.navigation.timeline.timeline-content-view-showing .navigation-sidebar-panel-content-tree-outline.script .item .subtitle): Deleted.
++        * UserInterface/Views/ScriptTimelineView.js:
++        (WebInspector.ScriptTimelineView.prototype._treeElementSelected):
++        (WebInspector.ScriptTimelineView.prototype._closeStatusButtonClicked):
++        * UserInterface/Views/TimelineOverview.js:
++        Convert this class to use the representedObject class pattern. It manages its own mapping from timelines
++        to overview graph views. Append 'Element' to some properties holding DOM elements.
++        (WebInspector.TimelineOverview):
++        (WebInspector.TimelineOverview.prototype.get visibleDuration):
++        (WebInspector.TimelineOverview.prototype.reset):
++        (WebInspector.TimelineOverview.prototype.updateLayout):
++        (WebInspector.TimelineOverview.prototype._handleScrollEvent):
++        (WebInspector.TimelineOverview.prototype._handleWheelEvent):
++        (WebInspector.TimelineOverview.prototype._timelineRemoved):
++        (WebInspector.TimelineOverview.prototype.updateLayoutIfNeeded):
++        (WebInspector.TimelineOverview.prototype._timeRangeSelectionChanged):
++        * UserInterface/Views/TimelineRecordingContentView.css: Renamed from Source/WebInspectorUI/UserInterface/Views/TimelineContentView.css.
++        Remove hard-coded top offsets and heights that need to be dynamically calculated.
++        (.content-view.timeline-recording > .timeline-overview):
++        (.content-view.timeline-recording > .view-container):
++        (.content-view.timeline-recording > .view-container > .timeline-view > .data-grid td):
++        (.content-view.timeline-recording > .view-container > .timeline-view > .data-grid table.data):
++        * UserInterface/Views/TimelineRecordingContentView.js: Renamed from Source/WebInspectorUI/UserInterface/Views/TimelineContentView.js.
++        Manage timeline views and path components dynamically. Adjust view heights as necessary. Append 'Element'
++        to some properties holding DOM elements.
++        (WebInspector.TimelineRecordingContentView):
++        (WebInspector.TimelineRecordingContentView.prototype.showOverviewTimelineView):
++        (WebInspector.TimelineRecordingContentView.prototype.showTimelineViewForTimeline):
++        (WebInspector.TimelineRecordingContentView.prototype.get allowedNavigationSidebarPanels):
++        (WebInspector.TimelineRecordingContentView.prototype.get supportsSplitContentBrowser):
++        (WebInspector.TimelineRecordingContentView.prototype.get navigationItems):
++        (WebInspector.TimelineRecordingContentView.prototype.get currentTimelineView):
++        (WebInspector.TimelineRecordingContentView.prototype.shown):
++        (WebInspector.TimelineRecordingContentView.prototype.hidden):
++        (WebInspector.TimelineRecordingContentView.prototype.filterDidChange):
++        (WebInspector.TimelineRecordingContentView.prototype.updateLayout):
++        (WebInspector.TimelineRecordingContentView.prototype.saveToCookie):
++        (WebInspector.TimelineRecordingContentView.prototype.restoreFromCookie):
++        (WebInspector.TimelineRecordingContentView.prototype.get matchTreeElementAgainstCustomFilters.checkTimeBounds):
++        (WebInspector.TimelineRecordingContentView.prototype.get matchTreeElementAgainstCustomFilters):
++        (WebInspector.TimelineRecordingContentView.prototype._pathComponentSelected):
++        (WebInspector.TimelineRecordingContentView.prototype._timelineViewSelectionPathComponentsDidChange):
++        (WebInspector.TimelineRecordingContentView.prototype._showTimelineView):
++        (WebInspector.TimelineRecordingContentView.prototype._update):
++        (WebInspector.TimelineRecordingContentView.prototype._updateTimes):
++        (WebInspector.TimelineRecordingContentView.prototype._startUpdatingCurrentTime):
++        (WebInspector.TimelineRecordingContentView.prototype._stopUpdatingCurrentTime):
++        (WebInspector.TimelineRecordingContentView.prototype._capturingStarted):
++        (WebInspector.TimelineRecordingContentView.prototype._capturingStopped):
++        (WebInspector.TimelineRecordingContentView.prototype._replayCaptureStarted):
++        (WebInspector.TimelineRecordingContentView.prototype._replayCaptureStopped):
++        (WebInspector.TimelineRecordingContentView.prototype._playbackSessionChanged):
++        (WebInspector.TimelineRecordingContentView.prototype._playbackPositionChanged):
++        (WebInspector.TimelineRecordingContentView.prototype._debuggerPaused):
++        (WebInspector.TimelineRecordingContentView.prototype._debuggerResumed):
++        (WebInspector.TimelineRecordingContentView.prototype._recordingTimesUpdated):
++        (WebInspector.TimelineRecordingContentView.prototype._clearTimeline):
++        (WebInspector.TimelineRecordingContentView.prototype._timelineRemoved):
++        (WebInspector.TimelineRecordingContentView.prototype._timelineCountChanged):
++        (WebInspector.TimelineRecordingContentView.prototype._recordingReset):
++        (WebInspector.TimelineRecordingContentView.prototype._recordingUnloaded):
++        (WebInspector.TimelineRecordingContentView.prototype._timeRangeSelectionChanged):
++        * UserInterface/Views/TimelineSidebarPanel.css:
++        (.sidebar > .panel.navigation.timeline.timeline-recording-content-view-showing > .content):
++        (.sidebar > .panel.navigation.timeline.timeline-content-view-showing > .content): Deleted.
++        * UserInterface/Views/TimelineSidebarPanel.js:
++        Manage timeline tree elements dynamically. Adjust view heights as necessary. Append 'Element'
++        to some properties holding DOM elements. Keep track of the displayed recording and view explicitly.
++        (WebInspector.TimelineSidebarPanel):
++        (WebInspector.TimelineSidebarPanel.prototype.shown):
++        (WebInspector.TimelineSidebarPanel.prototype.showDefaultContentView):
++        (WebInspector.TimelineSidebarPanel.prototype.treeElementForRepresentedObject.looselyCompareRepresentedObjects):
++        (WebInspector.TimelineSidebarPanel.prototype.showTimelineOverview):
++        (WebInspector.TimelineSidebarPanel.prototype.updateFilter):
++        (WebInspector.TimelineSidebarPanel.prototype.matchTreeElementAgainstCustomFilters):
++        (WebInspector.TimelineSidebarPanel.prototype.canShowDifferentContentView):
++        (WebInspector.TimelineSidebarPanel.prototype.saveStateToCookie):
++        (WebInspector.TimelineSidebarPanel.prototype.get if):
++        (WebInspector.TimelineSidebarPanel.prototype._contentBrowserCurrentContentViewDidChange):
++        (WebInspector.TimelineSidebarPanel.prototype._recordingCountChanged):
++        (WebInspector.TimelineSidebarPanel.prototype._recordingSelected):
++        (WebInspector.TimelineSidebarPanel.prototype._recordingLoaded):
++        (WebInspector.TimelineSidebarPanel.prototype._timelineRemoved):
++        (WebInspector.TimelineSidebarPanel.prototype._timelineCountChanged):
++        (WebInspector.TimelineSidebarPanel.createTimelineTreeElement): Deleted.
++        (WebInspector.TimelineSidebarPanel.prototype.restoreStateFromCookie):
++        * UserInterface/Views/TimelineView.css:
++        (.panel.navigation.timeline.timeline-recording-content-view-showing > .content > .navigation-sidebar-panel-content-tree-outline):
++        (.panel.navigation.timeline.timeline-content-view-showing > .content > .navigation-sidebar-panel-content-tree-outline): Deleted.
++
+ 2015-02-05  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         Web Inspector: eliminate some unnecessary layout/painting in timeline overview and ruler
+         https://bugs.webkit.org/show_bug.cgi?id=141293
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         The timeline overview's ruler was forcing repaints of divider labels even if the labels
+         had not changed since the last requestAnimationFrame. Bail out early if nothing changed.
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Controllers/TimelineManager.js b/Source/WebInspectorUI/UserInterface/Controllers/TimelineManager.js
+index 3274e80..c50e1f1 100644
+--- a/Source/WebInspectorUI/UserInterface/Controllers/TimelineManager.js
++++ b/Source/WebInspectorUI/UserInterface/Controllers/TimelineManager.js
+@@ -404,20 +404,24 @@ WebInspector.TimelineManager.prototype = {
+ 
+     // Private
+ 
+     _loadNewRecording: function()
+     {
+         if (this._activeRecording && this._activeRecording.isEmpty())
+             return;
+ 
+         var identifier = this._nextRecordingIdentifier++;
+         var newRecording = new WebInspector.TimelineRecording(identifier, WebInspector.UIString("Timeline Recording %d").format(identifier));
++        newRecording.addTimeline(new WebInspector.Timeline(WebInspector.TimelineRecord.Type.Network));
++        newRecording.addTimeline(new WebInspector.Timeline(WebInspector.TimelineRecord.Type.Layout));
++        newRecording.addTimeline(new WebInspector.Timeline(WebInspector.TimelineRecord.Type.Script));
++
+         this._recordings.push(newRecording);
+         this.dispatchEventToListeners(WebInspector.TimelineManager.Event.RecordingCreated, {recording: newRecording});
+ 
+         console.assert(newRecording.isWritable());
+ 
+         if (this._isCapturing)
+             this.stopCapturing();
+ 
+         var oldRecording = this._activeRecording;
+         if (oldRecording)
+diff --git a/Source/WebInspectorUI/UserInterface/Main.html b/Source/WebInspectorUI/UserInterface/Main.html
+index b778a48..fd4e272 100644
+--- a/Source/WebInspectorUI/UserInterface/Main.html
++++ b/Source/WebInspectorUI/UserInterface/Main.html
+@@ -118,25 +118,25 @@
+     <link rel="stylesheet" href="Views/Section.css">
+     <link rel="stylesheet" href="Views/Sidebar.css">
+     <link rel="stylesheet" href="Views/SidebarPanel.css">
+     <link rel="stylesheet" href="Views/Slider.css">
+     <link rel="stylesheet" href="Views/SourceCodeTextEditor.css">
+     <link rel="stylesheet" href="Views/StyleRuleIcons.css">
+     <link rel="stylesheet" href="Views/SyntaxHighlightingDefaultTheme.css">
+     <link rel="stylesheet" href="Views/TextContentView.css">
+     <link rel="stylesheet" href="Views/TextEditor.css">
+     <link rel="stylesheet" href="Views/TextResourceContentView.css">
+-    <link rel="stylesheet" href="Views/TimelineContentView.css">
+     <link rel="stylesheet" href="Views/TimelineDataGrid.css">
+     <link rel="stylesheet" href="Views/TimelineIcons.css">
+     <link rel="stylesheet" href="Views/TimelineOverview.css">
+     <link rel="stylesheet" href="Views/TimelineRecordBar.css">
++    <link rel="stylesheet" href="Views/TimelineRecordingContentView.css">
+     <link rel="stylesheet" href="Views/TimelineRuler.css">
+     <link rel="stylesheet" href="Views/TimelineSidebarPanel.css">
+     <link rel="stylesheet" href="Views/TimelineView.css">
+     <link rel="stylesheet" href="Views/Toolbar.css">
+     <link rel="stylesheet" href="Views/TreeElementStatusButton.css">
+     <link rel="stylesheet" href="Views/TypeTokenView.css">
+ 
+     <link rel="stylesheet" href="Controllers/CodeMirrorCompletionController.css">
+     <link rel="stylesheet" href="Controllers/CodeMirrorDragToAdjustNumberController.css">
+     <link rel="stylesheet" href="Controllers/CodeMirrorGradientEditingController.css">
+@@ -446,23 +446,23 @@
+     <script src="Views/Sidebar.js"></script>
+     <script src="Views/SimpleNetworkTimelineOverviewGraph.js"></script>
+     <script src="Views/Slider.js"></script>
+     <script src="Views/SourceCodeTextEditor.js"></script>
+     <script src="Views/SourceCodeTimelineTimelineDataGridNode.js"></script>
+     <script src="Views/SourceCodeTimelineTreeElement.js"></script>
+     <script src="Views/SourceMapResourceTreeElement.js"></script>
+     <script src="Views/SyntaxHighlightingSupport.js"></script>
+     <script src="Views/TextContentView.js"></script>
+     <script src="Views/TextResourceContentView.js"></script>
+-    <script src="Views/TimelineContentView.js"></script>
+     <script src="Views/TimelineOverview.js"></script>
+     <script src="Views/TimelineRecordBar.js"></script>
++    <script src="Views/TimelineRecordingContentView.js"></script>
+     <script src="Views/TimelineRuler.js"></script>
+     <script src="Views/TimelineSidebarPanel.js"></script>
+     <script src="Views/ToggleButtonNavigationItem.js"></script>
+     <script src="Views/ToggleControlToolbarItem.js"></script>
+     <script src="Views/Toolbar.js"></script>
+     <script src="Views/TreeElementStatusButton.js"></script>
+     <script src="Views/TreeOutlineDataGridSynchronizer.js"></script>
+     <script src="Views/TypePropertiesSection.js"></script>
+     <script src="Views/TypeTokenView.js"></script>
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Models/Timeline.js b/Source/WebInspectorUI/UserInterface/Models/Timeline.js
+index bbfde56..ed0ba5e 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/Timeline.js
++++ b/Source/WebInspectorUI/UserInterface/Models/Timeline.js
+@@ -37,20 +37,22 @@ WebInspector.Timeline = function(type)
+ 
+     this.reset(true);
+ };
+ 
+ WebInspector.Timeline.Event = {
+     Reset: "timeline-reset",
+     RecordAdded: "timeline-record-added",
+     TimesUpdated: "timeline-times-updated"
+ };
+ 
++WebInspector.Timeline.TimelineTypeCookieKey = "timeline-type";
++
+ WebInspector.Timeline.prototype = {
+     constructor: WebInspector.Timeline,
+     __proto__: WebInspector.Object.prototype,
+ 
+     // Public
+ 
+     get startTime()
+     {
+         return this._startTime;
+     },
+@@ -63,20 +65,44 @@ WebInspector.Timeline.prototype = {
+     get records()
+     {
+         return this._records;
+     },
+ 
+     get type()
+     {
+         return this._type;
+     },
+ 
++    get displayName()
++    {
++        if (this._type === WebInspector.TimelineRecord.Type.Network)
++            return WebInspector.UIString("Network Requests");
++        if (this._type === WebInspector.TimelineRecord.Type.Layout)
++            return WebInspector.UIString("Layout & Rendering");
++        if (this._type === WebInspector.TimelineRecord.Type.Script)
++            return WebInspector.UIString("JavaScript & Events");
++
++        console.error("Timeline has unknown type:", this._type, this);
++    },
++
++    get iconClassName()
++    {
++        if (this._type === WebInspector.TimelineRecord.Type.Network)
++            return WebInspector.TimelineSidebarPanel.NetworkIconStyleClass;
++        if (this._type === WebInspector.TimelineRecord.Type.Layout)
++            return WebInspector.TimelineSidebarPanel.ColorsIconStyleClass;
++        if (this._type === WebInspector.TimelineRecord.Type.Script)
++            return WebInspector.TimelineSidebarPanel.ScriptIconStyleClass;
++
++        console.error("Timeline has unknown type:", this._type, this);
++    },
++
+     reset: function(suppressEvents)
+     {
+         this._records = [];
+         this._startTime = NaN;
+         this._endTime = NaN;
+ 
+         if (!suppressEvents) {
+             this.dispatchEventToListeners(WebInspector.Timeline.Event.Reset);
+             this.dispatchEventToListeners(WebInspector.Timeline.Event.TimesUpdated);
+         }
+@@ -87,20 +113,25 @@ WebInspector.Timeline.prototype = {
+         if (record.updatesDynamically)
+             record.addEventListener(WebInspector.TimelineRecord.Event.Updated, this._recordUpdated, this);
+ 
+         this._records.push(record);
+ 
+         this._updateTimesIfNeeded(record);
+ 
+         this.dispatchEventToListeners(WebInspector.Timeline.Event.RecordAdded, {record: record});
+     },
+ 
++    saveIdentityToCookie: function(cookie)
++    {
++        cookie[WebInspector.Timeline.TimelineTypeCookieKey] = this._type;
++    },
++
+     // Private
+ 
+     _updateTimesIfNeeded: function(record)
+     {
+         var changed = false;
+ 
+         if (isNaN(this._startTime) || record.startTime < this._startTime) {
+             this._startTime = record.startTime;
+             changed = true;
+         }
+diff --git a/Source/WebInspectorUI/UserInterface/Models/TimelineRecording.js b/Source/WebInspectorUI/UserInterface/Models/TimelineRecording.js
+index 4e99a44..d20a2a4 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/TimelineRecording.js
++++ b/Source/WebInspectorUI/UserInterface/Models/TimelineRecording.js
+@@ -28,34 +28,29 @@ WebInspector.TimelineRecording = function(identifier, displayName)
+     WebInspector.Object.call(this);
+ 
+     this._identifier = identifier;
+     this._timelines = new Map;
+     this._displayName = displayName;
+     this._isWritable = true;
+ 
+     // For legacy backends, we compute the elapsed time of records relative to this timestamp.
+     this._legacyFirstRecordedTimestamp = NaN;
+ 
+-    for (var key of Object.keys(WebInspector.TimelineRecord.Type)) {
+-        var type = WebInspector.TimelineRecord.Type[key];
+-        var timeline = new WebInspector.Timeline(type);
+-        this._timelines.set(type, timeline);
+-        timeline.addEventListener(WebInspector.Timeline.Event.TimesUpdated, this._timelineTimesUpdated, this);
+-    }
+-
+     this.reset(true);
+ };
+ 
+ WebInspector.TimelineRecording.Event = {
+     Reset: "timeline-recording-reset",
+     Unloaded: "timeline-recording-unloaded",
+     SourceCodeTimelineAdded: "timeline-recording-source-code-timeline-added",
++    TimelineAdded: "timeline-recording-timeline-added",
++    TimelineRemoved: "timeline-recording-timeline-removed",
+     TimesUpdated: "timeline-recording-times-updated"
+ };
+ 
+ WebInspector.TimelineRecording.TimestampThresholdForLegacyRecordConversion = 28800000; // Date.parse("Jan 1, 1970")
+ 
+ WebInspector.TimelineRecording.prototype = {
+     constructor: WebInspector.TimelineRecording,
+     __proto__: WebInspector.Object.prototype,
+ 
+     // Public
+@@ -134,27 +129,55 @@ WebInspector.TimelineRecording.prototype = {
+     },
+ 
+     sourceCodeTimelinesForSourceCode: function(sourceCode)
+     {
+         var timelines = this._sourceCodeTimelinesMap.get(sourceCode);
+         if (!timelines)
+             return [];
+         return [...timelines.values()];
+     },
+ 
++    addTimeline: function(timeline)
++    {
++        console.assert(timeline instanceof WebInspector.Timeline, timeline);
++        console.assert(!this._timelines.has(timeline), this._timelines, timeline);
++
++        this._timelines.set(timeline.type, timeline);
++
++        timeline.addEventListener(WebInspector.Timeline.Event.TimesUpdated, this._timelineTimesUpdated, this);
++        this.dispatchEventToListeners(WebInspector.TimelineRecording.Event.TimelineAdded, {timeline: timeline});
++    },
++
++    removeTimeline: function(timeline)
++    {
++        console.assert(timeline instanceof WebInspector.Timeline, timeline);
++        console.assert(this._timelines.has(timeline.type), this._timelines, timeline);
++        console.assert(this._timelines.get(timeline.type) === timeline, this._timelines, timeline);
++
++        this._timelines.delete(timeline.type);
++
++        timeline.removeEventListener(WebInspector.Timeline.Event.TimesUpdated, this._timelineTimesUpdated, this);
++        this.dispatchEventToListeners(WebInspector.TimelineRecording.Event.TimelineRemoved, {timeline: timeline});
++    },
++
+     addEventMarker: function(eventMarker)
+     {
+         this._eventMarkers.push(eventMarker);
+     },
+ 
+     addRecord: function(record)
+     {
++        var hasCorrespondingTimeline = this._timelines.has(record.type);
++        console.assert(hasCorrespondingTimeline, record, this._timelines);
++        if (!hasCorrespondingTimeline)
++            return;
++
+         // Add the record to the global timeline by type.
+         this._timelines.get(record.type).addRecord(record);
+ 
+         // Network records don't have source code timelines.
+         if (record.type === WebInspector.TimelineRecord.Type.Network)
+             return;
+ 
+         // Add the record to the source code timelines.
+         var activeMainResource = WebInspector.frameResourceManager.mainFrame.provisionalMainResource || WebInspector.frameResourceManager.mainFrame.mainResource;
+         var sourceCode = record.sourceCodeLocation ? record.sourceCodeLocation.sourceCode : activeMainResource;
+diff --git a/Source/WebInspectorUI/UserInterface/Views/ContentView.js b/Source/WebInspectorUI/UserInterface/Views/ContentView.js
+index 6d784a8..4fea660 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/ContentView.js
++++ b/Source/WebInspectorUI/UserInterface/Views/ContentView.js
+@@ -33,21 +33,21 @@ WebInspector.ContentView = function(representedObject)
+         if (representedObject instanceof WebInspector.Frame)
+             return new WebInspector.FrameContentView(representedObject);
+ 
+         if (representedObject instanceof WebInspector.Resource)
+             return new WebInspector.ResourceClusterContentView(representedObject);
+ 
+         if (representedObject instanceof WebInspector.Script)
+             return new WebInspector.ScriptContentView(representedObject);
+ 
+         if (representedObject instanceof WebInspector.TimelineRecording)
+-            return new WebInspector.TimelineContentView(representedObject);
++            return new WebInspector.TimelineRecordingContentView(representedObject);
+ 
+         if (representedObject instanceof WebInspector.DOMStorageObject)
+             return new WebInspector.DOMStorageContentView(representedObject);
+ 
+         if (representedObject instanceof WebInspector.CookieStorageObject)
+             return new WebInspector.CookieStorageContentView(representedObject);
+ 
+         if (representedObject instanceof WebInspector.DatabaseTableObject)
+             return new WebInspector.DatabaseTableContentView(representedObject);
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Views/LayoutTimelineView.css b/Source/WebInspectorUI/UserInterface/Views/LayoutTimelineView.css
+index b0b81ef..2222d19 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/LayoutTimelineView.css
++++ b/Source/WebInspectorUI/UserInterface/Views/LayoutTimelineView.css
+@@ -28,13 +28,13 @@
+     top: 0;
+     left: 0;
+     right: 0;
+     bottom: 0;
+ }
+ 
+ .timeline-view.layout > .data-grid .eventType-column {
+     border-right: none;
+ }
+ 
+-.sidebar > .panel.navigation.timeline.timeline-content-view-showing .navigation-sidebar-panel-content-tree-outline.layout .item .subtitle {
++.sidebar > .panel.navigation.timeline.timeline-recording-content-view-showing .navigation-sidebar-panel-content-tree-outline.layout .item .subtitle {
+     display: none;
+ }
+diff --git a/Source/WebInspectorUI/UserInterface/Views/LayoutTimelineView.js b/Source/WebInspectorUI/UserInterface/Views/LayoutTimelineView.js
+index 5de64d8..79cbc96 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/LayoutTimelineView.js
++++ b/Source/WebInspectorUI/UserInterface/Views/LayoutTimelineView.js
+@@ -222,21 +222,21 @@ WebInspector.LayoutTimelineView.prototype = {
+             return;
+ 
+         if (!(treeElement instanceof WebInspector.TimelineRecordTreeElement)) {
+             console.error("Unknown tree element selected.");
+             return;
+         }
+ 
+         this._updateHighlight();
+ 
+         if (!treeElement.record.sourceCodeLocation) {
+-            WebInspector.timelineSidebarPanel.showTimelineViewForType(WebInspector.TimelineRecord.Type.Layout);
++            WebInspector.timelineSidebarPanel.showTimelineViewForTimeline(this.representedObject);
+             return;
+         }
+ 
+         WebInspector.resourceSidebarPanel.showOriginalOrFormattedSourceCodeLocation(treeElement.record.sourceCodeLocation);
+         this._updateTreeElementWithCloseButton(treeElement);
+     },
+ 
+     _updateTreeElementWithCloseButton: function(treeElement)
+     {
+         if (this._closeStatusButton) {
+@@ -248,21 +248,21 @@ WebInspector.LayoutTimelineView.prototype = {
+             this._closeStatusButton = new WebInspector.TreeElementStatusButton(element);
+             this._closeStatusButton.addEventListener(WebInspector.TreeElementStatusButton.Event.Clicked, this._closeStatusButtonClicked, this);
+             if (treeElement === this.navigationSidebarTreeOutline.selectedTreeElement)
+                 this._updateTreeElementWithCloseButton(treeElement);
+         }.bind(this));
+     },
+ 
+     _closeStatusButtonClicked: function(event)
+     {
+         this.navigationSidebarTreeOutline.selectedTreeElement.deselect();
+-        WebInspector.timelineSidebarPanel.showTimelineViewForType(WebInspector.TimelineRecord.Type.Layout);
++        WebInspector.timelineSidebarPanel.showTimelineViewForTimeline(this.representedObject);
+     },
+ 
+     _updateHighlight: function()
+     {
+         var record = this._hoveredOrSelectedRecord();
+         if (!record) {
+             this._hideHighlightIfNeeded();
+             return;
+         }
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Views/NavigationSidebarPanel.js b/Source/WebInspectorUI/UserInterface/Views/NavigationSidebarPanel.js
+index e8e1528..4a1f930 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/NavigationSidebarPanel.js
++++ b/Source/WebInspectorUI/UserInterface/Views/NavigationSidebarPanel.js
+@@ -218,21 +218,21 @@ WebInspector.NavigationSidebarPanel.prototype = {
+ 
+         if (this._isTreeElementWithoutRepresentedObject(selectedTreeElement))
+             return;
+ 
+         var representedObject = selectedTreeElement.representedObject;
+         cookie[WebInspector.TypeIdentifierCookieKey] = representedObject.constructor.TypeIdentifier;
+ 
+         if (representedObject.saveIdentityToCookie)
+             representedObject.saveIdentityToCookie(cookie);
+         else
+-            console.error("Error: TreeElement.representedObject is missing a saveIdentityToCookie implementation. TreeElement.constructor: %s", selectedTreeElement.constructor);
++            console.error("Error: TreeElement.representedObject is missing a saveIdentityToCookie implementation. TreeElement.constructor: ", selectedTreeElement.constructor);
+     },
+ 
+     // This can be supplemented by subclasses that admit a simpler strategy for static tree elements.
+     restoreStateFromCookie: function(cookie, relaxedMatchDelay)
+     {
+         this._pendingViewStateCookie = cookie;
+         this._restoringState = true;
+ 
+         // Check if any existing tree elements in any outline match the cookie.
+         this._checkOutlinesForPendingViewStateCookie();
+@@ -514,21 +514,21 @@ WebInspector.NavigationSidebarPanel.prototype = {
+             this.applyFiltersToTreeElement(currentTreeElement);
+             currentTreeElement = currentTreeElement.traverseNextTreeElement(false, null, dontPopulate);
+         }
+ 
+         this._checkForEmptyFilterResults();
+         this._updateContentOverflowShadowVisibility();
+ 
+         // Filter may have hidden the selected resource in the timeline view, which should now notify its listeners.
+         if (selectedTreeElement && selectedTreeElement.hidden !== selectionWasHidden) {
+             var currentContentView = WebInspector.contentBrowser.currentContentView;
+-            if (currentContentView instanceof WebInspector.TimelineContentView && typeof currentContentView.currentTimelineView.filterUpdated === "function")
++            if (currentContentView instanceof WebInspector.TimelineRecordingContentView && typeof currentContentView.currentTimelineView.filterUpdated === "function")
+                 currentContentView.currentTimelineView.filterUpdated();
+         }
+     },
+ 
+     _treeElementAddedOrChanged: function(treeElement)
+     {
+         // Don't populate if we don't have any active filters.
+         // We only need to populate when a filter needs to reveal.
+         var dontPopulate = !this._filterBar.hasActiveFilters();
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Views/NetworkTimelineView.css b/Source/WebInspectorUI/UserInterface/Views/NetworkTimelineView.css
+index 83273f7..74d8c43 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/NetworkTimelineView.css
++++ b/Source/WebInspectorUI/UserInterface/Views/NetworkTimelineView.css
+@@ -24,13 +24,13 @@
+  */
+ 
+ .timeline-view.network > .data-grid {
+     position: absolute;
+     top: 0;
+     left: 0;
+     right: 0;
+     bottom: 0;
+ }
+ 
+-.sidebar > .panel.navigation.timeline.timeline-content-view-showing .navigation-sidebar-panel-content-tree-outline.network .item .subtitle {
++.sidebar > .panel.navigation.timeline.timeline-recording-content-view-showing .navigation-sidebar-panel-content-tree-outline.network .item .subtitle {
+     display: none;
+ }
+diff --git a/Source/WebInspectorUI/UserInterface/Views/NetworkTimelineView.js b/Source/WebInspectorUI/UserInterface/Views/NetworkTimelineView.js
+index 75feb8d..0dff492 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/NetworkTimelineView.js
++++ b/Source/WebInspectorUI/UserInterface/Views/NetworkTimelineView.js
+@@ -237,13 +237,13 @@ WebInspector.NetworkTimelineView.prototype = {
+             this._closeStatusButton = new WebInspector.TreeElementStatusButton(element);
+             this._closeStatusButton.addEventListener(WebInspector.TreeElementStatusButton.Event.Clicked, this._closeStatusButtonClicked, this);
+             if (treeElement === this.navigationSidebarTreeOutline.selectedTreeElement)
+                 this._updateTreeElementWithCloseButton(treeElement);
+         }.bind(this));
+     },
+ 
+     _closeStatusButtonClicked: function(event)
+     {
+         this.navigationSidebarTreeOutline.selectedTreeElement.deselect();
+-        WebInspector.timelineSidebarPanel.showTimelineViewForType(WebInspector.TimelineRecord.Type.Network);
++        WebInspector.timelineSidebarPanel.showTimelineViewForTimeline(this.representedObject);
+     }
+ };
+diff --git a/Source/WebInspectorUI/UserInterface/Views/ScriptTimelineView.css b/Source/WebInspectorUI/UserInterface/Views/ScriptTimelineView.css
+index 9bb46c5..cafa900 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/ScriptTimelineView.css
++++ b/Source/WebInspectorUI/UserInterface/Views/ScriptTimelineView.css
+@@ -28,13 +28,13 @@
+     top: 0;
+     left: 0;
+     right: 0;
+     bottom: 0;
+ }
+ 
+ .timeline-view.script > .data-grid .eventType-column {
+     border-right: none;
+ }
+ 
+-.sidebar > .panel.navigation.timeline.timeline-content-view-showing .navigation-sidebar-panel-content-tree-outline.script .item .subtitle {
++.sidebar > .panel.navigation.timeline.timeline-recording-content-view-showing .navigation-sidebar-panel-content-tree-outline.script .item .subtitle {
+     display: none;
+ }
+diff --git a/Source/WebInspectorUI/UserInterface/Views/ScriptTimelineView.js b/Source/WebInspectorUI/UserInterface/Views/ScriptTimelineView.js
+index e686da5..9502f87 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/ScriptTimelineView.js
++++ b/Source/WebInspectorUI/UserInterface/Views/ScriptTimelineView.js
+@@ -265,21 +265,21 @@ WebInspector.ScriptTimelineView.prototype = {
+ 
+         var sourceCodeLocation = null;
+         if (treeElement instanceof WebInspector.TimelineRecordTreeElement)
+             sourceCodeLocation = treeElement.record.sourceCodeLocation;
+         else if (treeElement instanceof WebInspector.ProfileNodeTreeElement)
+             sourceCodeLocation = treeElement.profileNode.sourceCodeLocation;
+         else
+             console.error("Unknown tree element selected.");
+ 
+         if (!sourceCodeLocation) {
+-            WebInspector.timelineSidebarPanel.showTimelineViewForType(WebInspector.TimelineRecord.Type.Script);
++            WebInspector.timelineSidebarPanel.showTimelineViewForTimeline(this.representedObject);
+             return;
+         }
+ 
+         WebInspector.resourceSidebarPanel.showOriginalOrFormattedSourceCodeLocation(sourceCodeLocation);
+         this._updateTreeElementWithCloseButton(treeElement);
+     },
+ 
+     _updateTreeElementWithCloseButton: function(treeElement)
+     {
+         if (this._closeStatusButton) {
+@@ -291,13 +291,13 @@ WebInspector.ScriptTimelineView.prototype = {
+             this._closeStatusButton = new WebInspector.TreeElementStatusButton(element);
+             this._closeStatusButton.addEventListener(WebInspector.TreeElementStatusButton.Event.Clicked, this._closeStatusButtonClicked, this);
+             if (treeElement === this.navigationSidebarTreeOutline.selectedTreeElement)
+                 this._updateTreeElementWithCloseButton(treeElement);
+         }.bind(this));
+     },
+ 
+     _closeStatusButtonClicked: function(event)
+     {
+         this.navigationSidebarTreeOutline.selectedTreeElement.deselect();
+-        WebInspector.timelineSidebarPanel.showTimelineViewForType(WebInspector.TimelineRecord.Type.Script);
++        WebInspector.timelineSidebarPanel.showTimelineViewForTimeline(this.representedObject);
+     }
+ };
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineOverview.js b/Source/WebInspectorUI/UserInterface/Views/TimelineOverview.js
+index d3e3a30..43f1c61 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineOverview.js
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineOverview.js
+@@ -16,72 +16,74 @@
+  * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+  * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+-WebInspector.TimelineOverview = function(timelineOverviewGraphsMap)
++WebInspector.TimelineOverview = function(timelineRecording)
+ {
+     WebInspector.Object.call(this);
+ 
++    this._recording = timelineRecording;
++    this._recording.addEventListener(WebInspector.TimelineRecording.Event.TimelineAdded, this._timelineAdded, this);
++    this._recording.addEventListener(WebInspector.TimelineRecording.Event.TimelineRemoved, this._timelineRemoved, this);
++
+     this._element = document.createElement("div");
+     this._element.className = WebInspector.TimelineOverview.StyleClassName;
+     this._element.addEventListener("wheel", this._handleWheelEvent.bind(this));
+ 
+-    this._graphsContainer = document.createElement("div");
+-    this._graphsContainer.className = WebInspector.TimelineOverview.GraphsContainerStyleClassName;
+-    this._element.appendChild(this._graphsContainer);
+-
+-    this._timelineOverviewGraphsMap = timelineOverviewGraphsMap;
++    this._graphsContainerElement = document.createElement("div");
++    this._graphsContainerElement.className = WebInspector.TimelineOverview.GraphsContainerStyleClassName;
++    this._element.appendChild(this._graphsContainerElement);
+ 
+-    for (var timelineOverviewGraph of this._timelineOverviewGraphsMap.values()) {
+-        timelineOverviewGraph.timelineOverview = this;
+-        this._graphsContainer.appendChild(timelineOverviewGraph.element);
+-    }
++    this._timelineOverviewGraphsMap = new Map;
+ 
+     this._timelineRuler = new WebInspector.TimelineRuler;
+     this._timelineRuler.allowsClippedLabels = true;
+     this._timelineRuler.allowsTimeRangeSelection = true;
+     this._timelineRuler.addEventListener(WebInspector.TimelineRuler.Event.TimeRangeSelectionChanged, this._timeRangeSelectionChanged, this);
+     this._element.appendChild(this._timelineRuler.element);
+ 
+     this._currentTimeMarker = new WebInspector.TimelineMarker(0, WebInspector.TimelineMarker.Type.CurrentTime);
+     this._timelineRuler.addMarker(this._currentTimeMarker);
+ 
+-    this._scrollContainer = document.createElement("div");
+-    this._scrollContainer.className = WebInspector.TimelineOverview.ScrollContainerStyleClassName;
+-    this._scrollContainer.addEventListener("scroll", this._handleScrollEvent.bind(this));
+-    this._element.appendChild(this._scrollContainer);
++    this._scrollContainerElement = document.createElement("div");
++    this._scrollContainerElement.className = WebInspector.TimelineOverview.ScrollContainerStyleClassName;
++    this._scrollContainerElement.addEventListener("scroll", this._handleScrollEvent.bind(this));
++    this._element.appendChild(this._scrollContainerElement);
+ 
+     this._scrollWidthSizer = document.createElement("div");
+     this._scrollWidthSizer.className = WebInspector.TimelineOverview.ScrollWidthSizerStyleClassName;
+-    this._scrollContainer.appendChild(this._scrollWidthSizer);
++    this._scrollContainerElement.appendChild(this._scrollWidthSizer);
+ 
+     this._secondsPerPixelSetting = new WebInspector.Setting("timeline-overview-seconds-per-pixel", 0.01);
+     this._selectionStartTimeSetting = new WebInspector.Setting("timeline-overview-selection-start-time", 0);
+     this._selectionDurationSetting = new WebInspector.Setting("timeline-overview-selection-duration", 5);
+ 
+     this._startTime = 0;
+     this._currentTime = 0;
+     this._endTime = 0;
+     this._secondsPerPixel = this._secondsPerPixelSetting.value;
+     this._scrollStartTime = 0;
+     this._cachedScrollContainerWidth = NaN;
+ 
+     this.selectionStartTime = this._selectionStartTimeSetting.value;
+     this.selectionDuration = this._selectionDurationSetting.value;
+ 
+     this._shouldDisplayFutureRecords = false;
++
++    for (var timeline of this._recording.timelines.values())
++        this._timelineAdded(timeline);
+ };
+ 
+ WebInspector.TimelineOverview.StyleClassName = "timeline-overview";
+ WebInspector.TimelineOverview.GraphsContainerStyleClassName = "graphs-container";
+ WebInspector.TimelineOverview.ScrollContainerStyleClassName = "scroll-container";
+ WebInspector.TimelineOverview.ScrollWidthSizerStyleClassName = "scroll-width-sizer";
+ WebInspector.TimelineOverview.MinimumSecondsPerPixel = 0.001;
+ WebInspector.TimelineOverview.ScrollDeltaDenominator = 500;
+ 
+ WebInspector.TimelineOverview.Event = {
+@@ -174,21 +176,21 @@ WebInspector.TimelineOverview.prototype = {
+             return;
+ 
+         this._scrollStartTime = x || 0;
+ 
+         this._needsLayout();
+     },
+ 
+     get visibleDuration()
+     {
+         if (isNaN(this._cachedScrollContainerWidth)) {
+-            this._cachedScrollContainerWidth = this._scrollContainer.offsetWidth;
++            this._cachedScrollContainerWidth = this._scrollContainerElement.offsetWidth;
+             console.assert(this._cachedScrollContainerWidth > 0);
+         }
+ 
+         return this._cachedScrollContainerWidth * this._secondsPerPixel;
+     },
+ 
+     get selectionStartTime()
+     {
+         return this._timelineRuler.selectionStartTime;
+     },
+@@ -246,20 +248,26 @@ WebInspector.TimelineOverview.prototype = {
+     },
+ 
+     hidden: function()
+     {
+         this._visible = false;
+ 
+         for (var timelineOverviewGraph of this._timelineOverviewGraphsMap.values())
+             timelineOverviewGraph.hidden();
+     },
+ 
++    reset: function()
++    {
++        for (var timelineOverviewGraph of this._timelineOverviewGraphsMap.values())
++            timelineOverviewGraph.reset();
++    },
++
+     addMarker: function(marker)
+     {
+         this._timelineRuler.addMarker(marker);
+     },
+ 
+     revealMarker: function(marker)
+     {
+         this.scrollStartTime = marker.time - (this.visibleDuration / 2);
+     },
+ 
+@@ -295,21 +303,21 @@ WebInspector.TimelineOverview.prototype = {
+         // Clamp the scroll start time to match what the scroll bar would allow.
+         var scrollStartTime = Math.min(this._scrollStartTime, this._endTime - visibleDuration);
+         scrollStartTime = Math.max(this._startTime, scrollStartTime);
+ 
+         this._timelineRuler.zeroTime = this._startTime;
+         this._timelineRuler.startTime = scrollStartTime;
+         this._timelineRuler.secondsPerPixel = this._secondsPerPixel;
+ 
+         if (!this._dontUpdateScrollLeft) {
+             this._ignoreNextScrollEvent = true;
+-            this._scrollContainer.scrollLeft = Math.ceil((scrollStartTime - this._startTime) / this._secondsPerPixel);
++            this._scrollContainerElement.scrollLeft = Math.ceil((scrollStartTime - this._startTime) / this._secondsPerPixel);
+         }
+ 
+         this._timelineRuler.updateLayout();
+ 
+         for (var timelineOverviewGraph of this._timelineOverviewGraphsMap.values()) {
+             timelineOverviewGraph.zeroTime = this._startTime;
+             timelineOverviewGraph.startTime = scrollStartTime;
+             timelineOverviewGraph.currentTime = this._currentTime;
+             timelineOverviewGraph.endTime = scrollStartTime + visibleDuration;
+             timelineOverviewGraph.updateLayout();
+@@ -351,21 +359,21 @@ WebInspector.TimelineOverview.prototype = {
+ 
+     _handleScrollEvent: function(event)
+     {
+         if (this._ignoreNextScrollEvent) {
+             delete this._ignoreNextScrollEvent;
+             return;
+         }
+ 
+         this._dontUpdateScrollLeft = true;
+ 
+-        var scrollOffset = this._scrollContainer.scrollLeft;
++        var scrollOffset = this._scrollContainerElement.scrollLeft;
+         this.scrollStartTime = this._startTime + (scrollOffset * this._secondsPerPixel);
+ 
+         // Force layout so we can update with the scroll position synchronously.
+         this.updateLayoutIfNeeded();
+ 
+         delete this._dontUpdateScrollLeft;
+     },
+ 
+     _handleWheelEvent: function(event)
+     {
+@@ -373,36 +381,62 @@ WebInspector.TimelineOverview.prototype = {
+         if (event.__cloned)
+             return;
+ 
+         // Require twice the vertical delta to overcome horizontal scrolling. This prevents most
+         // cases of inadvertent zooming for slightly diagonal scrolls.
+         if (Math.abs(event.deltaX) >= Math.abs(event.deltaY) * 0.5) {
+             // Clone the event to dispatch it on the scroll container. Mark it as cloned so we don't get into a loop.
+             var newWheelEvent = new event.constructor(event.type, event);
+             newWheelEvent.__cloned = true;
+ 
+-            this._scrollContainer.dispatchEvent(newWheelEvent);
++            this._scrollContainerElement.dispatchEvent(newWheelEvent);
+             return;
+         }
+ 
+         // Remember the mouse position in time.
+         var mouseOffset = event.pageX - this._element.totalOffsetLeft;
+         var mousePositionTime = this._scrollStartTime + (mouseOffset * this._secondsPerPixel);
+         var deviceDirection = event.webkitDirectionInvertedFromDevice ? 1 : -1;
+ 
+         this.secondsPerPixel += event.deltaY * (this._secondsPerPixel / WebInspector.TimelineOverview.ScrollDeltaDenominator) * deviceDirection;
+ 
+         // Center the zoom around the mouse based on the remembered mouse position time.
+         this.scrollStartTime = mousePositionTime - (mouseOffset * this._secondsPerPixel);
+ 
+         event.preventDefault();
+         event.stopPropagation();
+     },
+ 
++    _timelineAdded: function(timelineOrEvent)
++    {
++        var timeline = timelineOrEvent;
++        if (!(timeline instanceof WebInspector.Timeline))
++            timeline = timelineOrEvent.data.timeline;
++
++        console.assert(timeline instanceof WebInspector.Timeline, timeline);
++        console.assert(!this._timelineOverviewGraphsMap.has(timeline), timeline);
++
++        var overviewGraph = new WebInspector.TimelineOverviewGraph(timeline);
++        overviewGraph.timelineOverview = this;
++        this._timelineOverviewGraphsMap.set(timeline, overviewGraph);
++        this._graphsContainerElement.appendChild(overviewGraph.element);
++    },
++
++    _timelineRemoved: function(event)
++    {
++        var timeline = event.data.timeline;
++        console.assert(timeline instanceof WebInspector.Timeline, timeline);
++        console.assert(this._timelineOverviewGraphsMap.has(timeline), timeline);
++
++        var overviewGraph = this._timelineOverviewGraphsMap.take(timeline);
++        overviewGraph.timelineOverview = null;
++        this._graphsContainerElement.removeChild(overviewGraph.element);
++    },
++
+     _timeRangeSelectionChanged: function(event)
+     {
+         this._selectionStartTimeSetting.value = this.selectionStartTime - this._startTime;
+         this._selectionDurationSetting.value = this.selectionDuration;
+ 
+         this.dispatchEventToListeners(WebInspector.TimelineOverview.Event.TimeRangeSelectionChanged);
+     }
+ };
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineContentView.css b/Source/WebInspectorUI/UserInterface/Views/TimelineRecordingContentView.css
+similarity index 85%
+rename from Source/WebInspectorUI/UserInterface/Views/TimelineContentView.css
+rename to Source/WebInspectorUI/UserInterface/Views/TimelineRecordingContentView.css
+index 60ec0d6..392bebd 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineContentView.css
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineRecordingContentView.css
+@@ -16,36 +16,34 @@
+  * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+  * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+-.content-view.timeline > .timeline-overview {
++.content-view.timeline-recording > .timeline-overview {
+     position: absolute;
+     top: 0;
+     left: 0;
+     right: 0;
+-    height: 130px;
+ }
+ 
+-.content-view.timeline > .view-container {
++.content-view.timeline-recording > .view-container {
+     position: absolute;
+-    top: 130px;
+     left: 0;
+     right: 0;
+     bottom: 0;
+     overflow: hidden;
+ }
+ 
+-.content-view.timeline > .view-container > .timeline-view > .data-grid td {
++.content-view.timeline-recording > .view-container > .timeline-view > .data-grid td {
+     height: 16px;
+     line-height: 16px;
+ }
+ 
+-.content-view.timeline > .view-container > .timeline-view > .data-grid table.data {
++.content-view.timeline-recording > .view-container > .timeline-view > .data-grid table.data {
+     background-image: linear-gradient(to bottom, white, white 50%, rgb(243, 243, 243) 50%, rgb(243, 243, 243));
+     background-size: 100% 40px;
+ }
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineContentView.js b/Source/WebInspectorUI/UserInterface/Views/TimelineRecordingContentView.js
+similarity index 80%
+rename from Source/WebInspectorUI/UserInterface/Views/TimelineContentView.js
+rename to Source/WebInspectorUI/UserInterface/Views/TimelineRecordingContentView.js
+index 9198fdc..4ab4438 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineContentView.js
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineRecordingContentView.js
+@@ -16,132 +16,106 @@
+  * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+  * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+-WebInspector.TimelineContentView = function(recording)
++WebInspector.TimelineRecordingContentView = function(recording)
+ {
+     WebInspector.ContentView.call(this, recording);
+ 
+     this._recording = recording;
+ 
+-    this.element.classList.add(WebInspector.TimelineContentView.StyleClassName);
++    this.element.classList.add(WebInspector.TimelineRecordingContentView.StyleClassName);
+ 
+-    this._discreteTimelineOverviewGraphMap = new Map;
+-    for (var [identifier, timeline] of recording.timelines)
+-        this._discreteTimelineOverviewGraphMap.set(timeline, new WebInspector.TimelineOverviewGraph(timeline));
+-
+-    this._timelineOverview = new WebInspector.TimelineOverview(this._discreteTimelineOverviewGraphMap);
++    this._timelineOverview = new WebInspector.TimelineOverview(this._recording);
+     this._timelineOverview.addEventListener(WebInspector.TimelineOverview.Event.TimeRangeSelectionChanged, this._timeRangeSelectionChanged, this);
+     this.element.appendChild(this._timelineOverview.element);
+ 
+-    this._viewContainer = document.createElement("div");
+-    this._viewContainer.classList.add(WebInspector.TimelineContentView.ViewContainerStyleClassName);
+-    this.element.appendChild(this._viewContainer);
++    this._viewContainerElement = document.createElement("div");
++    this._viewContainerElement.classList.add(WebInspector.TimelineRecordingContentView.ViewContainerStyleClassName);
++    this.element.appendChild(this._viewContainerElement);
+ 
+     var trashImage;
+     if (WebInspector.Platform.isLegacyMacOS)
+         trashImage = {src: "Images/Legacy/NavigationItemTrash.svg", width: 16, height: 16};
+     else
+         trashImage = {src: "Images/NavigationItemTrash.svg", width: 15, height: 15};
+ 
+     this._clearTimelineNavigationItem = new WebInspector.ButtonNavigationItem("clear-timeline", WebInspector.UIString("Clear Timeline"), trashImage.src, trashImage.width, trashImage.height);
+     this._clearTimelineNavigationItem.addEventListener(WebInspector.ButtonNavigationItem.Event.Clicked, this._clearTimeline, this);
+ 
+     this._overviewTimelineView = new WebInspector.OverviewTimelineView(recording);
+     this._overviewTimelineView.secondsPerPixel = this._timelineOverview.secondsPerPixel;
+ 
+-    this._discreteTimelineViewMap = new Map;
+-    for (var [identifier, timeline] of recording.timelines)
+-        this._discreteTimelineViewMap.set(timeline, new WebInspector.TimelineView(timeline));
+-
+-    function createPathComponent(displayName, className, representedObject)
+-    {
+-        var pathComponent = new WebInspector.HierarchicalPathComponent(displayName, className, representedObject);
+-        pathComponent.addEventListener(WebInspector.HierarchicalPathComponent.Event.SiblingWasSelected, this._pathComponentSelected, this);
+-        return pathComponent;
+-    }
+-
+-    var networkTimeline = recording.timelines.get(WebInspector.TimelineRecord.Type.Network);
+-    var layoutTimeline = recording.timelines.get(WebInspector.TimelineRecord.Type.Layout);
+-    var scriptTimeline = recording.timelines.get(WebInspector.TimelineRecord.Type.Script);
+-
++    this._timelineViewMap = new Map;
+     this._pathComponentMap = new Map;
+-    this._pathComponentMap.set(networkTimeline, createPathComponent.call(this, WebInspector.UIString("Network Requests"), WebInspector.TimelineSidebarPanel.NetworkIconStyleClass, networkTimeline));
+-    this._pathComponentMap.set(layoutTimeline, createPathComponent.call(this, WebInspector.UIString("Layout & Rendering"), WebInspector.TimelineSidebarPanel.ColorsIconStyleClass, layoutTimeline));
+-    this._pathComponentMap.set(scriptTimeline, createPathComponent.call(this, WebInspector.UIString("JavaScript & Events"), WebInspector.TimelineSidebarPanel.ScriptIconStyleClass, scriptTimeline));
+-
+-    var previousPathComponent = null;
+-    for (var pathComponent of this._pathComponentMap.values()) {
+-        if (previousPathComponent) {
+-            previousPathComponent.nextSibling = pathComponent;
+-            pathComponent.previousSibling = previousPathComponent;
+-        }
+-
+-        previousPathComponent = pathComponent;
+-    }
+ 
+     this._currentTimelineView = null;
+     this._currentTimelineViewIdentifier = null;
+ 
+     this._updating = false;
+     this._currentTime = NaN;
+     this._lastUpdateTimestamp = NaN;
+     this._startTimeNeedsReset = true;
+ 
+-    recording.addEventListener(WebInspector.TimelineRecording.Event.Reset, this._recordingReset, this);
+-    recording.addEventListener(WebInspector.TimelineRecording.Event.Unloaded, this._recordingUnloaded, this);
++    this._recording.addEventListener(WebInspector.TimelineRecording.Event.TimelineAdded, this._timelineAdded, this);
++    this._recording.addEventListener(WebInspector.TimelineRecording.Event.TimelineRemoved, this._timelineRemoved, this);
++    this._recording.addEventListener(WebInspector.TimelineRecording.Event.Reset, this._recordingReset, this);
++    this._recording.addEventListener(WebInspector.TimelineRecording.Event.Unloaded, this._recordingUnloaded, this);
+ 
+     WebInspector.timelineManager.addEventListener(WebInspector.TimelineManager.Event.CapturingStarted, this._capturingStarted, this);
+     WebInspector.timelineManager.addEventListener(WebInspector.TimelineManager.Event.CapturingStopped, this._capturingStopped, this);
+ 
+     WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.CaptureStarted, this._replayCaptureStarted, this);
+     WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.CaptureStopped, this._replayCaptureStopped, this);
+     WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.PlaybackPositionChanged, this._playbackPositionChanged, this);
+     WebInspector.replayManager.addEventListener(WebInspector.ReplayManager.Event.ActiveSessionChanged, this._playbackSessionChanged, this);
+ 
+     WebInspector.debuggerManager.addEventListener(WebInspector.DebuggerManager.Event.Paused, this._debuggerPaused, this);
+     WebInspector.debuggerManager.addEventListener(WebInspector.DebuggerManager.Event.Resumed, this._debuggerResumed, this);
+ 
++    for (var timeline of this._recording.timelines.values())
++        this._timelineAdded(timeline);
++
+     this.showOverviewTimelineView();
+ };
+ 
+-WebInspector.TimelineContentView.StyleClassName = "timeline";
+-WebInspector.TimelineContentView.ViewContainerStyleClassName = "view-container";
++WebInspector.TimelineRecordingContentView.StyleClassName = "timeline-recording";
++WebInspector.TimelineRecordingContentView.ViewContainerStyleClassName = "view-container";
+ 
+-WebInspector.TimelineContentView.SelectedTimelineTypeCookieKey = "timeline-content-view-selected-timeline-type";
+-WebInspector.TimelineContentView.OverviewTimelineViewCookieValue = "timeline-content-view-overview-timeline-view";
++WebInspector.TimelineRecordingContentView.SelectedTimelineTypeCookieKey = "timeline-recording-content-view-selected-timeline-type";
++WebInspector.TimelineRecordingContentView.OverviewTimelineViewCookieValue = "timeline-recording-content-view-overview-timeline-view";
+ 
+-WebInspector.TimelineContentView.prototype = {
+-    constructor: WebInspector.TimelineContentView,
++WebInspector.TimelineRecordingContentView.prototype = {
++    constructor: WebInspector.TimelineRecordingContentView,
+     __proto__: WebInspector.ContentView.prototype,
+ 
+     // Public
+ 
+     showOverviewTimelineView: function()
+     {
+         this._showTimelineView(this._overviewTimelineView);
+     },
+ 
+     showTimelineViewForTimeline: function(timeline)
+     {
+         console.assert(timeline instanceof WebInspector.Timeline, timeline);
+-        console.assert(this._discreteTimelineViewMap.has(timeline), timeline);
+-        if (!this._discreteTimelineViewMap.has(timeline))
++        console.assert(this._timelineViewMap.has(timeline), timeline);
++        if (!this._timelineViewMap.has(timeline))
+             return;
+ 
+-        this._showTimelineView(this._discreteTimelineViewMap.get(timeline));
++        this._showTimelineView(this._timelineViewMap.get(timeline));
+     },
+ 
+     get allowedNavigationSidebarPanels()
+     {
+         return [WebInspector.timelineSidebarPanel.identifier];
+     },
+ 
+     get supportsSplitContentBrowser()
+     {
+         // The layout of the overview and split content browser don't work well.
+@@ -208,30 +182,30 @@ WebInspector.TimelineContentView.prototype = {
+             return;
+ 
+         this._currentTimelineView.updateLayout();
+     },
+ 
+     saveToCookie: function(cookie)
+     {
+         cookie.type = WebInspector.ContentViewCookieType.Timelines;
+ 
+         if (!this._currentTimelineView || this._currentTimelineView === this._overviewTimelineView)
+-            cookie[WebInspector.TimelineContentView.SelectedTimelineTypeCookieKey] = WebInspector.TimelineContentView.OverviewTimelineViewCookieValue;
++            cookie[WebInspector.TimelineRecordingContentView.SelectedTimelineTypeCookieKey] = WebInspector.TimelineRecordingContentView.OverviewTimelineViewCookieValue;
+         else
+-            cookie[WebInspector.TimelineContentView.SelectedTimelineTypeCookieKey] = this._currentTimelineView.representedObject.type;
++            cookie[WebInspector.TimelineRecordingContentView.SelectedTimelineTypeCookieKey] = this._currentTimelineView.representedObject.type;
+     },
+ 
+     restoreFromCookie: function(cookie)
+     {
+-        var timelineType = cookie[WebInspector.TimelineContentView.SelectedTimelineTypeCookieKey];
++        var timelineType = cookie[WebInspector.TimelineRecordingContentView.SelectedTimelineTypeCookieKey];
+ 
+-        if (timelineType === WebInspector.TimelineContentView.OverviewTimelineViewCookieValue)
++        if (timelineType === WebInspector.TimelineRecordingContentView.OverviewTimelineViewCookieValue)
+             this.showOverviewTimelineView();
+         else
+             this.showTimelineViewForTimeline(this.representedObject.timelines.get(timelineType));
+     },
+ 
+     matchTreeElementAgainstCustomFilters: function(treeElement)
+     {
+         if (this._currentTimelineView && !this._currentTimelineView.matchTreeElementAgainstCustomFilters(treeElement))
+             return false;
+ 
+@@ -283,21 +257,21 @@ WebInspector.TimelineContentView.prototype = {
+         }
+ 
+         console.error("Unknown TreeElement, can't filter by time.");
+         return true;
+     },
+ 
+     // Private
+ 
+     _pathComponentSelected: function(event)
+     {
+-        WebInspector.timelineSidebarPanel.showTimelineViewForType(event.data.pathComponent.representedObject.type);
++        WebInspector.timelineSidebarPanel.showTimelineViewForTimeline(event.data.pathComponent.representedObject);
+     },
+ 
+     _timelineViewSelectionPathComponentsDidChange: function()
+     {
+         this.dispatchEventToListeners(WebInspector.ContentView.Event.SelectionPathComponentsDidChange);
+     },
+ 
+     _showTimelineView: function(timelineView)
+     {
+         console.assert(timelineView instanceof WebInspector.TimelineView);
+@@ -315,21 +289,21 @@ WebInspector.TimelineContentView.prototype = {
+         }
+ 
+         this._currentTimelineView = timelineView;
+ 
+         WebInspector.timelineSidebarPanel.contentTreeOutline = timelineView && timelineView.navigationSidebarTreeOutline;
+         WebInspector.timelineSidebarPanel.contentTreeOutlineLabel = timelineView && timelineView.navigationSidebarTreeOutlineLabel;
+ 
+         if (this._currentTimelineView) {
+             this._currentTimelineView.addEventListener(WebInspector.TimelineView.Event.SelectionPathComponentsDidChange, this._timelineViewSelectionPathComponentsDidChange, this);
+ 
+-            this._viewContainer.appendChild(this._currentTimelineView.element);
++            this._viewContainerElement.appendChild(this._currentTimelineView.element);
+ 
+             this._currentTimelineView.startTime = this._timelineOverview.selectionStartTime;
+             this._currentTimelineView.endTime = this._timelineOverview.selectionStartTime + this._timelineOverview.selectionDuration;
+             this._currentTimelineView.currentTime = this._currentTime;
+ 
+             this._currentTimelineView.shown();
+             this._currentTimelineView.updateLayout();
+         }
+ 
+         this.dispatchEventToListeners(WebInspector.ContentView.Event.SelectionPathComponentsDidChange);
+@@ -364,21 +338,21 @@ WebInspector.TimelineContentView.prototype = {
+ 
+     _updateTimes: function(startTime, currentTime, endTime)
+     {
+         if (this._startTimeNeedsReset && !isNaN(startTime)) {
+             var selectionOffset = this._timelineOverview.selectionStartTime - this._timelineOverview.startTime;
+ 
+             this._timelineOverview.startTime = startTime;
+             this._timelineOverview.selectionStartTime = startTime + selectionOffset;
+ 
+             this._overviewTimelineView.zeroTime = startTime;
+-            for (var timelineView of this._discreteTimelineViewMap.values())
++            for (var timelineView of this._timelineViewMap.values())
+                 timelineView.zeroTime = startTime;
+ 
+             delete this._startTimeNeedsReset;
+         }
+ 
+         this._timelineOverview.endTime = Math.max(endTime, currentTime);
+ 
+         this._currentTime = currentTime;
+         this._timelineOverview.currentTime = currentTime;
+         this._currentTimelineView.currentTime = currentTime;
+@@ -424,21 +398,22 @@ WebInspector.TimelineContentView.prototype = {
+         }
+     },
+ 
+     _capturingStarted: function(event)
+     {
+         this._startUpdatingCurrentTime();
+     },
+ 
+     _capturingStopped: function(event)
+     {
+-        this._stopUpdatingCurrentTime();
++        if (this._updating)
++            this._stopUpdatingCurrentTime();
+     },
+ 
+     _replayCaptureStarted: function(event)
+     {
+         this._timelineOverview.shouldDisplayFutureRecords = false;
+     },
+ 
+     _replayCaptureStopped: function(event)
+     {
+         this._timelineOverview.shouldDisplayFutureRecords = true;
+@@ -494,42 +469,92 @@ WebInspector.TimelineContentView.prototype = {
+ 
+         this._recording.removeEventListener(WebInspector.TimelineRecording.Event.TimesUpdated, this._recordingTimesUpdated, this);
+         this._waitingToResetCurrentTime = false;
+     },
+ 
+     _clearTimeline: function(event)
+     {
+         this._recording.reset();
+     },
+ 
++    _timelineAdded: function(timelineOrEvent)
++    {
++        var timeline = timelineOrEvent;
++        if (!(timeline instanceof WebInspector.Timeline))
++            timeline = timelineOrEvent.data.timeline;
++
++        console.assert(timeline instanceof WebInspector.Timeline, timeline);
++        console.assert(!this._timelineViewMap.has(timeline), timeline);
++
++        this._timelineViewMap.set(timeline, new WebInspector.TimelineView(timeline));
++
++        var pathComponent = new WebInspector.HierarchicalPathComponent(timeline.displayName, timeline.iconClassName, timeline);
++        pathComponent.addEventListener(WebInspector.HierarchicalPathComponent.Event.SiblingWasSelected, this._pathComponentSelected, this);
++        this._pathComponentMap.set(timeline, pathComponent);
++
++        this._timelineCountChanged();
++    },
++
++    _timelineRemoved: function(event)
++    {
++        var timeline = event.data.timeline;
++        console.assert(timeline instanceof WebInspector.Timeline, timeline);
++        console.assert(this._timelineViewMap.has(timeline), timeline);
++
++        var timelineView = this._timelineViewMap.take(timeline);
++        if (this._currentTimelineView === timelineView)
++            this.showOverviewTimelineView();
++
++        this._pathComponentMap.delete(timeline);
++
++        this._timelineCountChanged();
++    },
++
++    _timelineCountChanged: function()
++    {
++        var previousPathComponent = null;
++        for (var pathComponent of this._pathComponentMap.values()) {
++            if (previousPathComponent) {
++                previousPathComponent.nextSibling = pathComponent;
++                pathComponent.previousSibling = previousPathComponent;
++            }
++
++            previousPathComponent = pathComponent;
++        }
++
++        var timelineCount = this._recording.timelines.size;
++        const timelineHeight = 36;
++        const extraOffset = 22;
++        this._timelineOverview.element.style.height = (timelineCount * timelineHeight + extraOffset) + "px";
++        this._viewContainerElement.style.top = (timelineCount * timelineHeight + extraOffset) + "px";
++    },
++
+     _recordingReset: function(event)
+     {
+         this._currentTime = NaN;
+ 
+         if (!this._updating) {
+             // Force the time ruler and views to reset to 0.
+             this._startTimeNeedsReset = true;
+             this._updateTimes(0, 0, 0);
+         }
+ 
+         this._lastUpdateTimestamp = NaN;
+         this._startTimeNeedsReset = true;
+ 
+         this._recording.removeEventListener(WebInspector.TimelineRecording.Event.TimesUpdated, this._recordingTimesUpdated, this);
+         this._waitingToResetCurrentTime = false;
+ 
++        this._timelineOverview.reset();
+         this._overviewTimelineView.reset();
+-        for (var timelineView of this._discreteTimelineViewMap.values())
++        for (var timelineView of this._timelineViewMap.values())
+             timelineView.reset();
+-
+-        for (var timelineOverviewGraph of this._discreteTimelineOverviewGraphMap.values())
+-            timelineOverviewGraph.reset();
+     },
+ 
+     _recordingUnloaded: function(event)
+     {
+         console.assert(!this._updating);
+ 
+         WebInspector.timelineManager.removeEventListener(WebInspector.TimelineManager.Event.CapturingStarted, this._capturingStarted, this);
+         WebInspector.timelineManager.removeEventListener(WebInspector.TimelineManager.Event.CapturingStopped, this._capturingStopped, this);
+     },
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineSidebarPanel.css b/Source/WebInspectorUI/UserInterface/Views/TimelineSidebarPanel.css
+index b533922..625a3d6 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineSidebarPanel.css
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineSidebarPanel.css
+@@ -232,21 +232,21 @@ body.mac-platform.legacy .sidebar > .panel.navigation.timeline > .timelines-cont
+ 
+ .sidebar > .panel.navigation.timeline > .content,
+ .sidebar > .panel.navigation.timeline > .empty-content-placeholder {
+     top: 182px;
+ }
+ 
+ body.mac-platform.legacy .sidebar > .panel.navigation.timeline > :matches(.content, .empty-content-placeholder) {
+     top: 175px;
+ }
+ 
+-.sidebar > .panel.navigation.timeline.timeline-content-view-showing > .content {
++.sidebar > .panel.navigation.timeline.timeline-recording-content-view-showing > .content {
+  /* This hides the scrollbar. The view shows a scrollbar, we don't need two. */
+     padding-right: 16px;
+     right: -16px;
+ }
+ 
+ body.mac-platform.legacy .sidebar > .panel.navigation.timeline > .content .item > .status > .status-button {
+     width: 12px;
+     height: 12px;
+     margin-top: 2px;
+ }
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineSidebarPanel.js b/Source/WebInspectorUI/UserInterface/Views/TimelineSidebarPanel.js
+index 4c70f7b..b664cf7 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineSidebarPanel.js
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineSidebarPanel.js
+@@ -27,61 +27,43 @@ WebInspector.TimelineSidebarPanel = function()
+ {
+     WebInspector.NavigationSidebarPanel.call(this, "timeline", WebInspector.UIString("Timelines"), "Images/NavigationItemStopwatch.svg", "2");
+ 
+     this._timelineEventsTitleBarElement = document.createElement("div");
+     this._timelineEventsTitleBarElement.classList.add(WebInspector.TimelineSidebarPanel.TitleBarStyleClass);
+     this._timelineEventsTitleBarElement.classList.add(WebInspector.TimelineSidebarPanel.TimelineEventsTitleBarStyleClass);
+     this.element.insertBefore(this._timelineEventsTitleBarElement, this.element.firstChild);
+ 
+     this.contentTreeOutlineLabel = "";
+ 
+-    this._timelinesContentContainer = document.createElement("div");
+-    this._timelinesContentContainer.classList.add(WebInspector.TimelineSidebarPanel.TimelinesContentContainerStyleClass);
+-    this.element.insertBefore(this._timelinesContentContainer, this.element.firstChild);
++    this._timelinesContentContainerElement = document.createElement("div");
++    this._timelinesContentContainerElement.classList.add(WebInspector.TimelineSidebarPanel.TimelinesContentContainerStyleClass);
++    this.element.insertBefore(this._timelinesContentContainerElement, this.element.firstChild);
++
++    this._displayedRecording = null;
++    this._displayedContentView = null;
+ 
+     // Maintain an invisible tree outline containing tree elements for all recordings.
+     // The visible recording's tree element is selected when the content view changes.
+     this._recordingTreeElementMap = new Map;
+     this._recordingsTreeOutline = this.createContentTreeOutline(true, true);
+     this._recordingsTreeOutline.element.classList.add(WebInspector.NavigationSidebarPanel.HideDisclosureButtonsStyleClassName);
+     this._recordingsTreeOutline.element.classList.add(WebInspector.NavigationSidebarPanel.ContentTreeOutlineElementHiddenStyleClassName);
+     this._recordingsTreeOutline.onselect = this._recordingsTreeElementSelected.bind(this);
+-    this._timelinesContentContainer.appendChild(this._recordingsTreeOutline.element);
++    this._timelinesContentContainerElement.appendChild(this._recordingsTreeOutline.element);
+ 
++    // Maintain a tree outline with tree elements for each timeline of the selected recording.
+     this._timelinesTreeOutline = this.createContentTreeOutline(true, true);
+     this._timelinesTreeOutline.element.classList.add(WebInspector.NavigationSidebarPanel.HideDisclosureButtonsStyleClassName);
+     this._timelinesTreeOutline.onselect = this._timelinesTreeElementSelected.bind(this);
+-    this._timelinesContentContainer.appendChild(this._timelinesTreeOutline.element);
+-
+-    function createTimelineTreeElement(label, iconClass, identifier)
+-    {
+-        var treeElement = new WebInspector.GeneralTreeElement([iconClass, WebInspector.TimelineSidebarPanel.LargeIconStyleClass], label, null, identifier);
+-
+-        const tooltip = WebInspector.UIString("Close %s timeline view").format(label);
+-        wrappedSVGDocument(platformImagePath("CloseLarge.svg"), WebInspector.TimelineSidebarPanel.CloseButtonStyleClass, tooltip, function(element) {
+-            var button = new WebInspector.TreeElementStatusButton(element);
+-            button.addEventListener(WebInspector.TreeElementStatusButton.Event.Clicked, this.showTimelineOverview, this);
+-            treeElement.status = button.element;
+-        }.bind(this));
++    this._timelinesContentContainerElement.appendChild(this._timelinesTreeOutline.element);
+ 
+-        return treeElement;
+-    }
+-
+-    // Timeline elements are reused; clicking them displays a TimelineView
+-    // for the relevant timeline of the active recording.
+     this._timelineTreeElementMap = new Map;
+-    this._timelineTreeElementMap.set(WebInspector.TimelineRecord.Type.Network, createTimelineTreeElement.call(this, WebInspector.UIString("Network Requests"), WebInspector.TimelineSidebarPanel.NetworkIconStyleClass, WebInspector.TimelineRecord.Type.Network));
+-    this._timelineTreeElementMap.set(WebInspector.TimelineRecord.Type.Layout, createTimelineTreeElement.call(this, WebInspector.UIString("Layout & Rendering"), WebInspector.TimelineSidebarPanel.ColorsIconStyleClass, WebInspector.TimelineRecord.Type.Layout));
+-    this._timelineTreeElementMap.set(WebInspector.TimelineRecord.Type.Script, createTimelineTreeElement.call(this, WebInspector.UIString("JavaScript & Events"), WebInspector.TimelineSidebarPanel.ScriptIconStyleClass, WebInspector.TimelineRecord.Type.Script));
+-
+-    for (var timelineTreeElement of this._timelineTreeElementMap.values())
+-        this._timelinesTreeOutline.appendChild(timelineTreeElement);
+ 
+     var timelinesTitleBarElement = document.createElement("div");
+     timelinesTitleBarElement.textContent = WebInspector.UIString("Timelines");
+     timelinesTitleBarElement.classList.add(WebInspector.TimelineSidebarPanel.TitleBarStyleClass);
+     timelinesTitleBarElement.classList.add(WebInspector.TimelineSidebarPanel.TimelinesTitleBarStyleClass);
+     this.element.insertBefore(timelinesTitleBarElement, this.element.firstChild);
+ 
+     var statusBarElement = this._statusBarElement = document.createElement("div");
+     statusBarElement.classList.add(WebInspector.TimelineSidebarPanel.StatusBarStyleClass);
+     this.element.insertBefore(statusBarElement, this.element.firstChild);
+@@ -150,56 +132,63 @@ WebInspector.TimelineSidebarPanel.RecordStatusStyleClass = "record-status";
+ WebInspector.TimelineSidebarPanel.TitleBarStyleClass = "title-bar";
+ WebInspector.TimelineSidebarPanel.TimelinesTitleBarStyleClass = "timelines";
+ WebInspector.TimelineSidebarPanel.TimelineEventsTitleBarStyleClass = "timeline-events";
+ WebInspector.TimelineSidebarPanel.TimelinesContentContainerStyleClass = "timelines-content";
+ WebInspector.TimelineSidebarPanel.CloseButtonStyleClass = "close-button";
+ WebInspector.TimelineSidebarPanel.LargeIconStyleClass = "large";
+ WebInspector.TimelineSidebarPanel.StopwatchIconStyleClass = "stopwatch-icon";
+ WebInspector.TimelineSidebarPanel.NetworkIconStyleClass = "network-icon";
+ WebInspector.TimelineSidebarPanel.ColorsIconStyleClass = "colors-icon";
+ WebInspector.TimelineSidebarPanel.ScriptIconStyleClass = "script-icon";
+-WebInspector.TimelineSidebarPanel.TimelineContentViewShowingStyleClass = "timeline-content-view-showing";
++WebInspector.TimelineSidebarPanel.TimelineRecordingContentViewShowingStyleClass = "timeline-recording-content-view-showing";
+ 
+-WebInspector.TimelineSidebarPanel.ShowingTimelineContentViewCookieKey = "timeline-sidebar-panel-showing-timeline-content-view";
++WebInspector.TimelineSidebarPanel.ShowingTimelineRecordingContentViewCookieKey = "timeline-sidebar-panel-showing-timeline-recording-content-view";
+ WebInspector.TimelineSidebarPanel.SelectedTimelineViewIdentifierCookieKey = "timeline-sidebar-panel-selected-timeline-view-identifier";
+ WebInspector.TimelineSidebarPanel.OverviewTimelineIdentifierCookieValue = "overview";
+ 
+ WebInspector.TimelineSidebarPanel.prototype = {
+     constructor: WebInspector.TimelineSidebarPanel,
+     __proto__: WebInspector.NavigationSidebarPanel.prototype,
+ 
+     // Public
+ 
+     shown: function()
+     {
+         WebInspector.NavigationSidebarPanel.prototype.shown.call(this);
+ 
+-        if (this._activeContentView)
+-            WebInspector.contentBrowser.showContentView(this._activeContentView);
++        if (this._displayedContentView)
++            WebInspector.contentBrowser.showContentView(this._displayedContentView);
+     },
+ 
+     showDefaultContentView: function()
+     {
+-        if (this._activeContentView)
++        if (this._displayedContentView)
+             this.showTimelineOverview();
+     },
+ 
+     get hasSelectedElement()
+     {
+         return !!this._contentTreeOutline.selectedTreeElement || !!this._recordingsTreeOutline.selectedTreeElement;
+     },
+ 
+     treeElementForRepresentedObject: function(representedObject)
+     {
+         if (representedObject instanceof WebInspector.TimelineRecording)
+             return this._recordingTreeElementMap.get(representedObject);
+ 
++        // This fails if the timeline does not belong to the selected recording.
++        if (representedObject instanceof WebInspector.Timeline) {
++            var foundTreeElement = this._timelineTreeElementMap.get(representedObject);
++            if (foundTreeElement)
++                return foundTreeElement;
++        }
++
+         // The main resource is used as the representedObject instead of Frame in our tree.
+         if (representedObject instanceof WebInspector.Frame)
+             representedObject = representedObject.mainResource;
+ 
+         var foundTreeElement = this.contentTreeOutline.getCachedTreeElement(representedObject);
+         if (foundTreeElement)
+             return foundTreeElement;
+ 
+         // Look for TreeElements loosely based on represented objects that can contain the represented
+         // object we are really looking for. This allows a SourceCodeTimelineTreeElement or a
+@@ -208,20 +197,25 @@ WebInspector.TimelineSidebarPanel.prototype = {
+         function looselyCompareRepresentedObjects(candidateTreeElement)
+         {
+             if (!candidateTreeElement)
+                 return false;
+ 
+             var candidateRepresentedObject = candidateTreeElement.representedObject;
+             if (candidateRepresentedObject instanceof WebInspector.SourceCodeTimeline) {
+                 if (candidateRepresentedObject.sourceCode === representedObject)
+                     return true;
+                 return false;
++            } else if (candidateRepresentedObject instanceof WebInspector.Timeline && representedObject instanceof WebInspector.Timeline) {
++                // Reopen to the same timeline, even if a different parent recording is currently shown.
++                if (candidateRepresentedObject.type === representedObject.type)
++                    return true;
++                return false;
+             }
+ 
+             if (candidateRepresentedObject instanceof WebInspector.TimelineRecord) {
+                 if (!candidateRepresentedObject.sourceCodeLocation)
+                     return false;
+                 if (candidateRepresentedObject.sourceCodeLocation.sourceCode === representedObject)
+                     return true;
+                 return false;
+             }
+ 
+@@ -258,142 +252,145 @@ WebInspector.TimelineSidebarPanel.prototype = {
+ 
+         this._timelineEventsTitleBarElement.textContent = label;
+         this.filterBar.placeholder = WebInspector.UIString("Filter %s").format(label);
+     },
+ 
+     showTimelineOverview: function()
+     {
+         if (this._timelinesTreeOutline.selectedTreeElement)
+             this._timelinesTreeOutline.selectedTreeElement.deselect();
+ 
+-        this._activeContentView.showOverviewTimelineView();
+-        WebInspector.contentBrowser.showContentView(this._activeContentView);
++        this._displayedContentView.showOverviewTimelineView();
++        WebInspector.contentBrowser.showContentView(this._displayedContentView);
+     },
+ 
+-    showTimelineViewForType: function(timelineType)
++    showTimelineViewForTimeline: function(timeline)
+     {
+-        console.assert(this._timelineTreeElementMap.has(timelineType), timelineType);
+-        if (!this._timelineTreeElementMap.has(timelineType))
+-            return;
++        console.assert(timeline instanceof WebInspector.Timeline, timeline);
++        console.assert(this._timelineTreeElementMap.has(timeline), "Cannot show timeline because it does not belong to the shown recording.", timeline);
+ 
+         // Defer showing the relevant timeline to the onselect handler of the timelines tree element.
+         const wasSelectedByUser = true;
+         const shouldSuppressOnSelect = false;
+-        this._timelineTreeElementMap.get(timelineType).select(true, wasSelectedByUser, shouldSuppressOnSelect, true);
++        this._timelineTreeElementMap.get(timeline).select(true, wasSelectedByUser, shouldSuppressOnSelect, true);
+     },
+ 
+     // Protected
+ 
+     updateFilter: function()
+     {
+         WebInspector.NavigationSidebarPanel.prototype.updateFilter.call(this);
+ 
+-        this._activeContentView.filterDidChange();
++        this._displayedContentView.filterDidChange();
+     },
+ 
+     hasCustomFilters: function()
+     {
+         return true;
+     },
+ 
+     matchTreeElementAgainstCustomFilters: function(treeElement)
+     {
+-        if (!this._activeContentView)
++        if (!this._displayedContentView)
+             return true;
+ 
+-        return this._activeContentView.matchTreeElementAgainstCustomFilters(treeElement);
++        return this._displayedContentView.matchTreeElementAgainstCustomFilters(treeElement);
+     },
+ 
+     canShowDifferentContentView: function()
+     {
+-        return !this.restoringState || !this._restoredShowingTimelineContentView;
++        return !this.restoringState || !this._restoredShowingTimelineRecordingContentView;
+     },
+ 
+     saveStateToCookie: function(cookie)
+     {
+         console.assert(cookie);
+ 
+-        cookie[WebInspector.TimelineSidebarPanel.ShowingTimelineContentViewCookieKey] = WebInspector.contentBrowser.currentContentView instanceof WebInspector.TimelineContentView;
++        cookie[WebInspector.TimelineSidebarPanel.ShowingTimelineRecordingContentViewCookieKey] = WebInspector.contentBrowser.currentContentView instanceof WebInspector.TimelineRecordingContentView;
+ 
+         var selectedTreeElement = this._timelinesTreeOutline.selectedTreeElement;
+         if (selectedTreeElement)
+             cookie[WebInspector.TimelineSidebarPanel.SelectedTimelineViewIdentifierCookieKey] = selectedTreeElement.representedObject.type;
+         else
+             cookie[WebInspector.TimelineSidebarPanel.SelectedTimelineViewIdentifierCookieKey] = WebInspector.TimelineSidebarPanel.OverviewTimelineIdentifierCookieValue;
+ 
+         WebInspector.NavigationSidebarPanel.prototype.saveStateToCookie.call(this, cookie);
+     },
+ 
+     restoreStateFromCookie: function(cookie, relaxedMatchDelay)
+     {
+         console.assert(cookie);
+ 
+-        // The _activeContentView is not ready on initial load, so delay the restore.
++        // The _displayedContentView is not ready on initial load, so delay the restore.
+         // This matches the delayed work in the WebInspector.TimelineSidebarPanel constructor.
+-        if (!this._activeContentView) {
++        if (!this._displayedContentView) {
+             setTimeout(this.restoreStateFromCookie.bind(this, cookie, relaxedMatchDelay), 0);
+             return;
+         }
+ 
+-        this._restoredShowingTimelineContentView = cookie[WebInspector.TimelineSidebarPanel.ShowingTimelineContentViewCookieKey];
++        this._restoredShowingTimelineRecordingContentView = cookie[WebInspector.TimelineSidebarPanel.ShowingTimelineRecordingContentViewCookieKey];
+ 
+         var selectedTimelineViewIdentifier = cookie[WebInspector.TimelineSidebarPanel.SelectedTimelineViewIdentifierCookieKey];
+         if (!selectedTimelineViewIdentifier || selectedTimelineViewIdentifier === WebInspector.TimelineSidebarPanel.OverviewTimelineIdentifierCookieValue)
+             this.showTimelineOverview();
++        else if (this._displayedRecording.timelines.has(selectedTimelineViewIdentifier))
++            this.showTimelineViewForTimeline(this._displayedRecording.timelines.get(selectedTimelineViewIdentifier));
+         else
+-            this.showTimelineViewForType(selectedTimelineViewIdentifier);
++            this.showTimelineOverview();
+ 
+         // Don't call NavigationSidebarPanel.restoreStateFromCookie, because it tries to match based
+         // on type only as a last resort. This would cause the first recording to be reselected on reload.
+     },
+ 
+     // Private
+ 
+     _recordingsTreeElementSelected: function(treeElement, selectedByUser)
+     {
+         console.assert(treeElement.representedObject instanceof WebInspector.TimelineRecording);
+         console.assert(!selectedByUser, "Recording tree elements should be hidden and only programmatically selectable.");
+ 
+-        this._activeContentView = WebInspector.contentBrowser.contentViewForRepresentedObject(treeElement.representedObject);
++        this._recordingSelected(treeElement.representedObject);
+ 
+         // Deselect or re-select the timeline tree element for the timeline view being displayed.
+-        var currentTimelineView = this._activeContentView.currentTimelineView;
++        var currentTimelineView = this._displayedContentView.currentTimelineView;
+         if (currentTimelineView && currentTimelineView.representedObject instanceof WebInspector.Timeline) {
+             const wasSelectedByUser = false; // This is a simulated selection.
+             const shouldSuppressOnSelect = false;
+-            this._timelineTreeElementMap.get(currentTimelineView.representedObject.type).select(true, wasSelectedByUser, shouldSuppressOnSelect, true);
++            this._timelineTreeElementMap.get(currentTimelineView.representedObject).select(true, wasSelectedByUser, shouldSuppressOnSelect, true);
+         } else if (this._timelinesTreeOutline.selectedTreeElement)
+             this._timelinesTreeOutline.selectedTreeElement.deselect();
+ 
+         this.updateFilter();
+     },
+ 
+     _timelinesTreeElementSelected: function(treeElement, selectedByUser)
+     {
+         console.assert(this._timelineTreeElementMap.get(treeElement.representedObject) === treeElement, treeElement);
+ 
+         // If not selected by user, then this selection merely synced the tree element with the content view's contents.
+         if (!selectedByUser) {
+-            console.assert(this._activeContentView.currentTimelineView.representedObject.type === treeElement.representedObject);
++            console.assert(this._displayedContentView.currentTimelineView.representedObject === treeElement.representedObject);
+             return;
+         }
+ 
+-        var timelineType = treeElement.representedObject;
+-        var timeline = this._activeContentView.representedObject.timelines.get(timelineType);
+-        this._activeContentView.showTimelineViewForTimeline(timeline);
+-        WebInspector.contentBrowser.showContentView(this._activeContentView);
++        var timeline = treeElement.representedObject;
++        console.assert(timeline instanceof WebInspector.Timeline, timeline);
++        console.assert(this._displayedRecording.timelines.get(timeline.type) === timeline, timeline);
++
++        this._displayedContentView.showTimelineViewForTimeline(timeline);
++        WebInspector.contentBrowser.showContentView(this._displayedContentView);
+     },
+ 
+     _contentBrowserCurrentContentViewDidChange: function(event)
+     {
+-        var didShowTimelineContentView = WebInspector.contentBrowser.currentContentView instanceof WebInspector.TimelineContentView;
+-        this.element.classList.toggle(WebInspector.TimelineSidebarPanel.TimelineContentViewShowingStyleClass, didShowTimelineContentView);
++        var didShowTimelineRecordingContentView = WebInspector.contentBrowser.currentContentView instanceof WebInspector.TimelineRecordingContentView;
++        this.element.classList.toggle(WebInspector.TimelineSidebarPanel.TimelineRecordingContentViewShowingStyleClass, didShowTimelineRecordingContentView);
+     },
+ 
+     _capturingStarted: function(event)
+     {
+         this._recordStatusElement.textContent = WebInspector.UIString("Recording");
+         this._recordGlyphElement.classList.add(WebInspector.TimelineSidebarPanel.RecordGlyphRecordingStyleClass);
+     },
+ 
+     _capturingStopped: function(event)
+     {
+@@ -403,37 +400,123 @@ WebInspector.TimelineSidebarPanel.prototype = {
+ 
+     _recordingCreated: function(event)
+     {
+         var recording = event.data.recording;
+         console.assert(recording instanceof WebInspector.TimelineRecording, recording);
+ 
+         var recordingTreeElement = new WebInspector.GeneralTreeElement(WebInspector.TimelineSidebarPanel.StopwatchIconStyleClass, recording.displayName, null, recording);
+         this._recordingTreeElementMap.set(recording, recordingTreeElement);
+         this._recordingsTreeOutline.appendChild(recordingTreeElement);
+ 
++        this._recordingCountChanged();
++    },
++
++    _recordingCountChanged: function()
++    {
+         var previousTreeElement = null;
+         for (var treeElement of this._recordingTreeElementMap.values()) {
+             if (previousTreeElement) {
+                 previousTreeElement.nextSibling = treeElement;
+                 treeElement.previousSibling = previousTreeElement;
+             }
+ 
+             previousTreeElement = treeElement;
+         }
+     },
+ 
+-    _recordingLoaded: function()
++    _recordingSelected: function(recording)
+     {
+-        this._activeContentView = WebInspector.contentBrowser.contentViewForRepresentedObject(WebInspector.timelineManager.activeRecording);
++        console.assert(recording instanceof WebInspector.TimelineRecording, recording);
+ 
++        var oldRecording = this._displayedRecording || null;
++        if (oldRecording) {
++            oldRecording.removeEventListener(WebInspector.TimelineRecording.Event.TimelineAdded, this._timelineAdded, this);
++            oldRecording.removeEventListener(WebInspector.TimelineRecording.Event.TimelineRemoved, this._timelineRemoved, this);
++
++            // Destroy tree elements in one operation to avoid unnecessary fixups.
++            this._timelinesTreeOutline.removeChildren();
++            this._timelineTreeElementMap.clear();
++        }
++
++        this._displayedRecording = recording;
++        this._displayedRecording.addEventListener(WebInspector.TimelineRecording.Event.TimelineAdded, this._timelineAdded, this);
++        this._displayedRecording.addEventListener(WebInspector.TimelineRecording.Event.TimelineRemoved, this._timelineRemoved, this);
++
++        for (var timeline of recording.timelines.values())
++            this._timelineAdded(timeline);
++
++        this._displayedContentView = WebInspector.contentBrowser.contentViewForRepresentedObject(this._displayedRecording);
+         if (this.selected)
+-            WebInspector.contentBrowser.showContentView(this._activeContentView);
++            WebInspector.contentBrowser.showContentView(this._displayedContentView);
++    },
++
++    _recordingLoaded: function(event)
++    {
++        this._recordingSelected(WebInspector.timelineManager.activeRecording);
++    },
++
++    _timelineAdded: function(timelineOrEvent)
++    {
++        var timeline = timelineOrEvent;
++        if (!(timeline instanceof WebInspector.Timeline))
++            timeline = timelineOrEvent.data.timeline;
++
++        console.assert(timeline instanceof WebInspector.Timeline, timeline);
++        console.assert(!this._timelineTreeElementMap.has(timeline), timeline);
++
++        var timelineTreeElement = new WebInspector.GeneralTreeElement([timeline.iconClassName, WebInspector.TimelineSidebarPanel.LargeIconStyleClass], timeline.displayName, null, timeline);
++        const tooltip = WebInspector.UIString("Close %s timeline view").format(timeline.displayName);
++        wrappedSVGDocument(platformImagePath("CloseLarge.svg"), WebInspector.TimelineSidebarPanel.CloseButtonStyleClass, tooltip, function(element) {
++            var button = new WebInspector.TreeElementStatusButton(element);
++            button.addEventListener(WebInspector.TreeElementStatusButton.Event.Clicked, this.showTimelineOverview, this);
++            timelineTreeElement.status = button.element;
++        }.bind(this));
++        this._timelinesTreeOutline.appendChild(timelineTreeElement);
++        this._timelineTreeElementMap.set(timeline, timelineTreeElement);
++
++        this._timelineCountChanged();
++    },
++
++    _timelineRemoved: function(event)
++    {
++        var timeline = event.data.timeline;
++        console.assert(timeline instanceof WebInspector.Timeline, timeline);
++        console.assert(this._timelineTreeElementMap.has(timeline), timeline);
++
++        var timelineTreeElement = this._timelineTreeElementMap.take(timeline);
++        const shouldSuppressOnDeselect = false;
++        const shouldSuppressSelectSibling = true;
++        this._timelinesTreeOutline.removeChild(timelineTreeElement, shouldSuppressOnDeselect, shouldSuppressSelectSibling);
++        this._timelineTreeElementMap.delete(timeline);
++
++        this._timelineCountChanged();
++    },
++
++    _timelineCountChanged: function()
++    {
++        var previousTreeElement = null;
++        for (var treeElement of this._timelineTreeElementMap.values()) {
++            if (previousTreeElement) {
++                previousTreeElement.nextSibling = treeElement;
++                treeElement.previousSibling = previousTreeElement;
++            }
++
++            previousTreeElement = treeElement;
++        }
++
++        const timelineHeight = 36;
++        const eventTitleBarOffset = 51;
++        const contentElementOffset = 74;
++        var timelineCount = this._displayedRecording.timelines.size;
++        this._timelinesContentContainerElement.style.height = (timelineHeight * timelineCount) + "px";
++        this._timelineEventsTitleBarElement.style.top = (timelineHeight * timelineCount + eventTitleBarOffset) + "px";
++        this.contentElement.style.top = (timelineHeight * timelineCount + contentElementOffset) + "px";
+     },
+ 
+     _recordGlyphMousedOver: function(event)
+     {
+         this._recordGlyphElement.classList.remove(WebInspector.TimelineSidebarPanel.RecordGlyphRecordingForcedStyleClass);
+ 
+         if (WebInspector.timelineManager.isCapturing())
+             this._recordStatusElement.textContent = WebInspector.UIString("Stop Recording");
+         else
+             this._recordStatusElement.textContent = WebInspector.UIString("Start Recording");
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineView.css b/Source/WebInspectorUI/UserInterface/Views/TimelineView.css
+index 944ab80..a229265 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineView.css
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineView.css
+@@ -29,14 +29,14 @@
+     left: 0;
+     right: 0;
+     bottom: 0;
+ }
+ 
+ .panel.navigation.timeline > .content > .navigation-sidebar-panel-content-tree-outline {
+     min-height: 100%;
+     background-image: none;
+ }
+ 
+-.panel.navigation.timeline.timeline-content-view-showing > .content > .navigation-sidebar-panel-content-tree-outline {
++.panel.navigation.timeline.timeline-recording-content-view-showing > .content > .navigation-sidebar-panel-content-tree-outline {
+     background-image: linear-gradient(to bottom, transparent, transparent 50%, rgba(0, 0, 0, 0.03) 50%, rgba(0, 0, 0, 0.03));
+     background-size: 100% 40px;
+ }
+-- 
+2.2.2
+

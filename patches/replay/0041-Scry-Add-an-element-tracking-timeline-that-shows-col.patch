@@ -1,0 +1,1375 @@
+From 831aed9dac95f5c2276e04a40b96b05e8668a296 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Mon, 9 Feb 2015 09:45:51 -0800
+Subject: [PATCH] [Scry] Add an element tracking timeline that shows collected
+ snapshots.
+
+---
+ .../Localizations/en.lproj/localizedStrings.js     | Bin 56954 -> 57252 bytes
+ .../UserInterface/Controllers/DOMTracingManager.js |  35 ++-
+ .../UserInterface/Controllers/TimelineManager.js   |   3 +-
+ Source/WebInspectorUI/UserInterface/Main.html      |   6 +
+ .../ElementTrackingTimeline.js}                    |  34 +-
+ .../Models/ElementTrackingTimelineRecord.js        | 107 +++++++
+ .../UserInterface/Models/Geometry.js               |   5 +
+ .../UserInterface/Models/Timeline.js               |   6 +
+ .../UserInterface/Models/TimelineRecord.js         |   3 +-
+ .../Views/ElementTrackingTimelineDataGridNode.js   |  82 +++++
+ ...ss => ElementTrackingTimelineOverviewGraph.css} |  15 +-
+ .../Views/ElementTrackingTimelineOverviewGraph.js  |  95 ++++++
+ .../Views/ElementTrackingTimelineView.js           | 350 +++++++++++++++++++++
+ .../UserInterface/Views/LayoutTimelineView.css     |  12 -
+ .../UserInterface/Views/NetworkTimelineView.css    |   8 -
+ .../UserInterface/Views/ScriptTimelineView.css     |   8 -
+ .../UserInterface/Views/TimelineDataGrid.css       |  12 +
+ .../UserInterface/Views/TimelineOverviewGraph.js   |   5 +-
+ .../UserInterface/Views/TimelineRecordBar.css      |   5 +
+ .../Views/TimelineRecordTreeElement.js             |  12 +
+ .../UserInterface/Views/TimelineView.js            |   3 +
+ 21 files changed, 747 insertions(+), 59 deletions(-)
+ copy Source/WebInspectorUI/UserInterface/{Views/LayoutTimelineView.css => Models/ElementTrackingTimeline.js} (69%)
+ create mode 100644 Source/WebInspectorUI/UserInterface/Models/ElementTrackingTimelineRecord.js
+ create mode 100644 Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineDataGridNode.js
+ copy Source/WebInspectorUI/UserInterface/Views/{NetworkTimelineView.css => ElementTrackingTimelineOverviewGraph.css} (79%)
+ create mode 100644 Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineOverviewGraph.js
+ create mode 100644 Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineView.js
+
+diff --git a/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js b/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js
+index 764fc6ec91b5c327ae2ed4769d16652d12ec90e4..ad227eb55ffd65a18dae3f80fbd0abe44b3f9fba 100644
+GIT binary patch
+delta 132
+zcmeyhhk40<<_)XjCWZ2GhA<Q{Br+s3WKT|%6P{e>DS#vrpJcpwRa~5<WGO=lLjePb
+zRA6vs$N*}{V@PL6Wk{L4f4U?$lGx-%PW{bnGYU*5uiDBp`QKTN$zDgbCSN$mF<I*D
+Sq{(qtcqW}=+bnf9K@b47TP$1v
+
+delta 24
+gcmZ3opZV7w<_)XjHY>!(S#EwaBhO^>g0n0_0GfvjumAu6
+
+diff --git a/Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js b/Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js
+index 0f44692..6df8cf3 100644
+--- a/Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js
++++ b/Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js
+@@ -21,21 +21,21 @@
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ WebInspector.ElementSnapshot = function(payload)
+ {
+     this.nodeId = payload.nodeId;
+     this.snapshotId = payload.snapshotId;
+     this.elapsedTime = payload.elapsedTimestamp;
+-    this.bounds = payload.boundingBox;
++    this.boundingRect = WebInspector.Rect.fromObject(payload.boundingBox);
+ 
+     if (WebInspector.ReplayManager) {
+         // These are only available if ENABLE(WEB_REPLAY).
+         this.stableNodeId = payload.stableNodeId;
+         this.timeIndex = payload.timeIndex || NaN;
+     }
+ 
+     this._payloadPromise = null;
+ }
+ 
+@@ -51,45 +51,68 @@ WebInspector.ElementSnapshot.prototype = {
+         return this._payloadPromise.then(function(result) {
+             return result.payload.imageData;
+         });
+     }
+ }
+ 
+ WebInspector.DOMTracingManager = function()
+ {
+     WebInspector.Object.call(this);
+ 
+-    this._snapshots = [];
++    this._snapshotMap = new Map;
+     this._targetNode = null;
+ };
+ 
+ WebInspector.DOMTracingManager.prototype = {
+     constructor: WebInspector.DOMTracingManager,
+     __proto__: WebInspector.Object.prototype,
+ 
+     // Public
+ 
+     startTrackingElement: function(node)
+     {
+         this._targetNode = node;
+-        return DOMTracingAgent.startTrackingElement(node.id);
++
++        result = Promise.resolve();
++        if (!WebInspector.timelineManager.isCapturing())
++            result = WebInspector.timelineManager.startCapturing();
++
++        var recording = WebInspector.timelineManager.activeRecording;
++        var timelineType = WebInspector.TimelineRecord.Type.ElementTracking
++        if (!recording.timelines.has(timelineType))
++            recording.addTimeline(new WebInspector.Timeline(timelineType));
++
++        result = result.then(function() {
++            DOMTracingAgent.startTrackingElement(node.id);
++        });
++        return result;
+     },
+ 
+     stopTracking: function()
+     {
+         console.assert(this._targetNode, "Tried to clear target element, but none was set.");
+ 
+-        return DOMTracingAgent.stopTracking();
++        var result = DOMTracingAgent.stopTracking();
++        result = result.then(function() {
++            this._snapshotMap.clear();
++        }.bind(this));
++        return result;
+     },
+ 
+     get targetElement()
+     {
+         return this._targetNode;
+     },
+ 
+     // Protected - Called by DOMTracingObserver
+ 
+-    snapshotCreated: function(snapshot)
++    snapshotCreated: function(snapshotPayload)
+     {
+-        this._snapshots.push(new WebInspector.ElementSnapshot(snapshot));
++        var snapshot = new WebInspector.ElementSnapshot(snapshotPayload);
++        this._snapshotMap.set(snapshot.snapshotId, snapshot);
++
++        var eventType = WebInspector.ElementTrackingTimelineRecord.EventType.OutputChanged;
++        var record = new WebInspector.ElementTrackingTimelineRecord(eventType, snapshot);
++        WebInspector.timelineManager.activeRecording.addRecord(record);
++        console.log("Added snapshot record: ", record, snapshot);
+     }
+ };
+diff --git a/Source/WebInspectorUI/UserInterface/Controllers/TimelineManager.js b/Source/WebInspectorUI/UserInterface/Controllers/TimelineManager.js
+index c50e1f1..f4d9fc3 100644
+--- a/Source/WebInspectorUI/UserInterface/Controllers/TimelineManager.js
++++ b/Source/WebInspectorUI/UserInterface/Controllers/TimelineManager.js
+@@ -85,24 +85,25 @@ WebInspector.TimelineManager.prototype = {
+     {
+         console.assert(!this._isCapturing, "TimelineManager is already capturing.");
+ 
+         if (!this._activeRecording || shouldCreateRecording)
+             this._loadNewRecording();
+ 
+         var result = TimelineAgent.start();
+ 
+         // COMPATIBILITY (iOS 7): recordingStarted event did not exist yet. Start explicitly.
+         if (!TimelineAgent.hasEvent("recordingStarted")) {
+-            result.then(function() {
++            result = result.then(function() {
+                 WebInspector.timelineManager.capturingStarted();
+             });
+         }
++        return result;
+     },
+ 
+     stopCapturing: function()
+     {
+         console.assert(this._isCapturing, "TimelineManager is not capturing.");
+ 
+         TimelineAgent.stop();
+ 
+         // NOTE: Always stop immediately instead of waiting for a Timeline.recordingStopped event.
+         // This way the UI feels as responsive to a stop as possible.
+diff --git a/Source/WebInspectorUI/UserInterface/Main.html b/Source/WebInspectorUI/UserInterface/Main.html
+index fd4e272..777360a 100644
+--- a/Source/WebInspectorUI/UserInterface/Main.html
++++ b/Source/WebInspectorUI/UserInterface/Main.html
+@@ -67,20 +67,21 @@
+     <link rel="stylesheet" href="Views/DefaultDashboardView.css">
+     <link rel="stylesheet" href="Views/DataGrid.css">
+     <link rel="stylesheet" href="Views/DatabaseContentView.css">
+     <link rel="stylesheet" href="Views/DatabaseIcon.css">
+     <link rel="stylesheet" href="Views/DatabaseTableContentView.css">
+     <link rel="stylesheet" href="Views/DatabaseTableIcon.css">
+     <link rel="stylesheet" href="Views/DebuggerSidebarPanel.css">
+     <link rel="stylesheet" href="Views/DetailsSection.css">
+     <link rel="stylesheet" href="Views/DividerNavigationItem.css">
+     <link rel="stylesheet" href="Views/Editing.css">
++    <link rel="stylesheet" href="Views/ElementTrackingTimelineOverviewGraph.css">
+     <link rel="stylesheet" href="Views/EventListenerSectionGroup.css">
+     <link rel="stylesheet" href="Views/FilterBar.css">
+     <link rel="stylesheet" href="Views/FindBanner.css">
+     <link rel="stylesheet" href="Views/FlexibleSpaceNavigationItem.css">
+     <link rel="stylesheet" href="Views/FolderIcon.css">
+     <link rel="stylesheet" href="Views/FontResourceContentView.css">
+     <link rel="stylesheet" href="Views/GoToLineDialog.css">
+     <link rel="stylesheet" href="Views/GradientSlider.css">
+     <link rel="stylesheet" href="Views/HierarchicalPathComponent.css">
+     <link rel="stylesheet" href="Views/HoverMenu.css">
+@@ -225,20 +226,22 @@
+     <script src="Models/CookieStorageObject.js"></script>
+     <script src="Models/DOMNode.js"></script>
+     <script src="Models/DOMNodeStyles.js"></script>
+     <script src="Models/DOMSearchMatchObject.js"></script>
+     <script src="Models/DOMStorageObject.js"></script>
+     <script src="Models/DOMTree.js"></script>
+     <script src="Models/DatabaseObject.js"></script>
+     <script src="Models/DatabaseTableObject.js"></script>
+     <script src="Models/DebuggerDashboard.js"></script>
+     <script src="Models/DefaultDashboard.js"></script>
++    <script src="Models/ElementTrackingTimeline.js"></script>
++    <script src="Models/ElementTrackingTimelineRecord.js"></script>
+     <script src="Models/ExecutionContext.js"></script>
+     <script src="Models/ExecutionContextList.js"></script>
+     <script src="Models/Frame.js"></script>
+     <script src="Models/Geometry.js"></script>
+     <script src="Models/Gradient.js"></script>
+     <script src="Models/IndexedDatabase.js"></script>
+     <script src="Models/IndexedDatabaseObjectStore.js"></script>
+     <script src="Models/IndexedDatabaseObjectStoreIndex.js"></script>
+     <script src="Models/IssueMessage.js"></script>
+     <script src="Models/KeyboardShortcut.js"></script>
+@@ -369,20 +372,23 @@
+     <script src="Views/DashboardView.js"></script>
+     <script src="Views/DebuggerDashboardView.js"></script>
+     <script src="Views/DefaultDashboardView.js"></script>
+     <script src="Views/DetailsSectionDataGridRow.js"></script>
+     <script src="Views/DetailsSectionGroup.js"></script>
+     <script src="Views/DetailsSectionPropertiesRow.js"></script>
+     <script src="Views/DetailsSectionSimpleRow.js"></script>
+     <script src="Views/DetailsSectionTextRow.js"></script>
+     <script src="Views/DividerNavigationItem.js"></script>
+     <script src="Views/EditingSupport.js"></script>
++    <script src="Views/ElementTrackingTimelineDataGridNode.js"></script>
++    <script src="Views/ElementTrackingTimelineView.js"></script>
++    <script src="Views/ElementTrackingTimelineOverviewGraph.js"></script>
+     <script src="Views/EventListenerSection.js"></script>
+     <script src="Views/EventListenerSectionGroup.js"></script>
+     <script src="Views/FilterBar.js"></script>
+     <script src="Views/FindBanner.js"></script>
+     <script src="Views/FlexibleSpaceNavigationItem.js"></script>
+     <script src="Views/FolderTreeElement.js"></script>
+     <script src="Views/FontResourceContentView.js"></script>
+     <script src="Views/FrameContentView.js"></script>
+     <script src="Views/FrameDOMTreeContentView.js"></script>
+     <script src="Views/FrameTreeElement.js"></script>
+diff --git a/Source/WebInspectorUI/UserInterface/Views/LayoutTimelineView.css b/Source/WebInspectorUI/UserInterface/Models/ElementTrackingTimeline.js
+similarity index 69%
+copy from Source/WebInspectorUI/UserInterface/Views/LayoutTimelineView.css
+copy to Source/WebInspectorUI/UserInterface/Models/ElementTrackingTimeline.js
+index 2222d19..b2fc216 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/LayoutTimelineView.css
++++ b/Source/WebInspectorUI/UserInterface/Models/ElementTrackingTimeline.js
+@@ -16,25 +16,33 @@
+  * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+  * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+-.timeline-view.layout > .data-grid {
+-    position: absolute;
+-    top: 0;
+-    left: 0;
+-    right: 0;
+-    bottom: 0;
+-}
++WebInspector.ElementTrackingTimeline = function(type)
++{
++    WebInspector.Timeline.call(this, type);
++};
+ 
+-.timeline-view.layout > .data-grid .eventType-column {
+-    border-right: none;
+-}
++WebInspector.ElementTrackingTimeline.prototype = {
++    constructor: WebInspector.ElementTrackingTimeline,
++    __proto__: WebInspector.Timeline.prototype,
+ 
+-.sidebar > .panel.navigation.timeline.timeline-recording-content-view-showing .navigation-sidebar-panel-content-tree-outline.layout .item .subtitle {
+-    display: none;
+-}
++    // Public
++
++    reset: function(suppressEvents)
++    {
++        WebInspector.Timeline.prototype.reset.call(this, suppressEvents);
++    },
++
++    addRecord: function(record)
++    {
++        console.assert(record instanceof WebInspector.ElementTrackingTimelineRecord, record);
++
++        WebInspector.Timeline.prototype.addRecord.call(this, record);
++    }
++};
+diff --git a/Source/WebInspectorUI/UserInterface/Models/ElementTrackingTimelineRecord.js b/Source/WebInspectorUI/UserInterface/Models/ElementTrackingTimelineRecord.js
+new file mode 100644
+index 0000000..1cd557c
+--- /dev/null
++++ b/Source/WebInspectorUI/UserInterface/Models/ElementTrackingTimelineRecord.js
+@@ -0,0 +1,107 @@
++/*
++ * Copyright (C) 2015 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
++ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
++ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
++ * THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++WebInspector.ElementTrackingTimelineRecord = function(eventType, snapshot)
++{
++    WebInspector.TimelineRecord.call(this, WebInspector.TimelineRecord.Type.ElementTracking, snapshot.elapsedTime, snapshot.elapsedTime);
++
++    console.assert(eventType, eventType);
++    console.assert(snapshot instanceof WebInspector.ElementSnapshot, snapshot);
++
++    if (eventType in WebInspector.ElementTrackingTimelineRecord.EventType)
++        eventType = WebInspector.ElementTrackingTimelineRecord.EventType[eventType];
++
++    this._eventType = eventType;
++    this._snapshot = snapshot;
++};
++
++WebInspector.ElementTrackingTimelineRecord.EventType = {
++    OutputChanged: "element-tracking-timeline-record-output-changed",
++};
++
++WebInspector.ElementTrackingTimelineRecord.displayNameForEventType = function(eventType)
++{
++    switch (eventType) {
++    case WebInspector.ElementTrackingTimelineRecord.EventType.OutputChanged:
++        return WebInspector.UIString("Output Changed");
++    }
++};
++
++WebInspector.ElementTrackingTimelineRecord.TypeIdentifier = "element-tracking-timeline-record";
++WebInspector.ElementTrackingTimelineRecord.EventTypeCookieKey = "element-tracking-timeline-record-event-type";
++
++WebInspector.ElementTrackingTimelineRecord.prototype = {
++    constructor: WebInspector.ElementTrackingTimelineRecord,
++    __proto__: WebInspector.TimelineRecord.prototype,
++
++    // Public
++
++    get eventType()
++    {
++        return this._eventType;
++    },
++
++    get x()
++    {
++        return this._snapshot.boundingRect.origin.x;
++    },
++
++    get y()
++    {
++        return this._snapshot.boundingRect.origin.y;
++    },
++
++    get width()
++    {
++        return this._snapshot.boundingRect.size.width;
++    },
++
++    get height()
++    {
++        return this._snapshot.boundingRect.size.height;
++    },
++
++    get rect()
++    {
++        return this._snapshot.boundingRect;
++    },
++
++    get elapsedTime()
++    {
++        return this._snapshot.elapsedTime;
++    },
++
++    get snapshot()
++    {
++        return this._snapshot;
++    },
++
++    saveIdentityToCookie: function(cookie)
++    {
++        WebInspector.TimelineRecord.prototype.saveIdentityToCookie.call(this, cookie);
++
++        cookie[WebInspector.ElementTrackingTimelineRecord.EventTypeCookieKey] = this._eventType;
++    }
++};
+diff --git a/Source/WebInspectorUI/UserInterface/Models/Geometry.js b/Source/WebInspectorUI/UserInterface/Models/Geometry.js
+index ea5c081..f45c4a5 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/Geometry.js
++++ b/Source/WebInspectorUI/UserInterface/Models/Geometry.js
+@@ -91,20 +91,25 @@ WebInspector.Rect = function(x, y, width, height)
+ {
+     this.origin = new WebInspector.Point(x || 0, y || 0);
+     this.size = new WebInspector.Size(width || 0, height || 0);
+ };
+ 
+ WebInspector.Rect.rectFromClientRect = function(clientRect)
+ {
+     return new WebInspector.Rect(clientRect.left, clientRect.top, clientRect.width, clientRect.height);
+ };
+ 
++WebInspector.Rect.fromObject = function(object)
++{
++    return new WebInspector.Rect(object.x, object.y, object.width, object.height);
++};
++
+ WebInspector.Rect.unionOfRects = function(rects)
+ {
+     var union = rects[0];
+     for (var i = 1; i < rects.length; ++i)
+         union = union.unionWithRect(rects[i]);
+     return union;
+ };
+ 
+ WebInspector.Rect.prototype = {
+     constructor: WebInspector.Rect,
+diff --git a/Source/WebInspectorUI/UserInterface/Models/Timeline.js b/Source/WebInspectorUI/UserInterface/Models/Timeline.js
+index ed0ba5e..8bc58f5 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/Timeline.js
++++ b/Source/WebInspectorUI/UserInterface/Models/Timeline.js
+@@ -22,20 +22,22 @@
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ WebInspector.Timeline = function(type)
+ {
+     if (this.constructor === WebInspector.Timeline) {
+         // When instantiated directly, potentially return an instance of a concrete subclass.
+         if (type === WebInspector.TimelineRecord.Type.Network)
+             return new WebInspector.NetworkTimeline(type);
++        if (type === WebInspector.TimelineRecord.Type.ElementTracking)
++            return new WebInspector.ElementTrackingTimeline(type);
+     }
+ 
+     WebInspector.Object.call(this);
+ 
+     this._type = type;
+ 
+     this.reset(true);
+ };
+ 
+ WebInspector.Timeline.Event = {
+@@ -73,32 +75,36 @@ WebInspector.Timeline.prototype = {
+     },
+ 
+     get displayName()
+     {
+         if (this._type === WebInspector.TimelineRecord.Type.Network)
+             return WebInspector.UIString("Network Requests");
+         if (this._type === WebInspector.TimelineRecord.Type.Layout)
+             return WebInspector.UIString("Layout & Rendering");
+         if (this._type === WebInspector.TimelineRecord.Type.Script)
+             return WebInspector.UIString("JavaScript & Events");
++        if (this._type === WebInspector.TimelineRecord.Type.ElementTracking)
++            return WebInspector.UIString("Element Tracking");
+ 
+         console.error("Timeline has unknown type:", this._type, this);
+     },
+ 
+     get iconClassName()
+     {
+         if (this._type === WebInspector.TimelineRecord.Type.Network)
+             return WebInspector.TimelineSidebarPanel.NetworkIconStyleClass;
+         if (this._type === WebInspector.TimelineRecord.Type.Layout)
+             return WebInspector.TimelineSidebarPanel.ColorsIconStyleClass;
+         if (this._type === WebInspector.TimelineRecord.Type.Script)
+             return WebInspector.TimelineSidebarPanel.ScriptIconStyleClass;
++        if (this._type === WebInspector.TimelineRecord.Type.ElementTracking)
++            return WebInspector.TimelineSidebarPanel.ScriptIconStyleClass;
+ 
+         console.error("Timeline has unknown type:", this._type, this);
+     },
+ 
+     reset: function(suppressEvents)
+     {
+         this._records = [];
+         this._startTime = NaN;
+         this._endTime = NaN;
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Models/TimelineRecord.js b/Source/WebInspectorUI/UserInterface/Models/TimelineRecord.js
+index 09582bc..dd6b957 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/TimelineRecord.js
++++ b/Source/WebInspectorUI/UserInterface/Models/TimelineRecord.js
+@@ -39,21 +39,22 @@ WebInspector.TimelineRecord = function(type, startTime, endTime, callFrames, sou
+     this._sourceCodeLocation = sourceCodeLocation || null;
+ };
+ 
+ WebInspector.TimelineRecord.Event = {
+     Updated: "timeline-record-updated"
+ };
+ 
+ WebInspector.TimelineRecord.Type = {
+     Network: "timeline-record-type-network",
+     Layout: "timeline-record-type-layout",
+-    Script: "timeline-record-type-script"
++    Script: "timeline-record-type-script",
++    ElementTracking: "timeline-record-type-element-tracking",
+ };
+ 
+ WebInspector.TimelineRecord.TypeIdentifier = "timeline-record";
+ WebInspector.TimelineRecord.SourceCodeURLCookieKey = "timeline-record-source-code-url";
+ WebInspector.TimelineRecord.SourceCodeLocationLineCookieKey = "timeline-record-source-code-location-line";
+ WebInspector.TimelineRecord.SourceCodeLocationColumnCookieKey = "timeline-record-source-code-location-column";
+ WebInspector.TimelineRecord.TypeCookieKey = "timeline-record-type";
+ 
+ WebInspector.TimelineRecord.prototype = {
+     constructor: WebInspector.TimelineRecord,
+diff --git a/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineDataGridNode.js b/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineDataGridNode.js
+new file mode 100644
+index 0000000..24119e2
+--- /dev/null
++++ b/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineDataGridNode.js
+@@ -0,0 +1,82 @@
++/*
++ * Copyright (C) 2015 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
++ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
++ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
++ * THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++WebInspector.ElementTrackingTimelineDataGridNode = function(timelineRecord, baseStartTime)
++{
++    console.assert(timelineRecord instanceof WebInspector.ElementTrackingTimelineRecord, timelineRecord);
++
++    WebInspector.TimelineDataGridNode.call(this, false, null);
++
++    this._record = timelineRecord;
++    this._baseStartTime = baseStartTime || 0;
++};
++
++WebInspector.Object.addConstructorFunctions(WebInspector.ElementTrackingTimelineDataGridNode);
++
++WebInspector.ElementTrackingTimelineDataGridNode.IconStyleClassName = "icon";
++WebInspector.ElementTrackingTimelineDataGridNode.SubtitleStyleClassName = "subtitle";
++
++WebInspector.ElementTrackingTimelineDataGridNode.prototype = {
++    constructor: WebInspector.ElementTrackingTimelineDataGridNode,
++    __proto__: WebInspector.TimelineDataGridNode.prototype,
++
++    // Public
++
++    get record()
++    {
++        return this._record;
++    },
++
++    get records()
++    {
++        return [this._record];
++    },
++
++    get data()
++    {
++        return this._record;
++    },
++
++    createCellContent: function(columnIdentifier, cell)
++    {
++        const emptyValuePlaceholderString = "\u2014";
++        var value = this.data[columnIdentifier];
++
++        switch (columnIdentifier) {
++        case "eventType":
++            return WebInspector.ElementTrackingTimelineRecord.displayNameForEventType(value);
++
++        case "width":
++        case "height":
++            return isNaN(value) ? emptyValuePlaceholderString : WebInspector.UIString("%fpx").format(value);
++
++        case "elapsedTime":
++            return isNaN(value) ? emptyValuePlaceholderString : Number.secondsToString(value, true);
++
++        }
++
++        return WebInspector.TimelineDataGridNode.prototype.createCellContent.call(this, columnIdentifier, cell);
++    }
++};
+diff --git a/Source/WebInspectorUI/UserInterface/Views/NetworkTimelineView.css b/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineOverviewGraph.css
+similarity index 79%
+copy from Source/WebInspectorUI/UserInterface/Views/NetworkTimelineView.css
+copy to Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineOverviewGraph.css
+index 74d8c43..9941010 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/NetworkTimelineView.css
++++ b/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineOverviewGraph.css
+@@ -1,12 +1,12 @@
+ /*
+- * Copyright (C) 2014 Apple Inc. All rights reserved.
++ * Copyright (C) 2015 University of Washington. All rights reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without
+  * modification, are permitted provided that the following conditions
+  * are met:
+  * 1. Redistributions of source code must retain the above copyright
+  *    notice, this list of conditions and the following disclaimer.
+  * 2. Redistributions in binary form must reproduce the above copyright
+  *    notice, this list of conditions and the following disclaimer in the
+  *    documentation and/or other materials provided with the distribution.
+  *
+@@ -16,21 +16,18 @@
+  * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+  * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+-.timeline-view.network > .data-grid {
+-    position: absolute;
+-    top: 0;
+-    left: 0;
+-    right: 0;
+-    bottom: 0;
++.timeline-overview-graph.element-tracking > .timeline-record-bar {
++    margin-top: 8px;
++    height: 20px;
+ }
+ 
+-.sidebar > .panel.navigation.timeline.timeline-recording-content-view-showing .navigation-sidebar-panel-content-tree-outline.network .item .subtitle {
+-    display: none;
++.timeline-overview-graph.element-tracking > .timeline-record-bar > .segment {
++    border-radius: 2px;
+ }
+diff --git a/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineOverviewGraph.js b/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineOverviewGraph.js
+new file mode 100644
+index 0000000..a745903
+--- /dev/null
++++ b/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineOverviewGraph.js
+@@ -0,0 +1,95 @@
++/*
++ * Copyright (C) 2015 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
++ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
++ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
++ * THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++WebInspector.ElementTrackingTimelineOverviewGraph = function(timeline)
++{
++    WebInspector.TimelineOverviewGraph.call(this, timeline);
++
++    this.element.classList.add(WebInspector.ElementTrackingTimelineOverviewGraph.StyleClassName);
++
++    this.representedObject = timeline;
++    this.representedObject.addEventListener(WebInspector.Timeline.Event.RecordAdded, this._timelineRecordAdded, this);
++
++    this._timelineRecordBars = [];
++
++    this.reset();
++};
++
++WebInspector.ElementTrackingTimelineOverviewGraph.StyleClassName = "element-tracking";
++
++WebInspector.ElementTrackingTimelineOverviewGraph.prototype = {
++    constructor: WebInspector.ElementTrackingTimelineOverviewGraph,
++    __proto__: WebInspector.TimelineOverviewGraph.prototype,
++
++    // Public
++
++    reset: function()
++    {
++        WebInspector.TimelineOverviewGraph.prototype.reset.call(this);
++
++        this._timelineRecordBarMap = new Map;
++
++        this.element.removeChildren();
++    },
++
++    updateLayout: function()
++    {
++        WebInspector.TimelineOverviewGraph.prototype.updateLayout.call(this);
++
++        var secondsPerPixel = this.timelineOverview.secondsPerPixel;
++
++        var recordBarIndex = 0;
++
++        function createBar(records, renderMode)
++        {
++            var timelineRecordBar = this._timelineRecordBars[recordBarIndex];
++            if (!timelineRecordBar)
++                timelineRecordBar = this._timelineRecordBars[recordBarIndex] = new WebInspector.TimelineRecordBar(records, renderMode);
++            else {
++                timelineRecordBar.renderMode = renderMode;
++                timelineRecordBar.records = records;
++            }
++            timelineRecordBar.refresh(this);
++            if (!timelineRecordBar.element.parentNode)
++                this.element.appendChild(timelineRecordBar.element);
++            ++recordBarIndex;
++        }
++
++        WebInspector.TimelineRecordBar.createCombinedBars(this.representedObject.records, secondsPerPixel, this, createBar.bind(this));
++
++        // Remove the remaining unused TimelineRecordBars.
++        for (; recordBarIndex < this._timelineRecordBars.length; ++recordBarIndex) {
++            this._timelineRecordBars[recordBarIndex].records = null;
++            this._timelineRecordBars[recordBarIndex].element.remove();
++        }
++    },
++
++    // Private
++
++    _timelineRecordAdded: function(event)
++    {
++        this.needsLayout();
++    }
++};
+diff --git a/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineView.js b/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineView.js
+new file mode 100644
+index 0000000..2c7f4df
+--- /dev/null
++++ b/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineView.js
+@@ -0,0 +1,350 @@
++/*
++ * Copyright (C) 2015 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
++ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
++ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
++ * THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++WebInspector.ElementTrackingTimelineView = function(timeline)
++{
++    WebInspector.TimelineView.call(this, timeline);
++
++    console.assert(timeline.type === WebInspector.TimelineRecord.Type.ElementTracking, timeline);
++
++    this.navigationSidebarTreeOutline.onselect = this._treeElementSelected.bind(this);
++    this.navigationSidebarTreeOutline.ondeselect = this._treeElementDeselected.bind(this);
++    this.navigationSidebarTreeOutline.element.classList.add(WebInspector.NavigationSidebarPanel.HideDisclosureButtonsStyleClassName);
++    this.navigationSidebarTreeOutline.element.classList.add(WebInspector.ElementTrackingTimelineView.TreeOutlineStyleClassName);
++
++    var columns = {eventType: {}, initiatorCallFrame: {}, width: {}, height: {}, elapsedTime: {}};
++
++    columns.eventType.title = WebInspector.UIString("Type");
++    columns.eventType.width = "15%";
++
++    var typeToLabelMap = new Map;
++    for (var key in WebInspector.ElementTrackingTimelineRecord.EventType) {
++        var value = WebInspector.ElementTrackingTimelineRecord.EventType[key];
++        typeToLabelMap.set(value, WebInspector.ElementTrackingTimelineRecord.displayNameForEventType(value));
++    }
++
++    columns.eventType.scopeBar = WebInspector.TimelineDataGrid.createColumnScopeBar("element-tracking", typeToLabelMap);
++    columns.eventType.hidden = true;
++
++    columns.initiatorCallFrame.title = WebInspector.UIString("Initiator");
++    columns.initiatorCallFrame.width = "25%";
++
++    columns.width.title = WebInspector.UIString("Width");
++    columns.width.width = "8%";
++
++    columns.height.title = WebInspector.UIString("Height");
++    columns.height.width = "8%";
++
++    columns.elapsedTime.title = WebInspector.UIString("Time");
++    columns.elapsedTime.width = "8%";
++    columns.elapsedTime.aligned = "right";
++
++    for (var column in columns)
++        columns[column].sortable = true;
++
++    this._dataGrid = new WebInspector.TimelineDataGrid(this.navigationSidebarTreeOutline, columns);
++    this._dataGrid.addEventListener(WebInspector.TimelineDataGrid.Event.FiltersDidChange, this._dataGridFiltersDidChange, this);
++    this._dataGrid.addEventListener(WebInspector.DataGrid.Event.SelectedNodeChanged, this._dataGridNodeSelected, this);
++
++    this._dataGrid.sortColumnIdentifier = "elapsedTime";
++    this._dataGrid.sortOrder = WebInspector.DataGrid.SortOrder.Ascending;
++
++    this._hoveredTreeElement = null;
++    this._hoveredDataGridNode = null;
++    this._showingHighlight = false;
++    this._showingHighlightForRecord = null;
++
++    this._dataGrid.element.addEventListener("mouseover", this._mouseOverDataGrid.bind(this));
++    this._dataGrid.element.addEventListener("mouseleave", this._mouseLeaveDataGrid.bind(this));
++    this.navigationSidebarTreeOutline.element.addEventListener("mouseover", this._mouseOverTreeOutline.bind(this));
++    this.navigationSidebarTreeOutline.element.addEventListener("mouseleave", this._mouseLeaveTreeOutline.bind(this));
++
++    this.element.classList.add(WebInspector.ElementTrackingTimelineView.StyleClassName);
++    this.element.appendChild(this._dataGrid.element);
++
++    timeline.addEventListener(WebInspector.Timeline.Event.RecordAdded, this._elementTrackingTimelineRecordAdded, this);
++
++    this._pendingRecords = [];
++};
++
++WebInspector.ElementTrackingTimelineView.StyleClassName = "element-tracking";
++WebInspector.ElementTrackingTimelineView.TreeOutlineStyleClassName = "element-tracking";
++
++WebInspector.ElementTrackingTimelineView.prototype = {
++    constructor: WebInspector.ElementTrackingTimelineView,
++    __proto__: WebInspector.TimelineView.prototype,
++
++    // Public
++
++    get navigationSidebarTreeOutlineLabel()
++    {
++        return WebInspector.UIString("Records");
++    },
++
++    shown: function()
++    {
++        WebInspector.TimelineView.prototype.shown.call(this);
++
++        this._updateHighlight();
++
++        this._dataGrid.shown();
++    },
++
++    hidden: function()
++    {
++        this._hideHighlightIfNeeded();
++
++        this._dataGrid.hidden();
++
++        WebInspector.TimelineView.prototype.hidden.call(this);
++    },
++
++    filterDidChange: function()
++    {
++        WebInspector.TimelineView.prototype.filterDidChange.call(this);
++
++        this._updateHighlight();
++    },
++
++    updateLayout: function()
++    {
++        WebInspector.TimelineView.prototype.updateLayout.call(this);
++
++        this._dataGrid.updateLayout();
++
++        this._processPendingRecords();
++    },
++
++    matchTreeElementAgainstCustomFilters: function(treeElement)
++    {
++        return this._dataGrid.treeElementMatchesActiveScopeFilters(treeElement);
++    },
++
++    reset: function()
++    {
++        WebInspector.TimelineView.prototype.reset.call(this);
++
++        this._hideHighlightIfNeeded();
++
++        this._dataGrid.reset();
++    },
++
++    // Protected
++
++    treeElementPathComponentSelected: function(event)
++    {
++        var dataGridNode = this._dataGrid.dataGridNodeForTreeElement(event.data.pathComponent.generalTreeElement);
++        if (!dataGridNode)
++            return;
++        dataGridNode.revealAndSelect();
++    },
++
++    // Private
++
++    _processPendingRecords: function()
++    {
++        if (!this._pendingRecords.length)
++            return;
++
++        for (var timelineRecord of this._pendingRecords) {
++            var treeElement = new WebInspector.TimelineRecordTreeElement(timelineRecord, WebInspector.SourceCodeLocation.NameStyle.Short);
++            var dataGridNode = new WebInspector.ElementTrackingTimelineDataGridNode(timelineRecord, this.zeroTime);
++
++            this._dataGrid.addRowInSortOrder(treeElement, dataGridNode);
++        }
++
++        this._pendingRecords = [];
++    },
++
++    _elementTrackingTimelineRecordAdded: function(event)
++    {
++        var timelineRecord = event.data.record;
++        console.assert(timelineRecord instanceof WebInspector.ElementTrackingTimelineRecord);
++
++        this._pendingRecords.push(timelineRecord);
++
++        this.needsLayout();
++    },
++
++    _dataGridFiltersDidChange: function(event)
++    {
++        WebInspector.timelineSidebarPanel.updateFilter();
++    },
++
++    _dataGridNodeSelected: function(event)
++    {
++        this.dispatchEventToListeners(WebInspector.TimelineView.Event.SelectionPathComponentsDidChange);
++    },
++
++    _treeElementDeselected: function(treeElement)
++    {
++        if (treeElement.status)
++            treeElement.status = "";
++
++        this._updateHighlight();
++    },
++
++    _treeElementSelected: function(treeElement, selectedByUser)
++    {
++        if (this._dataGrid.shouldIgnoreSelectionEvent())
++            return;
++
++        if (!WebInspector.timelineSidebarPanel.canShowDifferentContentView())
++            return;
++
++        if (treeElement instanceof WebInspector.FolderTreeElement)
++            return;
++
++        if (!(treeElement instanceof WebInspector.TimelineRecordTreeElement)) {
++            console.error("Unknown tree element selected.");
++            return;
++        }
++
++        this._updateHighlight();
++
++        if (!treeElement.record.sourceCodeLocation) {
++            WebInspector.timelineSidebarPanel.showTimelineViewForTimeline(this.representedObject);
++            return;
++        }
++
++        WebInspector.resourceSidebarPanel.showOriginalOrFormattedSourceCodeLocation(treeElement.record.sourceCodeLocation);
++        this._updateTreeElementWithCloseButton(treeElement);
++    },
++
++    _updateTreeElementWithCloseButton: function(treeElement)
++    {
++        if (this._closeStatusButton) {
++            treeElement.status = this._closeStatusButton.element;
++            return;
++        }
++
++        wrappedSVGDocument(platformImagePath("Close.svg"), null, WebInspector.UIString("Close resource view"), function(element) {
++            this._closeStatusButton = new WebInspector.TreeElementStatusButton(element);
++            this._closeStatusButton.addEventListener(WebInspector.TreeElementStatusButton.Event.Clicked, this._closeStatusButtonClicked, this);
++            if (treeElement === this.navigationSidebarTreeOutline.selectedTreeElement)
++                this._updateTreeElementWithCloseButton(treeElement);
++        }.bind(this));
++    },
++
++    _closeStatusButtonClicked: function(event)
++    {
++        this.navigationSidebarTreeOutline.selectedTreeElement.deselect();
++        WebInspector.timelineSidebarPanel.showTimelineViewForTimeline(this.representedObject);
++    },
++
++    _updateHighlight: function()
++    {
++        var record = this._hoveredOrSelectedRecord();
++        if (!record) {
++            this._hideHighlightIfNeeded();
++            return;
++        }
++
++        this._showHighlightForRecord(record);
++    },
++
++    _showHighlightForRecord: function(record)
++    {
++        if (this._showingHighlightForRecord === record)
++            return;
++
++        this._showingHighlightForRecord = record;
++
++        const contentColor = {r: 111, g: 168, b: 220, a: 0.66};
++        const outlineColor = {r: 255, g: 229, b: 153, a: 0.66};
++
++        var rect = record.boundingRect;
++        if (rect) {
++            DOMAgent.highlightRect(rect.origin.x, rect.origin.y, rect.size.width, rect.size.height, contentColor, outlineColor);
++            this._showingHighlight = true;
++            return;
++        }
++
++        // This record doesn't have a highlight, so hide any existing highlight.
++        if (this._showingHighlight) {
++            this._showingHighlight = false;
++            DOMAgent.hideHighlight();
++        }
++    },
++
++    _hideHighlightIfNeeded: function()
++    {
++        this._showingHighlightForRecord = null;
++
++        if (this._showingHighlight) {
++            this._showingHighlight = false;
++            DOMAgent.hideHighlight();
++        }
++    },
++
++    _hoveredOrSelectedRecord: function()
++    {
++        if (this._hoveredDataGridNode)
++            return this._hoveredDataGridNode.record;
++
++        if (this._hoveredTreeElement)
++            return this._hoveredTreeElement.record;
++
++        if (this._dataGrid.selectedNode) {
++            var treeElement = this._dataGrid.treeElementForDataGridNode(this._dataGrid.selectedNode);
++            if (treeElement.revealed())
++                return this._dataGrid.selectedNode.record;
++        }
++
++        return null;
++    },
++
++    _mouseOverDataGrid: function(event)
++    {
++        var hoveredDataGridNode = this._dataGrid.dataGridNodeFromNode(event.target);
++        if (!hoveredDataGridNode)
++            return;
++
++        this._hoveredDataGridNode = hoveredDataGridNode;
++        this._updateHighlight();
++    },
++
++    _mouseLeaveDataGrid: function(event)
++    {
++        this._hoveredDataGridNode = null;
++        this._updateHighlight();
++    },
++
++    _mouseOverTreeOutline: function(event)
++    {
++        var hoveredTreeElement = this.navigationSidebarTreeOutline.treeElementFromNode(event.target);
++        if (!hoveredTreeElement)
++            return;
++
++        this._hoveredTreeElement = hoveredTreeElement;
++        this._updateHighlight();
++    },
++
++    _mouseLeaveTreeOutline: function(event)
++    {
++        this._hoveredTreeElement = null;
++        this._updateHighlight();
++    }
++};
+diff --git a/Source/WebInspectorUI/UserInterface/Views/LayoutTimelineView.css b/Source/WebInspectorUI/UserInterface/Views/LayoutTimelineView.css
+index 2222d19..13d2ea2 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/LayoutTimelineView.css
++++ b/Source/WebInspectorUI/UserInterface/Views/LayoutTimelineView.css
+@@ -16,25 +16,13 @@
+  * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+  * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+-.timeline-view.layout > .data-grid {
+-    position: absolute;
+-    top: 0;
+-    left: 0;
+-    right: 0;
+-    bottom: 0;
+-}
+-
+-.timeline-view.layout > .data-grid .eventType-column {
+-    border-right: none;
+-}
+-
+ .sidebar > .panel.navigation.timeline.timeline-recording-content-view-showing .navigation-sidebar-panel-content-tree-outline.layout .item .subtitle {
+     display: none;
+ }
+diff --git a/Source/WebInspectorUI/UserInterface/Views/NetworkTimelineView.css b/Source/WebInspectorUI/UserInterface/Views/NetworkTimelineView.css
+index 74d8c43..26228c8 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/NetworkTimelineView.css
++++ b/Source/WebInspectorUI/UserInterface/Views/NetworkTimelineView.css
+@@ -16,21 +16,13 @@
+  * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+  * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+-.timeline-view.network > .data-grid {
+-    position: absolute;
+-    top: 0;
+-    left: 0;
+-    right: 0;
+-    bottom: 0;
+-}
+-
+ .sidebar > .panel.navigation.timeline.timeline-recording-content-view-showing .navigation-sidebar-panel-content-tree-outline.network .item .subtitle {
+     display: none;
+ }
+diff --git a/Source/WebInspectorUI/UserInterface/Views/ScriptTimelineView.css b/Source/WebInspectorUI/UserInterface/Views/ScriptTimelineView.css
+index cafa900..7bcb5da 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/ScriptTimelineView.css
++++ b/Source/WebInspectorUI/UserInterface/Views/ScriptTimelineView.css
+@@ -16,25 +16,17 @@
+  * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+  * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+-.timeline-view.script > .data-grid {
+-    position: absolute;
+-    top: 0;
+-    left: 0;
+-    right: 0;
+-    bottom: 0;
+-}
+-
+ .timeline-view.script > .data-grid .eventType-column {
+     border-right: none;
+ }
+ 
+ .sidebar > .panel.navigation.timeline.timeline-recording-content-view-showing .navigation-sidebar-panel-content-tree-outline.script .item .subtitle {
+     display: none;
+ }
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineDataGrid.css b/Source/WebInspectorUI/UserInterface/Views/TimelineDataGrid.css
+index 72b42c7..b374d52 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineDataGrid.css
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineDataGrid.css
+@@ -16,20 +16,32 @@
+  * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+  * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++.data-grid.timeline {
++    position: absolute;
++    top: 0;
++    left: 0;
++    right: 0;
++    bottom: 0;
++}
++
++.data-grid.timeline .eventType-column {
++    border-right: none;
++}
++
+ .data-grid.timeline th {
+     border-top: 1px solid rgb(179, 179, 179);
+ }
+ 
+ .data-grid.timeline > .navigation-bar-container {
+     position: absolute;
+     bottom: 0;
+     left: 0;
+     right: 0;
+     height: 32px;
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineOverviewGraph.js b/Source/WebInspectorUI/UserInterface/Views/TimelineOverviewGraph.js
+index 46e0404..9ef708d 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineOverviewGraph.js
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineOverviewGraph.js
+@@ -33,21 +33,24 @@ WebInspector.TimelineOverviewGraph = function(timeline)
+         var timelineType = timeline.type;
+         if (timelineType === WebInspector.TimelineRecord.Type.Network)
+             return new WebInspector.NetworkTimelineOverviewGraph(timeline);
+ 
+         if (timelineType === WebInspector.TimelineRecord.Type.Layout)
+             return new WebInspector.LayoutTimelineOverviewGraph(timeline);
+ 
+         if (timelineType === WebInspector.TimelineRecord.Type.Script)
+             return new WebInspector.ScriptTimelineOverviewGraph(timeline);
+ 
+-        throw Error("Can't make a graph for an unknown timeline.");
++        if (timelineType === WebInspector.TimelineRecord.Type.ElementTracking)
++            return new WebInspector.ElementTrackingTimelineOverviewGraph(timeline);
++
++        throw new Error("Can't make a graph for an unknown timeline: ", timeline);
+     }
+ 
+     // Concrete object instantiation.
+     console.assert(this.constructor !== WebInspector.TimelineOverviewGraph && this instanceof WebInspector.TimelineOverviewGraph);
+ 
+     WebInspector.Object.call(this);
+ 
+     this.element = document.createElement("div");
+     this.element.classList.add(WebInspector.TimelineOverviewGraph.StyleClassName);
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineRecordBar.css b/Source/WebInspectorUI/UserInterface/Views/TimelineRecordBar.css
+index 2acd591..bd59264 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineRecordBar.css
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineRecordBar.css
+@@ -84,10 +84,15 @@
+ 
+ .timeline-record-bar.timeline-record-type-layout > .segment {
+     background-color: rgb(234, 153, 153);
+     border-color: rgb(212, 108, 108);
+ }
+ 
+ .timeline-record-bar.timeline-record-type-script > .segment {
+     background-color: rgb(190, 148, 233);
+     border-color: rgb(153, 113, 185);
+ }
++
++.timeline-record-bar.timeline-record-type-element-tracking > .segment {
++    background-color: rgb(255, 173, 37);
++    border-color: rgb(215, 141, 47);
++}
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineRecordTreeElement.js b/Source/WebInspectorUI/UserInterface/Views/TimelineRecordTreeElement.js
+index 8421ba4..07bd4ee 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineRecordTreeElement.js
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineRecordTreeElement.js
+@@ -92,20 +92,32 @@ WebInspector.TimelineRecordTreeElement = function(timelineRecord, subtitleNameSt
+         case WebInspector.ScriptTimelineRecord.EventType.AnimationFrameRequested:
+         case WebInspector.ScriptTimelineRecord.EventType.AnimationFrameCanceled:
+             iconStyleClass = WebInspector.TimelineRecordTreeElement.AnimationRecordIconStyleClass;
+             break;
+         default:
+             console.error("Unknown ScriptTimelineRecord eventType: " + timelineRecord.eventType, timelineRecord);
+         }
+ 
+         break;
+ 
++    case WebInspector.TimelineRecord.Type.ElementTracking:
++        title = WebInspector.ElementTrackingTimelineRecord.displayNameForEventType(timelineRecord.eventType);
++        switch (timelineRecord.eventType) {
++        case WebInspector.ElementTrackingTimelineRecord.EventType.OutputChanged:
++            iconStyleClass = WebInspector.TimelineRecordTreeElement.AnimationRecordIconStyleClass;
++            break;
++        default:
++            console.error("Unknown ElementTrackingTimelineRecord eventType: " + timelineRecord.eventType, timelineRecord);
++        }
++
++        break;
++
+     default:
+         console.error("Unknown TimelineRecord type: " + timelineRecord.type, timelineRecord);
+     }
+ 
+     WebInspector.GeneralTreeElement.call(this, [iconStyleClass], title, subtitle, representedObject || timelineRecord, false);
+ 
+     this.small = true;
+ 
+     if (this._sourceCodeLocation)
+         this.tooltipHandledSeparately = true;
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineView.js b/Source/WebInspectorUI/UserInterface/Views/TimelineView.js
+index e799592..811304a 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineView.js
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineView.js
+@@ -33,20 +33,23 @@ WebInspector.TimelineView = function(representedObject)
+         var timelineType = representedObject.type;
+         if (timelineType === WebInspector.TimelineRecord.Type.Network)
+             return new WebInspector.NetworkTimelineView(representedObject);
+ 
+         if (timelineType === WebInspector.TimelineRecord.Type.Layout)
+             return new WebInspector.LayoutTimelineView(representedObject);
+ 
+         if (timelineType === WebInspector.TimelineRecord.Type.Script)
+             return new WebInspector.ScriptTimelineView(representedObject);
+ 
++        if (timelineType === WebInspector.TimelineRecord.Type.ElementTracking)
++            return new WebInspector.ElementTrackingTimelineView(representedObject);
++
+         throw Error("Can't make a Timeline for an unknown representedObject.");
+     }
+ 
+     // Concrete object instantiation.
+     console.assert(this.constructor !== WebInspector.TimelineView && this instanceof WebInspector.TimelineView);
+ 
+     WebInspector.Object.call(this);
+ 
+     console.assert(representedObject instanceof WebInspector.Timeline || representedObject instanceof WebInspector.TimelineRecording);
+     this._representedObject = representedObject;
+-- 
+2.2.2
+

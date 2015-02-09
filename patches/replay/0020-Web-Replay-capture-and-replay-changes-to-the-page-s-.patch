@@ -1,4 +1,4 @@
-From cd8eff2769457a8e7636035c123d837716d324f3 Mon Sep 17 00:00:00 2001
+From 64d75e0384ed093694943f75d37fbdf69d71f9d0 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 27 Aug 2014 15:49:33 -0700
 Subject: [PATCH] Web Replay: capture and replay changes to the page's
@@ -40,7 +40,7 @@ drawing area calls.
  7 files changed, 83 insertions(+), 2 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index cb4175a..8d1642a 100644
+index 6f87b1e..70e6686 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,22 @@
@@ -106,7 +106,7 @@ index afe44dd..89fbdaf 100644
                  "description": "A ReplayableTimer instance fired that was associated with the specified frame.",
                  "queue": "EVENT_LOOP",
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 8c710c7..2726968 100644
+index cf33d00..7c5e86e 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,32 @@
@@ -205,14 +205,14 @@ index a193929..a98d195 100644
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-index 4ad83ae..97e09a8 100644
+index 9430311..2c8d23c 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-@@ -2476,38 +2476,56 @@ void WebPage::updateIsInWindow(bool isInitialState)
+@@ -2491,38 +2491,56 @@ void WebPage::updateIsInWindow(bool isInitialState)
          if (m_mayStartMediaWhenInWindow)
              m_setCanStartMediaTimer.startOneShot(0);
  
-         WebProcess::shared().pageDidEnterWindow(m_pageID);
+         WebProcess::singleton().pageDidEnterWindow(m_pageID);
      }
  
      if (isInWindow)
@@ -268,10 +268,10 @@ index 4ad83ae..97e09a8 100644
  }
  
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.h b/Source/WebKit2/WebProcess/WebPage/WebPage.h
-index 85d06ce..2ee2be6 100644
+index 42448d3..a77f3e9 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.h
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.h
-@@ -871,20 +871,21 @@ public:
+@@ -872,20 +872,21 @@ public:
      // Entry points for actions that can be simulated during web replay.
      bool handleMouseEvent(const WebMouseEvent&, ActionSource);
      bool handleKeyEvent(const WebKeyboardEvent&, ActionSource);
@@ -294,5 +294,5 @@ index 85d06ce..2ee2be6 100644
  
      void platformInitialize();
 -- 
-2.0.1
+2.2.2
 

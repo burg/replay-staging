@@ -1,4 +1,4 @@
-From 443eb59646239be1b9940d8126098f92a78cb579 Mon Sep 17 00:00:00 2001
+From 66ccd93ff770eec36860c03fafa5efac7af64877 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Fri, 16 Jan 2015 10:48:25 -0800
 Subject: [PATCH] [Scry] Track node ids, resetting the mapping on main frame
@@ -253,5 +253,5 @@ index 9c01a43..438c360 100644
  
  void InspectorInstrumentation::frameDocumentUpdatedImpl(InstrumentingAgents& instrumentingAgents, Frame* frame)
 -- 
-2.0.1
+2.2.2
 

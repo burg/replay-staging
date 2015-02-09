@@ -1,4 +1,4 @@
-From d614f01078e98f473df210f01b859c743587ca0f Mon Sep 17 00:00:00 2001
+From 31c1a0db88c50f6eb8f9377f56fc774590c6c6cc Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Fri, 10 Oct 2014 15:07:22 -0700
 Subject: [PATCH] Web Replay: EventSender dispatches should be per-Document
@@ -93,10 +93,10 @@ document (and thus the event sender) may not be available in a synchronous docum
  create mode 100644 Source/WebCore/dom/SharedEventSenders.h
 
 diff --git a/Source/WebCore/CMakeLists.txt b/Source/WebCore/CMakeLists.txt
-index fddff1e..4fa2fc2 100644
+index 0eed6dc..2caa3bd 100644
 --- a/Source/WebCore/CMakeLists.txt
 +++ b/Source/WebCore/CMakeLists.txt
-@@ -1391,20 +1391,21 @@ set(WebCore_SOURCES
+@@ -1396,20 +1396,21 @@ set(WebCore_SOURCES
      dom/ScopedEventQueue.cpp
      dom/ScriptElement.cpp
      dom/ScriptExecutionContext.cpp
@@ -119,7 +119,7 @@ index fddff1e..4fa2fc2 100644
      dom/Touch.cpp
      dom/TouchEvent.cpp
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index cc1d365..18a3490 100644
+index 6f6b4ef..3072185 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,81 @@
@@ -205,10 +205,10 @@ index cc1d365..18a3490 100644
          that originate from asynchronous Timer firings should be captured and replayed.
  
 diff --git a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
-index 4c01e6d..bdfa9b9 100644
+index fc1b233..0c0820a 100644
 --- a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
 +++ b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
-@@ -13814,20 +13814,34 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -13859,20 +13859,34 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug_WinCairo|x64'">true</ExcludedFromBuild>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|Win32'">true</ExcludedFromBuild>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|x64'">true</ExcludedFromBuild>
@@ -243,7 +243,7 @@ index 4c01e6d..bdfa9b9 100644
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release_WinCairo|Win32'">true</ExcludedFromBuild>
-@@ -20557,20 +20571,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -20603,20 +20617,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
      <ClInclude Include="..\dom\ScopedEventQueue.h" />
      <ClInclude Include="..\dom\ScriptableDocumentParser.h" />
      <ClInclude Include="..\dom\ScriptedAnimationController.h" />
@@ -266,10 +266,10 @@ index 4c01e6d..bdfa9b9 100644
      <ClInclude Include="..\dom\TextEvent.h" />
      <ClInclude Include="..\dom\TextNodeTraversal.h" />
 diff --git a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
-index c2753fc..6b86c6d 100644
+index 4679afb..2623d1e 100644
 --- a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
 +++ b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
-@@ -3317,20 +3317,23 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -3314,20 +3314,23 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
      </ClCompile>
      <ClCompile Include="..\dom\SecurityContext.cpp">
        <Filter>dom</Filter>
@@ -293,7 +293,7 @@ index c2753fc..6b86c6d 100644
        <Filter>dom</Filter>
      </ClCompile>
      <ClCompile Include="..\dom\StringCallback.cpp">
-@@ -10349,20 +10352,23 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -10373,20 +10376,23 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
      </ClInclude>
      <ClInclude Include="..\dom\SecurityContext.h">
        <Filter>dom</Filter>
@@ -318,10 +318,10 @@ index c2753fc..6b86c6d 100644
      </ClInclude>
      <ClInclude Include="..\dom\StaticNodeList.h">
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index 368275e..e1294d1 100644
+index 2635ad7..55b8b1d 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -5532,20 +5532,23 @@
+@@ -5551,20 +5551,23 @@
  		C348612315FDE21E007A1CC9 /* InputTypeNames.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C348612115FDE21E007A1CC9 /* InputTypeNames.cpp */; };
  		C348612415FDE21E007A1CC9 /* InputTypeNames.h in Headers */ = {isa = PBXBuildFile; fileRef = C348612215FDE21E007A1CC9 /* InputTypeNames.h */; };
  		C375D7FD16639519006184AB /* TypeAhead.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C375D7FB16639519006184AB /* TypeAhead.cpp */; };
@@ -345,7 +345,7 @@ index 368275e..e1294d1 100644
  		C5137CF211A58378004ADB99 /* JSDOMStringList.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */; };
  		C5137CF311A58378004ADB99 /* JSDOMStringList.h in Headers */ = {isa = PBXBuildFile; fileRef = C5137CF111A58378004ADB99 /* JSDOMStringList.h */; };
  		C5278B0C17F212EA003A2998 /* PlatformPasteboardIOS.mm in Sources */ = {isa = PBXBuildFile; fileRef = C5278B0B17F212EA003A2998 /* PlatformPasteboardIOS.mm */; };
-@@ -12963,20 +12966,22 @@
+@@ -13005,20 +13008,22 @@
  		C348612215FDE21E007A1CC9 /* InputTypeNames.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = InputTypeNames.h; sourceTree = "<group>"; };
  		C375D7FB16639519006184AB /* TypeAhead.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = TypeAhead.cpp; sourceTree = "<group>"; };
  		C375D7FC16639519006184AB /* TypeAhead.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TypeAhead.h; sourceTree = "<group>"; };
@@ -368,7 +368,7 @@ index 368275e..e1294d1 100644
  		C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = JSDOMStringList.cpp; sourceTree = "<group>"; };
  		C5137CF111A58378004ADB99 /* JSDOMStringList.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSDOMStringList.h; sourceTree = "<group>"; };
  		C5278B0B17F212EA003A2998 /* PlatformPasteboardIOS.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = PlatformPasteboardIOS.mm; path = ios/PlatformPasteboardIOS.mm; sourceTree = "<group>"; };
-@@ -22870,20 +22875,22 @@
+@@ -22935,20 +22940,22 @@
  				976F36E814686225005E93B4 /* SecurityContext.cpp */,
  				976F36E914686225005E93B4 /* SecurityContext.h */,
  				1AF7AFC51A48A8BC00C8E4E7 /* SecurityOriginPolicy.cpp */,
@@ -391,7 +391,7 @@ index 368275e..e1294d1 100644
  				81AC6C34131C57C20009A7E0 /* StringCallback.idl */,
  				A8C4A7EC09D563270003AC8D /* StyledElement.cpp */,
  				A8C4A7EB09D563270003AC8D /* StyledElement.h */,
-@@ -23464,20 +23471,21 @@
+@@ -23529,20 +23536,21 @@
  				E124748410AA161D00B79493 /* AuthenticationClient.h in Headers */,
  				514C764C0CE9234E007EF3CD /* AuthenticationMac.h in Headers */,
  				A501920E132EBF2E008BFE55 /* Autocapitalize.h in Headers */,
@@ -413,7 +413,7 @@ index 368275e..e1294d1 100644
  				BCA8CA6011E4E6D100812FB7 /* BackForwardList.h in Headers */,
  				BC124EE80C2641CD009E2349 /* BarProp.h in Headers */,
  				379E61CA126CA5C400B63E8D /* BaseButtonInputType.h in Headers */,
-@@ -26536,20 +26544,21 @@
+@@ -26612,20 +26620,21 @@
  				1419D2C50CEA6F6100FF507A /* TreeShared.h in Headers */,
  				854FE7390A2297BE0058D7AD /* TreeWalker.h in Headers */,
  				C375D7FE16639519006184AB /* TypeAhead.h in Headers */,
@@ -435,7 +435,7 @@ index 368275e..e1294d1 100644
  				A72763BF16689BFB002FCACB /* UserActionElementSet.h in Headers */,
  				868160D618766A130021E79D /* UserActivity.h in Headers */,
  				26255F0318878E110006E1FD /* UserAgent.h in Headers */,
-@@ -28199,20 +28208,21 @@
+@@ -28279,20 +28288,21 @@
  				76FB9FF819A73E3A00420562 /* JSAutocompleteErrorEvent.cpp in Sources */,
  				BC124EFF0C26447A009E2349 /* JSBarProp.cpp in Sources */,
  				BC946346107A934B00857193 /* JSBeforeLoadEvent.cpp in Sources */,
@@ -484,10 +484,10 @@ index 0d14eb4..41c6b57 100644
  #include "TouchEvent.cpp"
  #include "TouchList.cpp"
 diff --git a/Source/WebCore/dom/Document.cpp b/Source/WebCore/dom/Document.cpp
-index 5d1efb9..2feca53 100644
+index 023e334..a07c442 100644
 --- a/Source/WebCore/dom/Document.cpp
 +++ b/Source/WebCore/dom/Document.cpp
-@@ -133,20 +133,21 @@
+@@ -134,20 +134,21 @@
  #include "ScriptRunner.h"
  #include "ScriptSourceCode.h"
  #include "ScrollingCoordinator.h"
@@ -509,7 +509,7 @@ index 5d1efb9..2feca53 100644
  #include "VisitedLinkState.h"
  #include "XMLDocumentParser.h"
  #include "XMLNSNames.h"
-@@ -461,20 +462,21 @@ Document::Document(Frame* frame, const URL& url, unsigned documentClasses, unsig
+@@ -463,20 +464,21 @@ Document::Document(Frame* frame, const URL& url, unsigned documentClasses, unsig
  #endif
      , m_createRenderers(true)
      , m_inPageCache(false)
@@ -531,7 +531,7 @@ index 5d1efb9..2feca53 100644
      , m_loadEventDelayCount(0)
      , m_loadEventDelayTimer(*this, &Document::loadEventDelayTimerFired)
      , m_referrerPolicy(ReferrerPolicyDefault)
-@@ -2395,88 +2397,86 @@ void Document::implicitClose()
+@@ -2428,88 +2430,86 @@ void Document::implicitClose()
      // We have to clear the parser, in case someone document.write()s from the
      // onLoad event handler, as in Radar 3206524.
      detachParser();
@@ -638,10 +638,10 @@ index 5d1efb9..2feca53 100644
          axObjectCache()->getOrCreate(renderView());
          if (this == &topDocument())
 diff --git a/Source/WebCore/dom/Document.h b/Source/WebCore/dom/Document.h
-index 5d34e86..8c75538 100644
+index e859f13..90188b5 100644
 --- a/Source/WebCore/dom/Document.h
 +++ b/Source/WebCore/dom/Document.h
-@@ -138,20 +138,21 @@ class RenderView;
+@@ -141,20 +141,21 @@ class RenderView;
  class RenderFullScreen;
  class ScriptableDocumentParser;
  class ScriptElementData;
@@ -663,7 +663,7 @@ index 5d34e86..8c75538 100644
  class TreeWalker;
  class VisitedLinkState;
  class WebKitNamedFlow;
-@@ -1106,20 +1107,22 @@ public:
+@@ -1112,20 +1113,22 @@ public:
      virtual bool isJSExecutionForbidden() const override final { return false; }
  
      void enqueueWindowEvent(PassRefPtr<Event>);
@@ -686,7 +686,7 @@ index 5d34e86..8c75538 100644
      Element* webkitCurrentFullScreenElement() const { return m_fullScreenElement.get(); }
      
      enum FullScreenCheckType {
-@@ -1569,20 +1572,22 @@ private:
+@@ -1578,20 +1581,22 @@ private:
  
      bool m_isSynthesized;
      bool m_isNonRenderedPlaceholder;
@@ -880,7 +880,7 @@ index 0000000..d97c878
 +
 +#endif // SharedEventSenders_h
 diff --git a/Source/WebCore/html/HTMLLinkElement.cpp b/Source/WebCore/html/HTMLLinkElement.cpp
-index 4a576ac..33fae4d 100644
+index 0091a71..d5e3c55 100644
 --- a/Source/WebCore/html/HTMLLinkElement.cpp
 +++ b/Source/WebCore/html/HTMLLinkElement.cpp
 @@ -26,53 +26,47 @@
@@ -1208,7 +1208,7 @@ index 7776d1e..83cd797 100644
      virtual void childrenChanged(const ChildChange&) override;
  
 diff --git a/Source/WebCore/loader/ImageLoader.cpp b/Source/WebCore/loader/ImageLoader.cpp
-index 8b556ad..879058a 100644
+index 374ae40..a4c83e7 100644
 --- a/Source/WebCore/loader/ImageLoader.cpp
 +++ b/Source/WebCore/loader/ImageLoader.cpp
 @@ -22,29 +22,29 @@
@@ -1285,7 +1285,7 @@ index 8b556ad..879058a 100644
  
  ImageLoader::ImageLoader(Element& element)
      : m_element(element)
-@@ -372,24 +369,24 @@ void ImageLoader::updatedHasPendingEvent()
+@@ -375,24 +372,24 @@ void ImageLoader::updatedHasPendingEvent()
          ASSERT(!m_derefElementTimer.isActive());
          m_derefElementTimer.startOneShot(0);
      }   
@@ -1313,7 +1313,7 @@ index 8b556ad..879058a 100644
  
  void ImageLoader::dispatchPendingBeforeLoadEvent()
  {
-@@ -441,35 +438,20 @@ void ImageLoader::dispatchPendingErrorEvent()
+@@ -444,35 +441,20 @@ void ImageLoader::dispatchPendingErrorEvent()
          return;
      m_hasPendingErrorEvent = false;
      if (element().document().hasLivingRenderTree())
@@ -1350,7 +1350,7 @@ index 8b556ad..879058a 100644
      m_failedLoadURL = AtomicString();
  }
 diff --git a/Source/WebCore/loader/ImageLoader.h b/Source/WebCore/loader/ImageLoader.h
-index cfb48c3..1cddae8 100644
+index b5dd10b..c586a67 100644
 --- a/Source/WebCore/loader/ImageLoader.h
 +++ b/Source/WebCore/loader/ImageLoader.h
 @@ -28,21 +28,20 @@
@@ -1398,7 +1398,7 @@ index cfb48c3..1cddae8 100644
  
  protected:
      explicit ImageLoader(Element&);
-     virtual void notifyFinished(CachedResource*) override;
+     virtual void imageChanged(CachedImage*, const IntRect* = nullptr) override;
  
  private:
      virtual void dispatchLoadEvent() = 0;
@@ -1434,5 +1434,5 @@ index f55a615..537ba2d 100644
          m_sawError = true;
      if (type == XMLErrors::fatal)
 -- 
-2.0.1
+2.2.2
 

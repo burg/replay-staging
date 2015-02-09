@@ -1,4 +1,4 @@
-From c4cafb46b01a6e2c5c03789a258c881c7ebb70a9 Mon Sep 17 00:00:00 2001
+From af1022b576310f3781bad50fda5ca02d6ae182cc Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 12 Jun 2014 09:30:20 -0700
 Subject: [PATCH] Move createUniqueIdentifier() from ProgressTracker to
@@ -48,7 +48,7 @@ No new tests, no behavior was changed.
  12 files changed, 65 insertions(+), 33 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index e66f755..d1ee06c 100644
+index 8440af5..5d82e80 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,11 +1,45 @@
@@ -159,10 +159,10 @@ index b0498af..6e0ae8f 100644
  
  void WebSocketChannel::connect(const URL& url, const String& protocol)
 diff --git a/Source/WebCore/html/HTMLMediaElement.cpp b/Source/WebCore/html/HTMLMediaElement.cpp
-index 1fe7b81..0e7eca4 100644
+index d79cf75..a9e9206 100644
 --- a/Source/WebCore/html/HTMLMediaElement.cpp
 +++ b/Source/WebCore/html/HTMLMediaElement.cpp
-@@ -62,21 +62,20 @@
+@@ -61,21 +61,20 @@
  #include "MediaError.h"
  #include "MediaFragmentURIParser.h"
  #include "MediaKeyEvent.h"
@@ -184,7 +184,7 @@ index 1fe7b81..0e7eca4 100644
  #include "Settings.h"
  #include "ShadowRoot.h"
  #include "TimeRanges.h"
-@@ -5733,21 +5732,21 @@ bool HTMLMediaElement::mediaPlayerShouldWaitForResponseToAuthenticationChallenge
+@@ -5735,21 +5734,21 @@ bool HTMLMediaElement::mediaPlayerShouldWaitForResponseToAuthenticationChallenge
      if (!frame)
          return false;
  
@@ -208,7 +208,7 @@ index 1fe7b81..0e7eca4 100644
  {
      if (Frame* frame = document().frame()) {
 diff --git a/Source/WebCore/inspector/InspectorResourceAgent.cpp b/Source/WebCore/inspector/InspectorResourceAgent.cpp
-index 5e166bc..fc85466 100644
+index 120ffe8..5091310 100644
 --- a/Source/WebCore/inspector/InspectorResourceAgent.cpp
 +++ b/Source/WebCore/inspector/InspectorResourceAgent.cpp
 @@ -41,24 +41,24 @@
@@ -261,7 +261,7 @@ index 5e166bc..fc85466 100644
      RefPtr<Inspector::Protocol::Network::Initiator> initiatorObject = buildInitiatorObject(loader.frame() ? loader.frame()->document() : nullptr);
  
 diff --git a/Source/WebCore/loader/DocumentLoader.cpp b/Source/WebCore/loader/DocumentLoader.cpp
-index 1bbc36b..ac711a7 100644
+index c1671bf..8d4baae 100644
 --- a/Source/WebCore/loader/DocumentLoader.cpp
 +++ b/Source/WebCore/loader/DocumentLoader.cpp
 @@ -48,21 +48,20 @@
@@ -337,7 +337,7 @@ index 1bbc36b..ac711a7 100644
          return;
      ASSERT(loader->identifier());
 @@ -1416,21 +1423,21 @@ void DocumentLoader::startLoadingMainResource()
-     timing()->markFetchStart();
+     timing().markFetchStart();
      willSendRequest(m_request, ResourceResponse());
  
      // willSendRequest() may lead to our Frame being detached or cancelling the load via nulling the ResourceRequest.
@@ -383,7 +383,7 @@ index 1bbc36b..ac711a7 100644
      // If there was a fragment identifier on m_request, the cache will have stripped it. m_request should include
      // the fragment identifier, so add that back in.
 diff --git a/Source/WebCore/loader/DocumentLoader.h b/Source/WebCore/loader/DocumentLoader.h
-index 188e9ba..aa585f9 100644
+index 54d4bd9..2af407e 100644
 --- a/Source/WebCore/loader/DocumentLoader.h
 +++ b/Source/WebCore/loader/DocumentLoader.h
 @@ -217,20 +217,22 @@ namespace WebCore {
@@ -433,10 +433,10 @@ index 188e9ba..aa585f9 100644
          mutable DocumentWriter m_writer;
  
 diff --git a/Source/WebCore/loader/FrameLoader.cpp b/Source/WebCore/loader/FrameLoader.cpp
-index c1b1871..b825a87 100644
+index 04ebe48..6e4484d 100644
 --- a/Source/WebCore/loader/FrameLoader.cpp
 +++ b/Source/WebCore/loader/FrameLoader.cpp
-@@ -2981,25 +2981,22 @@ void FrameLoader::continueLoadAfterNewWindowPolicy(const ResourceRequest& reques
+@@ -2982,25 +2982,22 @@ void FrameLoader::continueLoadAfterNewWindowPolicy(const ResourceRequest& reques
          mainFrame->loader().setOpener(frame.ptr());
          mainFrame->document()->setReferrerPolicy(frame->document()->referrerPolicy());
      }
@@ -659,7 +659,7 @@ index 8db4774..6c93df4 100644
          // If this ResourceLoader was stopped as a result of assignIdentifierToInitialRequest, bail out
          if (m_reachedTerminalState)
 diff --git a/Source/WebCore/loader/appcache/ApplicationCacheGroup.cpp b/Source/WebCore/loader/appcache/ApplicationCacheGroup.cpp
-index 49a5cc2..d74bcf9 100644
+index 53e3574..7ee8981 100644
 --- a/Source/WebCore/loader/appcache/ApplicationCacheGroup.cpp
 +++ b/Source/WebCore/loader/appcache/ApplicationCacheGroup.cpp
 @@ -32,20 +32,21 @@
@@ -708,5 +708,5 @@ index 49a5cc2..d74bcf9 100644
      InspectorInstrumentationCookie cookie = InspectorInstrumentation::willReceiveResourceResponse(m_frame);
      InspectorInstrumentation::didReceiveResourceResponse(cookie, m_currentResourceIdentifier, loader, response, 0);
 -- 
-2.0.1
+2.2.2
 

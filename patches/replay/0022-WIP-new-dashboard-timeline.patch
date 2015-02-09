@@ -1,4 +1,4 @@
-From 4498fb08c7a213673b2b2c426a96d2d31ef788f6 Mon Sep 17 00:00:00 2001
+From ac7547a8ac1de01876979d5f83b830948d86c923 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 31 Jul 2014 09:54:28 -0700
 Subject: [PATCH] WIP - new dashboard timeline
@@ -930,5 +930,5 @@ index 0000000..071ba95
 +    }
 +};
 -- 
-2.0.1
+2.2.2
 

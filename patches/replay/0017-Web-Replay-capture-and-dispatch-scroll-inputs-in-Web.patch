@@ -1,4 +1,4 @@
-From 996d483d2e53a22f7c5b32dfa6591920dc7377da Mon Sep 17 00:00:00 2001
+From e0a36cf42cc752d133298a174fa8d0e8cdbb2516 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Fri, 22 Aug 2014 16:11:09 -0700
 Subject: [PATCH] Web Replay: capture and dispatch scroll inputs in WebPage
@@ -54,7 +54,7 @@ during replay without sending IPC messages to UIProcess.
  12 files changed, 98 insertions(+), 111 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index cf0ad39..7554abb 100644
+index ea3b8ad..67f75e5 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,31 @@
@@ -90,10 +90,10 @@ index cf0ad39..7554abb 100644
  
          * WebCore.exp.in:
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index d37637d..f5dc907 100644
+index 1e0be56..5f56f68 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -668,21 +668,20 @@ __ZN7WebCore15SQLiteStatementC1ERNS_14SQLiteDatabaseERKN3WTF6StringE
+@@ -666,21 +666,20 @@ __ZN7WebCore15SQLiteStatementC1ERNS_14SQLiteDatabaseERKN3WTF6StringE
  __ZN7WebCore15SQLiteStatementD1Ev
  __ZN7WebCore15ScrollAlignment17alignCenterAlwaysE
  __ZN7WebCore15ScrollAlignment19alignToEdgeIfNeededE
@@ -115,7 +115,7 @@ index d37637d..f5dc907 100644
  __ZN7WebCore15reportExceptionEPN3JSC9ExecStateENS0_7JSValueEPNS_12CachedScriptE
  __ZN7WebCore15setDOMExceptionEPN3JSC9ExecStateEi
  __ZN7WebCore15visitedLinkHashEPKtj
-@@ -3507,23 +3506,20 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
+@@ -3496,23 +3495,20 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
  
  #if ENABLE(VIDEO_TRACK)
  __ZN7WebCore9PageGroup18captionPreferencesEv
@@ -139,7 +139,7 @@ index d37637d..f5dc907 100644
  __ZN3JSC11InputTraitsIN7WebCore13DOMTimerFiredEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
  __ZN3JSC11InputTraitsIN7WebCore13DOMTimerFiredEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore14LoadURLRequestEE4typeEv
-@@ -3540,23 +3536,20 @@ __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6decodeERNS_12EncodedValueERNS
+@@ -3529,23 +3525,20 @@ __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6decodeERNS_12EncodedValueERNS
  __ZN3JSC11InputTraitsIN7WebCore15FetchPluginDataEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore16StopLoadingFrameEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -163,7 +163,7 @@ index d37637d..f5dc907 100644
  __ZN3JSC11InputTraitsIN7WebCore21MemoizedDOMResultBaseEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
  __ZN3JSC11InputTraitsIN7WebCore21MemoizedDOMResultBaseEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore21ResourceLoaderDidFailEE4typeEv
-@@ -3572,20 +3565,22 @@ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE4typeEv
+@@ -3561,20 +3554,22 @@ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE4typeEv
@@ -449,7 +449,7 @@ index 08a45f6..5c14bd1 100644
  void ResourceLoaderDidFinishLoading::dispatch(Page& page)
  {
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 23bd62a..94dbf9a 100644
+index 4cb7423..4c2aa19 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,12 +1,36 @@
@@ -552,10 +552,10 @@ index b1a4afc..202540d 100644
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-index 8a83688..eb4e9c2 100644
+index 49fb908..8fbe5a9 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-@@ -2231,33 +2231,45 @@ void WebPage::touchEvent(const WebTouchEvent& touchEvent)
+@@ -2246,33 +2246,45 @@ void WebPage::touchEvent(const WebTouchEvent& touchEvent)
      send(Messages::WebPageProxy::DidReceiveEvent(static_cast<uint32_t>(touchEvent.type()), handled));
  }
  
@@ -607,10 +607,10 @@ index 8a83688..eb4e9c2 100644
  
  #if ENABLE(REMOTE_INSPECTOR)
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.h b/Source/WebKit2/WebProcess/WebPage/WebPage.h
-index 33dbcc6..c56a6f5 100644
+index 7dc77f1..f6e7f84 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.h
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.h
-@@ -864,20 +864,21 @@ public:
+@@ -865,20 +865,21 @@ public:
      // Synthetic actions are simulated during web replay.
      enum class ActionSource {
          User,
@@ -632,7 +632,7 @@ index 33dbcc6..c56a6f5 100644
  
      void platformInitialize();
      void platformDetach();
-@@ -953,22 +954,21 @@ private:
+@@ -954,22 +955,21 @@ private:
  #if ENABLE(IOS_TOUCH_EVENTS)
      void touchEventSync(const WebTouchEvent&, bool& handled);
  #elif ENABLE(TOUCH_EVENTS)
@@ -657,7 +657,7 @@ index 33dbcc6..c56a6f5 100644
  #endif
  
 diff --git a/Source/WebKit2/WebProcess/WebPage/mac/WebPageMac.mm b/Source/WebKit2/WebProcess/WebPage/mac/WebPageMac.mm
-index ac41eae..83b63f9 100644
+index e2f6675..11b22fc 100644
 --- a/Source/WebKit2/WebProcess/WebPage/mac/WebPageMac.mm
 +++ b/Source/WebKit2/WebProcess/WebPage/mac/WebPageMac.mm
 @@ -571,43 +571,43 @@ bool WebPage::performNonEditingBehaviorForSelector(const String& selector, Keybo
@@ -717,5 +717,5 @@ index ac41eae..83b63f9 100644
  {
      static NeverDestroyed<String> string("ReplaceSelectionPasteboard");
 -- 
-2.0.1
+2.2.2
 

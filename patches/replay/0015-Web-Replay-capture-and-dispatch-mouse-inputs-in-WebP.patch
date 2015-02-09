@@ -1,4 +1,4 @@
-From 07bba23c1c21cc38eeb92c63fc25c32121eb433f Mon Sep 17 00:00:00 2001
+From ae6286811be3207ffeb0bdde5f87dfd537e7ff70 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 21 Aug 2014 13:29:17 -0700
 Subject: [PATCH] Web Replay: capture and dispatch mouse inputs in WebPage
@@ -81,7 +81,7 @@ handle the mouse event or not.
  18 files changed, 275 insertions(+), 245 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 6d2703c..6058b27 100644
+index a21b688..8554df5 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,37 @@
@@ -123,7 +123,7 @@ index 6d2703c..6058b27 100644
  
          * replay/EventLoopInput.h:
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index 8ee03368..97d6cc3 100644
+index eac8258..26c690f 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
 @@ -218,20 +218,21 @@ __ZN7WebCore11writeToFileEiPKci
@@ -148,7 +148,7 @@ index 8ee03368..97d6cc3 100644
  __ZN7WebCore12EventHandler8keyEventERKNS_21PlatformKeyboardEventE
  __ZN7WebCore12GCController17garbageCollectNowEv
  __ZN7WebCore12GCController18garbageCollectSoonEv
-@@ -671,24 +672,20 @@ __ZN7WebCore15StringTruncator13rightTruncateERKN3WTF6StringEfRKNS_11FontCascadeE
+@@ -669,24 +670,20 @@ __ZN7WebCore15StringTruncator13rightTruncateERKN3WTF6StringEfRKNS_11FontCascadeE
  __ZN7WebCore15StringTruncator14centerTruncateERKN3WTF6StringEfRKNS_11FontCascadeENS0_24EnableRoundingHacksOrNotE
  __ZN7WebCore15StringTruncator5widthERKN3WTF6StringERKNS_11FontCascadeENS0_24EnableRoundingHacksOrNotE
  __ZN7WebCore15UserInputBridge11loadRequestERKNS_16FrameLoadRequestENS_11InputSourceE
@@ -173,7 +173,7 @@ index 8ee03368..97d6cc3 100644
  __ZN7WebCore15reportExceptionEPN3JSC9ExecStateENS0_7JSValueEPNS_12CachedScriptE
  __ZN7WebCore15setDOMExceptionEPN3JSC9ExecStateEi
  __ZN7WebCore15visitedLinkHashEPKtj
-@@ -3541,47 +3538,38 @@ __ZN3JSC11InputTraitsIN7WebCore14LoadURLRequestEE6decodeERNS_12EncodedValueERNSt
+@@ -3530,47 +3527,38 @@ __ZN3JSC11InputTraitsIN7WebCore14LoadURLRequestEE6decodeERNS_12EncodedValueERNSt
  __ZN3JSC11InputTraitsIN7WebCore14LoadURLRequestEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore15AsyncTimerFiredEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore15AsyncTimerFiredEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -221,7 +221,7 @@ index 8ee03368..97d6cc3 100644
  __ZN3JSC11InputTraitsIN7WebCore21ResourceLoaderDidFailEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
  __ZN3JSC11InputTraitsIN7WebCore21ResourceLoaderDidFailEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore24DocumentLastModifiedDateEE4typeEv
-@@ -3592,17 +3580,27 @@ __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6decodeERNS_12Encode
+@@ -3581,13 +3569,23 @@ __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6decodeERNS_12Encode
  __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -246,10 +246,6 @@ index 8ee03368..97d6cc3 100644
 +__ZN7WebCore20EventLoopInputExtentC1ERN3JSC11InputCursorE
 +__ZN7WebCore20EventLoopInputExtentD1Ev
 +__ZNK7WebCore14ResourceLoader17activeInputCursorEv
- #endif
- 
- #if ENABLE(WEB_TIMING)
- __ZNK7WebCore20ResourceResponseBase18resourceLoadTimingEv
  #endif
 diff --git a/Source/WebCore/replay/UserInputBridge.cpp b/Source/WebCore/replay/UserInputBridge.cpp
 index f1b5c93..0b1fd29 100644
@@ -884,10 +880,10 @@ index 7b5662c..2db9b46 100644
  }
  
 diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
-index a6d54e6..be9e350 100644
+index 37723c4..b7c27f4 100644
 --- a/Source/WebKit2/CMakeLists.txt
 +++ b/Source/WebKit2/CMakeLists.txt
-@@ -777,20 +777,21 @@ if (ENABLE_WEB_REPLAY)
+@@ -826,20 +826,21 @@ if (ENABLE_WEB_REPLAY)
          DEPENDS ${WebKit2_WEB_REPLAY_INPUTS}
          COMMAND ${PYTHON_EXECUTABLE} ${JAVASCRIPTCORE_DIR}/replay/scripts/CodeGeneratorReplayInputs.py --outputDir ${DERIVED_SOURCES_WEBKIT2_DIR}/ --framework WebKit ${WebKit2_WEB_REPLAY_INPUTS}
          VERBATIM)
@@ -910,7 +906,7 @@ index a6d54e6..be9e350 100644
  install(TARGETS WebKit2 DESTINATION "${LIB_INSTALL_DIR}")
  install(TARGETS WebProcess DESTINATION "${LIBEXEC_INSTALL_DIR}")
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 56e92c7..83fc015 100644
+index 0747c84..ee47ea3 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,49 @@
@@ -1037,10 +1033,10 @@ index 68ecff9..fc2d8c0 100644
      WebMouseEvent(Type, Button, const WebCore::IntPoint& position, const WebCore::IntPoint& globalPosition, float deltaX, float deltaY, float deltaZ, int clickCount, Modifiers, double timestamp);
  
 diff --git a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
-index 7f489f4..940b362 100644
+index 1907cb7..444ba2f 100644
 --- a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
 +++ b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
-@@ -9829,20 +9829,21 @@
+@@ -9920,20 +9920,21 @@
  				1A158419189044F50017616C /* WKProcessPool.mm in Sources */,
  				512F58FB12A88A5400629530 /* WKProtectionSpace.cpp in Sources */,
  				1AD01BCC1905D54900C9C45F /* WKReloadFrameErrorRecoveryAttempter.mm in Sources */,
@@ -1311,7 +1307,7 @@ index a553382..3113e0f 100644
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-index a467e1f..507ecb9 100644
+index fe9428b..ac9c92b 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 @@ -178,21 +178,26 @@
@@ -1341,7 +1337,7 @@ index a467e1f..507ecb9 100644
  #endif
  
  #if PLATFORM(GTK)
-@@ -1897,97 +1902,115 @@ static bool handleContextMenuEvent(const PlatformMouseEvent& platformMouseEvent,
+@@ -1912,97 +1917,115 @@ static bool handleContextMenuEvent(const PlatformMouseEvent& platformMouseEvent,
          frame = result.innerNonSharedNode()->document().frame();
  
      bool handled = page->corePage()->userInputBridge().handleContextMenuEvent(platformMouseEvent, frame);
@@ -1468,7 +1464,7 @@ index a467e1f..507ecb9 100644
          messageSenderConnection()->waitForAndDispatchImmediately<Messages::WebPage::DidStartDrag>(messageSenderDestinationID(), std::chrono::seconds(60));
  #endif
  
-@@ -2001,21 +2024,21 @@ void WebPage::mouseEventSyncForTesting(const WebMouseEvent& mouseEvent, bool& ha
+@@ -2016,21 +2039,21 @@ void WebPage::mouseEventSyncForTesting(const WebMouseEvent& mouseEvent, bool& ha
  
      if (!handled) {
          CurrentEvent currentEvent(mouseEvent);
@@ -1492,10 +1488,10 @@ index a467e1f..507ecb9 100644
  
      PlatformWheelEvent platformWheelEvent = platform(wheelEvent);
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.h b/Source/WebKit2/WebProcess/WebPage/WebPage.h
-index 90bd8ef..e1f42ba 100644
+index 2faf1c5..6943fdd 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.h
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.h
-@@ -854,20 +854,28 @@ public:
+@@ -855,20 +855,28 @@ public:
      void handleSelectionServiceClick(WebCore::FrameSelection&, const Vector<String>& telephoneNumbers, const WebCore::IntPoint&);
  #endif
  
@@ -1525,5 +1521,5 @@ index 90bd8ef..e1f42ba 100644
      void platformDetach();
  
 -- 
-2.0.1
+2.2.2
 

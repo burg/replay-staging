@@ -1,4 +1,4 @@
-From 8a886c5d123c99c9275478d4a3044fb94904c075 Mon Sep 17 00:00:00 2001
+From 493c2f45149a0ea1915a141d19e4c815897820ab Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 18 Sep 2014 22:17:34 -0700
 Subject: [PATCH] Web Replay: NavigationScheduler should use a deterministic
@@ -38,7 +38,7 @@ No new tests (OOPS!).
  7 files changed, 81 insertions(+), 7 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 50a3643..fb6d279 100644
+index dba5a65..6be41c3 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,41 @@
@@ -84,10 +84,10 @@ index 50a3643..fb6d279 100644
  
          [TEST STRATEGY] Find a small test case where we reliably hit ScriptRunner asynchrony.
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index d2088fd..b5bc0db 100644
+index 7463324..4cffdf4 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -3532,20 +3532,23 @@ __ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6decodeERNS_12EncodedValueE
+@@ -3521,20 +3521,23 @@ __ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6decodeERNS_12EncodedValueE
  __ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -382,5 +382,5 @@ index 89fbdaf..fb06e54 100644
                  "queue": "SCRIPT_MEMOIZED",
                  "members": [
 -- 
-2.0.1
+2.2.2
 

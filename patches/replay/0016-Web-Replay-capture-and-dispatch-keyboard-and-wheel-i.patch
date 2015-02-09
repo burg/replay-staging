@@ -1,4 +1,4 @@
-From 10b2191eb501655e4a682b5343f7827af4085c46 Mon Sep 17 00:00:00 2001
+From dcb9e5025d6f3a799304abefb17c3daf3599c349 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Fri, 22 Aug 2014 08:46:08 -0700
 Subject: [PATCH] Web Replay: capture and dispatch keyboard and wheel inputs in
@@ -102,7 +102,7 @@ index fa5c004..76fbb87 100644
              }
          ],
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 6058b27..cf0ad39 100644
+index 8554df5..ea3b8ad 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,38 @@
@@ -145,10 +145,10 @@ index 6058b27..cf0ad39 100644
          other call sites.
  
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index 97d6cc3..d37637d 100644
+index 26c690f..1e0be56 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -667,25 +667,22 @@ __ZN7WebCore15SQLiteStatement9bindInt64Eix
+@@ -665,25 +665,22 @@ __ZN7WebCore15SQLiteStatement9bindInt64Eix
  __ZN7WebCore15SQLiteStatementC1ERNS_14SQLiteDatabaseERKN3WTF6StringE
  __ZN7WebCore15SQLiteStatementD1Ev
  __ZN7WebCore15ScrollAlignment17alignCenterAlwaysE
@@ -174,7 +174,7 @@ index 97d6cc3..d37637d 100644
  __ZN7WebCore15reportExceptionEPN3JSC9ExecStateENS0_7JSValueEPNS_12CachedScriptE
  __ZN7WebCore15setDOMExceptionEPN3JSC9ExecStateEi
  __ZN7WebCore15visitedLinkHashEPKtj
-@@ -3079,21 +3076,20 @@ __ZN7WebCore13ContentFilter43handleUnblockRequestAndDispatchIfSuccessfulERKNS_15
+@@ -3068,21 +3065,20 @@ __ZN7WebCore13ContentFilter43handleUnblockRequestAndDispatchIfSuccessfulERKNS_15
  #endif
  
  #if ENABLE(CONTEXT_MENUS)
@@ -196,7 +196,7 @@ index 97d6cc3..d37637d 100644
  __ZNK7WebCore15ContextMenuItem6actionEv
  __ZNK7WebCore15ContextMenuItem7checkedEv
  __ZNK7WebCore15ContextMenuItem7enabledEv
-@@ -3523,38 +3519,32 @@ __ZN3JSC11InputTraitsIN7WebCore10ScrollPageEE6decodeERNS_12EncodedValueERNSt3__1
+@@ -3512,38 +3508,32 @@ __ZN3JSC11InputTraitsIN7WebCore10ScrollPageEE6decodeERNS_12EncodedValueERNSt3__1
  __ZN3JSC11InputTraitsIN7WebCore10ScrollPageEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore11ReloadFrameEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore11ReloadFrameEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -235,7 +235,7 @@ index 97d6cc3..d37637d 100644
  __ZN3JSC11InputTraitsIN7WebCore17InitializeHistoryEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
  __ZN3JSC11InputTraitsIN7WebCore17InitializeHistoryEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore17LogicalScrollPageEE4typeEv
-@@ -3580,20 +3570,22 @@ __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6decodeERNS_12Encode
+@@ -3569,20 +3559,22 @@ __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6decodeERNS_12Encode
  __ZN3JSC11InputTraitsIN7WebCore25ResourceLoaderDidSendDataEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -1059,7 +1059,7 @@ index 2db9b46..08a45f6 100644
  }
  
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 83fc015..23bd62a 100644
+index ee47ea3..4cb7423 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,12 +1,50 @@
@@ -1539,10 +1539,10 @@ index 3113e0f..b1a4afc 100644
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-index 507ecb9..8a83688 100644
+index ac9c92b..49fb908 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-@@ -1833,23 +1833,23 @@ WebContextMenu* WebPage::contextMenu()
+@@ -1848,23 +1848,23 @@ WebContextMenu* WebPage::contextMenu()
          m_contextMenu = WebContextMenu::create(this);
      return m_contextMenu.get();
  }
@@ -1568,7 +1568,7 @@ index 507ecb9..8a83688 100644
  static const WebEvent* g_currentEvent = 0;
  
  // FIXME: WebPage::currentEvent is used by the plug-in code to avoid having to convert from DOM events back to
-@@ -1885,30 +1885,30 @@ static bool isContextClick(const PlatformMouseEvent& event)
+@@ -1900,30 +1900,30 @@ static bool isContextClick(const PlatformMouseEvent& event)
  
  #if PLATFORM(COCOA)
      // FIXME: this really should be about OSX-style UI, not about the Mac port
@@ -1601,7 +1601,7 @@ index 507ecb9..8a83688 100644
  static bool forwardMouseEvent(const WebMouseEvent& mouseEvent, WebPage* page, bool onlyUpdateScrollbars)
  {
      Frame& frame = page->corePage()->mainFrame();
-@@ -1920,21 +1920,21 @@ static bool forwardMouseEvent(const WebMouseEvent& mouseEvent, WebPage* page, bo
+@@ -1935,21 +1935,21 @@ static bool forwardMouseEvent(const WebMouseEvent& mouseEvent, WebPage* page, bo
      switch (platformMouseEvent.type()) {
          case PlatformEvent::MousePressed: {
  #if ENABLE(CONTEXT_MENUS)
@@ -1624,7 +1624,7 @@ index 507ecb9..8a83688 100644
              if (onlyUpdateScrollbars)
                  return frame.eventHandler().passMouseMovedEventToScrollbars(platformMouseEvent);
              return frame.eventHandler().handleMouseMoveEvent(platformMouseEvent);
-@@ -2028,89 +2028,130 @@ void WebPage::mouseEventSyncForTesting(const WebMouseEvent& mouseEvent, bool& ha
+@@ -2043,89 +2043,130 @@ void WebPage::mouseEventSyncForTesting(const WebMouseEvent& mouseEvent, bool& ha
          // We need to do a full, normal hit test during this mouse event if the page is active or if a mouse
          // button is currently pressed. It is possible that neither of those things will be true since on 
          // Lion when legacy scrollbars are enabled, WebKit receives mouse events all the time. If it is one 
@@ -1767,10 +1767,10 @@ index 507ecb9..8a83688 100644
      Frame& frame = m_page->focusController().focusedOrMainFrame();
      if (PluginView* pluginView = focusedPluginViewForFrame(frame))
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.h b/Source/WebKit2/WebProcess/WebPage/WebPage.h
-index e1f42ba..33dbcc6 100644
+index 6943fdd..7dc77f1 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.h
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.h
-@@ -860,21 +860,24 @@ public:
+@@ -861,21 +861,24 @@ public:
      bool shouldDispatchFakeMouseMoveEvents() const { return m_shouldDispatchFakeMouseMoveEvents; }
  
      void setPageActivityState(WebCore::PageActivityState::Flags);
@@ -1796,5 +1796,5 @@ index e1f42ba..33dbcc6 100644
      void platformInitialize();
      void platformDetach();
 -- 
-2.0.1
+2.2.2
 

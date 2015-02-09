@@ -1,4 +1,4 @@
-From 3b46c4189f2e088b56538083e5e7627a14d7ad47 Mon Sep 17 00:00:00 2001
+From b883d9e9d5eee399212f327ec2d5a8b7fc16eb5a Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 27 Aug 2014 15:03:18 -0700
 Subject: [PATCH] Web Replay: code generator should be able to encode/decode
@@ -65,7 +65,7 @@ of each unchecked enum. This is used to construct the Phantom type argument.
  create mode 100644 Source/JavaScriptCore/replay/scripts/tests/generate-unchecked-enum.json
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index 2133276..b0596c5 100644
+index 9299e17..243d747 100644
 --- a/Source/JavaScriptCore/ChangeLog
 +++ b/Source/JavaScriptCore/ChangeLog
 @@ -1,10 +1,55 @@
@@ -890,5 +890,5 @@ index 0000000..811420d
 +    ]
 +}
 -- 
-2.0.1
+2.2.2
 

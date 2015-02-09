@@ -1,0 +1,306 @@
+From ad2997fde86d3de2441d3afc8de5abf0fb7d9ac0 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Thu, 5 Feb 2015 10:28:06 -0800
+Subject: [PATCH] Web Inspector: eliminate some unnecessary layout/painting in
+ timeline overview and ruler https://bugs.webkit.org/show_bug.cgi?id=141293
+
+Reviewed by NOBODY (OOPS!).
+
+The timeline overview's ruler was forcing repaints of divider labels even if the labels
+had not changed since the last requestAnimationFrame. Bail out early if nothing changed.
+
+The timeline overview and its graphs were updating layout using requestAnimationFrame
+even when the TimelineContentView is not visible. Fix this by propagating visibility
+changes to subviews, and not updating layout when hidden.
+
+The above change also fixes an assertion sometimes encountered when the timeline view
+tries to cache an element's offset width, but cannot because it isn't visible.
+
+* UserInterface/Views/TimelineContentView.js:
+(WebInspector.TimelineContentView.prototype.shown):
+(WebInspector.TimelineContentView.prototype.hidden):
+* UserInterface/Views/TimelineOverview.js:
+(WebInspector.TimelineOverview.prototype.get visible):
+(WebInspector.TimelineOverview.prototype.shown):
+(WebInspector.TimelineOverview.prototype.hidden):
+(WebInspector.TimelineOverview.prototype._needsLayout):
+* UserInterface/Views/TimelineOverviewGraph.js:
+(WebInspector.TimelineOverviewGraph.prototype.get visible):
+(WebInspector.TimelineOverviewGraph.prototype.shown):
+(WebInspector.TimelineOverviewGraph.prototype.hidden):
+(WebInspector.TimelineOverviewGraph.prototype.needsLayout):
+* UserInterface/Views/TimelineRuler.js:
+(WebInspector.TimelineRuler.prototype.updateLayout):
+---
+ Source/WebInspectorUI/ChangeLog                    | 33 ++++++++++++++++++++++
+ .../UserInterface/Views/TimelineContentView.js     |  8 ++++++
+ .../UserInterface/Views/TimelineOverview.js        | 27 ++++++++++++++++++
+ .../UserInterface/Views/TimelineOverviewGraph.js   | 19 +++++++++++++
+ .../UserInterface/Views/TimelineRuler.js           | 10 +++++++
+ 5 files changed, 97 insertions(+)
+
+diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
+index c8f66ab..b50e72e 100644
+--- a/Source/WebInspectorUI/ChangeLog
++++ b/Source/WebInspectorUI/ChangeLog
+@@ -1,10 +1,43 @@
++2015-02-05  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Inspector: eliminate some unnecessary layout/painting in timeline overview and ruler
++        https://bugs.webkit.org/show_bug.cgi?id=141293
++
++        Reviewed by NOBODY (OOPS!).
++
++        The timeline overview's ruler was forcing repaints of divider labels even if the labels
++        had not changed since the last requestAnimationFrame. Bail out early if nothing changed.
++
++        The timeline overview and its graphs were updating layout using requestAnimationFrame
++        even when the TimelineContentView is not visible. Fix this by propagating visibility
++        changes to subviews, and not updating layout when hidden.
++
++        The above change also fixes an assertion sometimes encountered when the timeline view
++        tries to cache an element's offset width, but cannot because it isn't visible.
++
++        * UserInterface/Views/TimelineContentView.js:
++        (WebInspector.TimelineContentView.prototype.shown):
++        (WebInspector.TimelineContentView.prototype.hidden):
++        * UserInterface/Views/TimelineOverview.js:
++        (WebInspector.TimelineOverview.prototype.get visible):
++        (WebInspector.TimelineOverview.prototype.shown):
++        (WebInspector.TimelineOverview.prototype.hidden):
++        (WebInspector.TimelineOverview.prototype._needsLayout):
++        * UserInterface/Views/TimelineOverviewGraph.js:
++        (WebInspector.TimelineOverviewGraph.prototype.get visible):
++        (WebInspector.TimelineOverviewGraph.prototype.shown):
++        (WebInspector.TimelineOverviewGraph.prototype.hidden):
++        (WebInspector.TimelineOverviewGraph.prototype.needsLayout):
++        * UserInterface/Views/TimelineRuler.js:
++        (WebInspector.TimelineRuler.prototype.updateLayout):
++
+ 2015-01-12  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         Web Replay: record event loop timings using elapsed time during capturing only
+         https://bugs.webkit.org/show_bug.cgi?id=137082
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Don't pass around timestamps collected during playback, since they aren't used.
+ 
+         * UserInterface/Controllers/ReplayManager.js:
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineContentView.js b/Source/WebInspectorUI/UserInterface/Views/TimelineContentView.js
+index 122216f..9198fdc 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineContentView.js
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineContentView.js
+@@ -165,30 +165,38 @@ WebInspector.TimelineContentView.prototype = {
+     get currentTimelineView()
+     {
+         return this._currentTimelineView;
+     },
+ 
+     shown: function()
+     {
+         if (!this._currentTimelineView)
+             return;
+ 
++        this._timelineOverview.shown();
+         this._currentTimelineView.shown();
+         this._clearTimelineNavigationItem.enabled = this._recording.isWritable();
++
++        if (!this._updating && WebInspector.timelineManager.activeRecording === this._recording && WebInspector.timelineManager.isCapturing())
++            this._startUpdatingCurrentTime();
+     },
+ 
+     hidden: function()
+     {
+         if (!this._currentTimelineView)
+             return;
+ 
++        this._timelineOverview.hidden();
+         this._currentTimelineView.hidden();
++
++        if (this._updating)
++            this._stopUpdatingCurrentTime();
+     },
+ 
+     filterDidChange: function()
+     {
+         if (!this._currentTimelineView)
+             return;
+ 
+         this._currentTimelineView.filterDidChange();
+     },
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineOverview.js b/Source/WebInspectorUI/UserInterface/Views/TimelineOverview.js
+index cfc408a..d3e3a30 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineOverview.js
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineOverview.js
+@@ -223,20 +223,43 @@ WebInspector.TimelineOverview.prototype = {
+         if (x === this._shouldDisplayFutureRecords)
+             return;
+ 
+         this._shouldDisplayFutureRecords = x;
+         for (var timelineOverviewGraph of this._timelineOverviewGraphsMap.values())
+             timelineOverviewGraph.shouldDisplayFutureRecords = x;
+ 
+         this._needsLayout();
+     },
+ 
++    get visible()
++    {
++        return this._visible;
++    },
++
++    shown: function()
++    {
++        this._visible = true;
++
++        for (var timelineOverviewGraph of this._timelineOverviewGraphsMap.values())
++            timelineOverviewGraph.shown();
++
++        this.updateLayout();
++    },
++
++    hidden: function()
++    {
++        this._visible = false;
++
++        for (var timelineOverviewGraph of this._timelineOverviewGraphsMap.values())
++            timelineOverviewGraph.hidden();
++    },
++
+     addMarker: function(marker)
+     {
+         this._timelineRuler.addMarker(marker);
+     },
+ 
+     revealMarker: function(marker)
+     {
+         this.scrollStartTime = marker.time - (this.visibleDuration / 2);
+     },
+ 
+@@ -310,22 +333,26 @@ WebInspector.TimelineOverview.prototype = {
+ 
+     _updateElementWidth: function(element, newWidth)
+     {
+         var currentWidth = parseInt(element.style.width);
+         if (currentWidth !== newWidth)
+             element.style.width = newWidth + "px";
+     },
+ 
+     _needsLayout: function()
+     {
++        if (!this._visible)
++            return;
++
+         if (this._scheduledLayoutUpdateIdentifier)
+             return;
++
+         this._scheduledLayoutUpdateIdentifier = requestAnimationFrame(this.updateLayout.bind(this));
+     },
+ 
+     _handleScrollEvent: function(event)
+     {
+         if (this._ignoreNextScrollEvent) {
+             delete this._ignoreNextScrollEvent;
+             return;
+         }
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineOverviewGraph.js b/Source/WebInspectorUI/UserInterface/Views/TimelineOverviewGraph.js
+index 1bbd9fd..46e0404 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineOverviewGraph.js
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineOverviewGraph.js
+@@ -148,20 +148,36 @@ WebInspector.TimelineOverviewGraph.prototype = {
+ 
+     set shouldDisplayFutureRecords(x)
+     {
+         if (x === this._shouldDisplayFutureRecords)
+             return;
+ 
+         this._shouldDisplayFutureRecords = x;
+         this.needsLayout();
+     },
+ 
++    get visible()
++    {
++        return this._visible;
++    },
++
++    shown: function()
++    {
++        this._visible = true;
++        this.updateLayout();
++    },
++
++    hidden: function()
++    {
++        this._visible = false;
++    },
++
+     reset: function()
+     {
+         // Implemented by sub-classes if needed.
+     },
+ 
+     updateLayout: function()
+     {
+         if (this._scheduledLayoutUpdateIdentifier) {
+             cancelAnimationFrame(this._scheduledLayoutUpdateIdentifier);
+             delete this._scheduledLayoutUpdateIdentifier;
+@@ -174,16 +190,19 @@ WebInspector.TimelineOverviewGraph.prototype = {
+     {
+         if (!this._scheduledLayoutUpdateIdentifier)
+             return;
+         this.updateLayout();
+     },
+ 
+     // Protected
+ 
+     needsLayout: function()
+     {
++        if (!this._visible)
++            return;
++
+         if (this._scheduledLayoutUpdateIdentifier)
+             return;
+ 
+         this._scheduledLayoutUpdateIdentifier = requestAnimationFrame(this.updateLayout.bind(this));
+     }
+ };
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineRuler.js b/Source/WebInspectorUI/UserInterface/Views/TimelineRuler.js
+index bea2a3f..0a1d6fb 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineRuler.js
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineRuler.js
+@@ -341,20 +341,30 @@ WebInspector.TimelineRuler.prototype = {
+         var firstDividerTime = (Math.ceil((this._startTime - this._zeroTime) / sliceTime) * sliceTime) + this._zeroTime;
+         var lastDividerTime = this._endTime;
+ 
+         // Calculate the divider count now based on the final slice time.
+         dividerCount = Math.ceil((lastDividerTime - firstDividerTime) / sliceTime);
+ 
+         // Make an extra divider in case the last one is partially visible.
+         if (!this._endTimePinned)
+             ++dividerCount;
+ 
++        var dividerData = {
++            count: dividerCount,
++            firstTime: firstDividerTime,
++            lastTime: lastDividerTime,
++        }
++
++        if (Object.shallowEqual(dividerData, this._currentDividers))
++            return;
++        this._currentDividers = dividerData;
++
+         var markerDividers = this._markersElement.querySelectorAll("." + WebInspector.TimelineRuler.DividerElementStyleClassName);
+ 
+         var dividerElement = this._headerElement.firstChild;
+ 
+         for (var i = 0; i <= dividerCount; ++i) {
+             if (!dividerElement) {
+                 dividerElement = document.createElement("div");
+                 dividerElement.className = WebInspector.TimelineRuler.DividerElementStyleClassName;
+                 this._headerElement.appendChild(dividerElement);
+ 
+-- 
+2.2.2
+

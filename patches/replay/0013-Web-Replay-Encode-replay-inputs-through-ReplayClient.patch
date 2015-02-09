@@ -1,4 +1,4 @@
-From 1fc93102adfff4f117a4ff8c330de2cf64b03d10 Mon Sep 17 00:00:00 2001
+From 4e77733046566912520a93ea9e6069eebda74733 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Fri, 9 Jan 2015 21:35:21 -0800
 Subject: [PATCH] Web Replay: Encode replay inputs through ReplayClient
@@ -113,7 +113,7 @@ No new tests, no behavior was changed.
  create mode 100644 Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.h
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index e467acc..f026956 100644
+index 0240cb8..7bc9dd40 100644
 --- a/Source/JavaScriptCore/ChangeLog
 +++ b/Source/JavaScriptCore/ChangeLog
 @@ -1,10 +1,20 @@
@@ -138,7 +138,7 @@ index e467acc..f026956 100644
  
          * replay/scripts/CodeGeneratorReplayInputs.py:
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 8733e19..c13cf08 100644
+index 91873b8..069f13d 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,66 @@
@@ -209,10 +209,10 @@ index 8733e19..c13cf08 100644
  
          Also rename SerializationMethods to ReplayInputCoders to match WebKit2 naming schemes.
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index 946b72f..8ee03368 100644
+index e1dd159..eac8258 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -1787,20 +1787,21 @@ __ZNK7WebCore14DocumentMarker11descriptionEv
+@@ -1792,20 +1792,21 @@ __ZNK7WebCore14DocumentMarker11descriptionEv
  __ZNK7WebCore14FrameSelection11currentFormEv
  __ZNK7WebCore14FrameSelection15copyTypingStyleEv
  __ZNK7WebCore14FrameSelection15selectionBoundsEb
@@ -234,7 +234,7 @@ index 946b72f..8ee03368 100644
  __ZNK7WebCore14ScrollableArea18visibleContentRectENS0_26VisibleContentRectBehaviorE
  __ZNK7WebCore14ScrollableArea20contentAreaWillPaintEv
  __ZNK7WebCore14ScrollableArea21mouseEnteredScrollbarEPNS_9ScrollbarE
-@@ -3513,16 +3514,95 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
+@@ -3502,12 +3503,91 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
  
  #if ENABLE(VIDEO_TRACK)
  __ZN7WebCore9PageGroup18captionPreferencesEv
@@ -327,15 +327,11 @@ index 946b72f..8ee03368 100644
 +__ZN3JSC14EncodingTraitsIN7WebCore18PlatformMouseEventEE11encodeValueERKS2_
 +__ZN3JSC14EncodingTraitsIN7WebCore18PlatformMouseEventEE11decodeValueERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
  #endif
- 
- #if ENABLE(WEB_TIMING)
- __ZNK7WebCore20ResourceResponseBase18resourceLoadTimingEv
- #endif
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index 390035e..8922a51 100644
+index 121b395..5eb90ca 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -3639,44 +3639,45 @@
+@@ -3659,44 +3659,45 @@
  		97F8E666151D4A4E00D2D181 /* WorkerGlobalScopeNotifications.h in Headers */ = {isa = PBXBuildFile; fileRef = 97F8E662151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.h */; };
  		9831AE4A154225C900FE2644 /* ReferrerPolicy.h in Headers */ = {isa = PBXBuildFile; fileRef = 9831AE49154225A200FE2644 /* ReferrerPolicy.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		984264F112D5280A000D88A4 /* LinkLoaderClient.h in Headers */ = {isa = PBXBuildFile; fileRef = 984264EF12D5280A000D88A4 /* LinkLoaderClient.h */; };
@@ -384,7 +380,7 @@ index 390035e..8922a51 100644
  		9B1AB07C1648C7C40051F3F2 /* JSHTMLFormControlsCollectionCustom.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9B1AB07B1648C7C40051F3F2 /* JSHTMLFormControlsCollectionCustom.cpp */; };
  		9B24DE8E15194B9500C59C27 /* HTMLBDIElement.h in Headers */ = {isa = PBXBuildFile; fileRef = 9B24DE8C15194B9500C59C27 /* HTMLBDIElement.h */; };
  		9B2D8A7914997CCF00ECEF3E /* UndoStep.h in Headers */ = {isa = PBXBuildFile; fileRef = 9B2D8A7814997CCF00ECEF3E /* UndoStep.h */; settings = {ATTRIBUTES = (Private, ); }; };
-@@ -10823,21 +10824,20 @@
+@@ -10866,21 +10867,20 @@
  		984264EF12D5280A000D88A4 /* LinkLoaderClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = LinkLoaderClient.h; sourceTree = "<group>"; };
  		985BB96B13A94058007A0B69 /* LinkRelAttribute.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = LinkRelAttribute.cpp; sourceTree = "<group>"; };
  		985BB96C13A94058007A0B69 /* LinkRelAttribute.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = LinkRelAttribute.h; sourceTree = "<group>"; };
@@ -406,7 +402,7 @@ index 390035e..8922a51 100644
  		99CC0B4018BE9849006CEBCC /* ReplayingInputCursor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReplayingInputCursor.cpp; sourceTree = "<group>"; };
  		99CC0B4118BE9849006CEBCC /* ReplayingInputCursor.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ReplayingInputCursor.h; sourceTree = "<group>"; };
  		99CC0B4218BE9849006CEBCC /* WebReplayInputCreationMethods.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WebReplayInputCreationMethods.cpp; sourceTree = "<group>"; };
-@@ -18419,21 +18419,20 @@
+@@ -18476,21 +18476,20 @@
  				977E2E0C12F0FC9C00C13379 /* XSSAuditor.h */,
  				977E2E0B12F0FC9C00C13380 /* XSSAuditorDelegate.cpp */,
  				977E2E0C12F0FC9C00C13380 /* XSSAuditorDelegate.h */,
@@ -428,7 +424,7 @@ index 390035e..8922a51 100644
  				99C7CCB418C6B8990032E413 /* MemoizedDOMResult.cpp */,
  				99C7CCB218C663E40032E413 /* MemoizedDOMResult.h */,
  				C4D4F5271975C88B003EF5BC /* ReplayableTimer.cpp */,
-@@ -23381,21 +23380,20 @@
+@@ -23446,21 +23445,20 @@
  				29A8122B0FBB9C1D00510293 /* AccessibilityTable.h in Headers */,
  				29A812320FBB9C1D00510293 /* AccessibilityTableCell.h in Headers */,
  				29A812410FBB9C1D00510293 /* AccessibilityTableColumn.h in Headers */,
@@ -1448,10 +1444,10 @@ index ea452e6..7b5662c 100644
      Frame* frame = frameFromFrameIndex(&page, frameIndex);
      ASSERT(frame);
 diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
-index c2b6dbd..d5c7c96 100644
+index ec09b72..ff03fff 100644
 --- a/Source/WebKit2/CMakeLists.txt
 +++ b/Source/WebKit2/CMakeLists.txt
-@@ -781,19 +781,20 @@ if (ENABLE_WEB_REPLAY)
+@@ -830,19 +830,20 @@ if (ENABLE_WEB_REPLAY)
  =======
      set(WebKit2_WEB_REPLAY_INPUTS ${WEBKIT2_DIR}/WebProcess/Replay/WebInputs.json)
      add_custom_command(
@@ -1473,7 +1469,7 @@ index c2b6dbd..d5c7c96 100644
  install(TARGETS WebKit2 DESTINATION "${LIB_INSTALL_DIR}")
  install(TARGETS WebProcess DESTINATION "${LIBEXEC_INSTALL_DIR}")
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index dfedf5c..cf4fa32 100644
+index 2039d26..a96d731 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,35 @@
@@ -1513,10 +1509,10 @@ index dfedf5c..cf4fa32 100644
  
          * CMakeLists.txt:
 diff --git a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
-index 8c309ea..a2deece 100644
+index b49a983..642c30b 100644
 --- a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
 +++ b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
-@@ -1597,20 +1597,22 @@
+@@ -1606,20 +1606,22 @@
  		C0CE72A01247E71D00BC0EC4 /* WebPageMessageReceiver.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0CE729E1247E71D00BC0EC4 /* WebPageMessageReceiver.cpp */; };
  		C0CE72A11247E71D00BC0EC4 /* WebPageMessages.h in Headers */ = {isa = PBXBuildFile; fileRef = C0CE729F1247E71D00BC0EC4 /* WebPageMessages.h */; };
  		C0CE72AD1247E78D00BC0EC4 /* HandleMessage.h in Headers */ = {isa = PBXBuildFile; fileRef = C0CE72AC1247E78D00BC0EC4 /* HandleMessage.h */; };
@@ -1539,7 +1535,7 @@ index 8c309ea..a2deece 100644
  		C54256BA18BEC18C00DE4179 /* WKFormSelectControl.h in Headers */ = {isa = PBXBuildFile; fileRef = C54256B418BEC18C00DE4179 /* WKFormSelectControl.h */; };
  		C55CB5B718C269CF00CA81E1 /* WKFormSelectPopover.mm in Sources */ = {isa = PBXBuildFile; fileRef = C57193BA18C149D0002D0F12 /* WKFormSelectPopover.mm */; };
  		C55CB5B818C2A5D600CA81E1 /* WKFormSelectPicker.mm in Sources */ = {isa = PBXBuildFile; fileRef = C57193B918C149D0002D0F12 /* WKFormSelectPicker.mm */; };
-@@ -3779,20 +3781,22 @@
+@@ -3813,20 +3815,22 @@
  		C0CE73361247F70E00BC0EC4 /* generate-message-receiver.py */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.python; path = "generate-message-receiver.py"; sourceTree = "<group>"; };
  		C0CE73371247F70E00BC0EC4 /* generate-messages-header.py */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.python; path = "generate-messages-header.py"; sourceTree = "<group>"; };
  		C0E3AA441209E2BA00A49D01 /* Module.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Module.h; sourceTree = "<group>"; };
@@ -1562,7 +1558,7 @@ index 8c309ea..a2deece 100644
  		C54256B418BEC18C00DE4179 /* WKFormSelectControl.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WKFormSelectControl.h; path = ios/forms/WKFormSelectControl.h; sourceTree = "<group>"; };
  		C554FFA212E4E8EA002F22C0 /* WebDragClientMac.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = WebDragClientMac.mm; sourceTree = "<group>"; };
  		C57193B918C149D0002D0F12 /* WKFormSelectPicker.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WKFormSelectPicker.mm; path = ios/forms/WKFormSelectPicker.mm; sourceTree = "<group>"; };
-@@ -7176,20 +7180,22 @@
+@@ -7231,20 +7235,22 @@
  			);
  			path = Scripts;
  			sourceTree = "<group>";
@@ -1585,9 +1581,9 @@ index 8c309ea..a2deece 100644
  				C5FA1ED118E1062200B3F402 /* WKAirPlayRoutePicker.h */,
  				C5FA1ED218E1062200B3F402 /* WKAirPlayRoutePicker.mm */,
  				A58B6F0618FCA733008CBA53 /* WKFileUploadPanel.h */,
-@@ -8127,20 +8133,21 @@
- 				1A6509CE18B4146200614332 /* WKProcessPoolPrivate.h in Headers */,
+@@ -8188,20 +8194,21 @@
  				512F58FC12A88A5400629530 /* WKProtectionSpace.h in Headers */,
+ 				2DF9EEEE1A786EAD00B6CFBE /* APINavigationResponse.h in Headers */,
  				518ACAEA12AEE6BB00B04B83 /* WKProtectionSpaceTypes.h in Headers */,
  				1AD01BCD1905D54900C9C45F /* WKReloadFrameErrorRecoveryAttempter.h in Headers */,
  				1A9E329B1822E1CC00F5D04C /* WKRemoteObject.h in Headers */,
@@ -1607,7 +1603,7 @@ index 8c309ea..a2deece 100644
  				BC407604124FF0270068F20A /* WKSerializedScriptValue.h in Headers */,
  				F67DD7BA125E40D9007BDCB8 /* WKSerializedScriptValuePrivate.h in Headers */,
  				75A8D2D7187D303A00C39C9E /* WKSessionRef.h in Headers */,
-@@ -9813,20 +9820,21 @@
+@@ -9904,20 +9911,21 @@
  				BCBAACEC145225E30053F82F /* WKProcessGroup.mm in Sources */,
  				1A158419189044F50017616C /* WKProcessPool.mm in Sources */,
  				512F58FB12A88A5400629530 /* WKProtectionSpace.cpp in Sources */,
@@ -1911,5 +1907,5 @@ index cee44c3..f6928e1 100644
  
  #endif // WebReplayClient_h
 -- 
-2.0.1
+2.2.2
 

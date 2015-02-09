@@ -1,4 +1,4 @@
-From 0ec7f7a971ecea2354372a7461fb1ab60b4bbb09 Mon Sep 17 00:00:00 2001
+From ba3973c4a91d6d7f6d99c0cc29b2db68af870909 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 11:45:23 -0700
 Subject: [PATCH] Source/WebCore: [WIP] Web Replay: capture and replay Reload,
@@ -101,7 +101,7 @@ an enum with uint64_t-sized storage rather than int.
  12 files changed, 511 insertions(+), 9 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 6ab4a9d..8d8c73a 100644
+index 2752831..a028b1d 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,83 @@
@@ -216,14 +216,14 @@ index 81e3f65..e665e7a 100644
  
  }
 diff --git a/Source/WebCore/loader/cache/CachedResourceLoader.cpp b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
-index 60d7dbe..a3a2f82 100644
+index c49401a..d826131 100644
 --- a/Source/WebCore/loader/cache/CachedResourceLoader.cpp
 +++ b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
-@@ -432,21 +432,21 @@ bool CachedResourceLoader::shouldContinueAfterNotifyingLoadedFromMemoryCache(con
- 
-     // FIXME <http://webkit.org/b/113251>: If the delegate modifies the request's
-     // URL, it is no longer appropriate to use this CachedResource.
-     return !newRequest.isNull();
+@@ -444,21 +444,21 @@ static inline void logMemoryCacheResourceRequest(Frame* frame, const String& des
+     if (value.isNull())
+         frame->mainFrame().diagnosticLoggingClient().logDiagnosticMessage(DiagnosticLoggingKeys::resourceRequestKey(), description);
+     else
+         frame->mainFrame().diagnosticLoggingClient().logDiagnosticMessageWithValue(DiagnosticLoggingKeys::resourceRequestKey(), description, value);
  }
  
  CachedResourceHandle<CachedResource> CachedResourceLoader::requestResource(CachedResource::Type type, CachedResourceRequest& request)
@@ -237,10 +237,10 @@ index 60d7dbe..a3a2f82 100644
      url = MemoryCache::removeFragmentIdentifierIfNeeded(url);
  
      if (!url.isValid())
-         return 0;
+         return nullptr;
  
      if (!canRequest(type, url, request.options(), request.forPreload()))
-         return 0;
+         return nullptr;
  
 diff --git a/Source/WebCore/platform/network/FormData.h b/Source/WebCore/platform/network/FormData.h
 index 2dd07b1..88bd311 100644
@@ -1138,7 +1138,7 @@ index b527ef5..8f7589c 100644
      }
  }
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 405b643..f81e8df 100644
+index 0445d5d..d3dc062 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,25 @@
@@ -1168,5 +1168,5 @@ index 405b643..f81e8df 100644
          from taking over and fulfilling the loads nondeterministically.
  
 -- 
-2.0.1
+2.2.2
 

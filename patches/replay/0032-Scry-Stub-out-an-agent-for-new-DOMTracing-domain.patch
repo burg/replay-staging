@@ -1,4 +1,4 @@
-From 55eff071bc0548d9f61b3d1e5bfdaf271e047a38 Mon Sep 17 00:00:00 2001
+From 70c8a7323c3fa2cfc434160b00fdfc6c15106b55 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 15 Jan 2015 13:51:04 -0800
 Subject: [PATCH] [Scry] Stub out an agent for new DOMTracing domain.
@@ -20,7 +20,7 @@ Subject: [PATCH] [Scry] Stub out an agent for new DOMTracing domain.
  create mode 100644 Source/WebCore/inspector/InspectorDOMTracingAgent.h
 
 diff --git a/Source/JavaScriptCore/DerivedSources.make b/Source/JavaScriptCore/DerivedSources.make
-index 12afea2..39fec5b 100644
+index 4a2623e..f7367d7 100644
 --- a/Source/JavaScriptCore/DerivedSources.make
 +++ b/Source/JavaScriptCore/DerivedSources.make
 @@ -112,20 +112,21 @@ InitBytecodes.asm: $(JavaScriptCore)/generate-bytecode-files $(JavaScriptCore)/b
@@ -76,10 +76,10 @@ index 0000000..9559dc0
 +    ]
 +}
 diff --git a/Source/WebCore/CMakeLists.txt b/Source/WebCore/CMakeLists.txt
-index 784bcf4..9d691da 100644
+index ed529d4..cbf95ae 100644
 --- a/Source/WebCore/CMakeLists.txt
 +++ b/Source/WebCore/CMakeLists.txt
-@@ -1743,20 +1743,21 @@ set(WebCore_SOURCES
+@@ -1753,20 +1753,21 @@ set(WebCore_SOURCES
      inspector/CommandLineAPIModule.cpp
      inspector/DOMEditor.cpp
      inspector/DOMPatchSupport.cpp
@@ -102,10 +102,10 @@ index 784bcf4..9d691da 100644
      inspector/InspectorLayerTreeAgent.cpp
      inspector/InspectorNodeFinder.cpp
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index 0e39879..f1af9fa 100644
+index 4b85277..984fba1 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -3637,22 +3637,20 @@
+@@ -3657,22 +3657,20 @@
  		97E4029013A696ED00913D67 /* IconController.h in Headers */ = {isa = PBXBuildFile; fileRef = 97E4028E13A696ED00913D67 /* IconController.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		97F8E665151D4A4B00D2D181 /* WorkerGlobalScopeNotifications.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 97F8E661151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.cpp */; };
  		97F8E666151D4A4E00D2D181 /* WorkerGlobalScopeNotifications.h in Headers */ = {isa = PBXBuildFile; fileRef = 97F8E662151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.h */; };
@@ -128,7 +128,7 @@ index 0e39879..f1af9fa 100644
  		99CC0B5318BE9849006CEBCC /* ReplayController.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B3E18BE9849006CEBCC /* ReplayController.cpp */; };
  		99CC0B5418BE9849006CEBCC /* ReplayController.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B3F18BE9849006CEBCC /* ReplayController.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		99CC0B5518BE9849006CEBCC /* ReplayingInputCursor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4018BE9849006CEBCC /* ReplayingInputCursor.cpp */; };
-@@ -5531,20 +5529,22 @@
+@@ -5550,20 +5548,22 @@
  		C375D7FD16639519006184AB /* TypeAhead.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C375D7FB16639519006184AB /* TypeAhead.cpp */; };
  		C375D7FE16639519006184AB /* TypeAhead.h in Headers */ = {isa = PBXBuildFile; fileRef = C375D7FC16639519006184AB /* TypeAhead.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		C37CDEBD149EF2030042090D /* ColorChooserClient.h in Headers */ = {isa = PBXBuildFile; fileRef = C37CDEBC149EF2030042090D /* ColorChooserClient.h */; settings = {ATTRIBUTES = (Private, ); }; };
@@ -151,7 +151,7 @@ index 0e39879..f1af9fa 100644
  		C4D4F52B1975C88B003EF5BC /* ReplayableTimer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4D4F5271975C88B003EF5BC /* ReplayableTimer.cpp */; };
  		C4D4F52C1975C88B003EF5BC /* ReplayableTimer.h in Headers */ = {isa = PBXBuildFile; fileRef = C4D4F5281975C88B003EF5BC /* ReplayableTimer.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		C4D4F52D1975C88B003EF5BC /* ReplayableTimers.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4D4F5291975C88B003EF5BC /* ReplayableTimers.cpp */; };
-@@ -12964,20 +12964,22 @@
+@@ -13006,20 +13006,22 @@
  		C348612215FDE21E007A1CC9 /* InputTypeNames.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = InputTypeNames.h; sourceTree = "<group>"; };
  		C375D7FB16639519006184AB /* TypeAhead.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = TypeAhead.cpp; sourceTree = "<group>"; };
  		C375D7FC16639519006184AB /* TypeAhead.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TypeAhead.h; sourceTree = "<group>"; };
@@ -174,7 +174,7 @@ index 0e39879..f1af9fa 100644
  		C4D4F5291975C88B003EF5BC /* ReplayableTimers.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReplayableTimers.cpp; sourceTree = "<group>"; };
  		C4D4F52A1975C88B003EF5BC /* ReplayableTimers.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ReplayableTimers.h; sourceTree = "<group>"; };
  		C50D0E810FF4272900AC2644 /* StorageNamespace.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = StorageNamespace.h; sourceTree = "<group>"; };
-@@ -15222,20 +15224,22 @@
+@@ -15264,20 +15266,22 @@
  				7AB0B1BF1211A62200A76940 /* InspectorDatabaseAgent.h */,
  				F3F5CF1212ED81B30084C569 /* InspectorDatabaseInstrumentation.h */,
  				41F062130F5F192600A07EAC /* InspectorDatabaseResource.cpp */,
@@ -197,7 +197,7 @@ index 0e39879..f1af9fa 100644
  				7A54857D14E02D51006AE05A /* InspectorHistory.cpp */,
  				7A54857E14E02D51006AE05A /* InspectorHistory.h */,
  				7ACD88D114C08BD60084EDD2 /* InspectorIndexedDBAgent.cpp */,
-@@ -23900,20 +23904,21 @@
+@@ -23967,20 +23971,21 @@
  				85909CE00ACC7A7E00DF01F1 /* DOMCSSPageRuleInternal.h in Headers */,
  				858C382C0AA8E40500B187A4 /* DOMCSSPrimitiveValue.h in Headers */,
  				85909D290ACC7D5500DF01F1 /* DOMCSSPrimitiveValueInternal.h in Headers */,
@@ -219,7 +219,7 @@ index 0e39879..f1af9fa 100644
  				85909CE40ACC7A7E00DF01F1 /* DOMCSSUnknownRuleInternal.h in Headers */,
  				858C381C0AA8E29600B187A4 /* DOMCSSValue.h in Headers */,
  				85B498F30ADB336A00925CBB /* DOMCSSValueInternal.h in Headers */,
-@@ -29061,20 +29066,21 @@
+@@ -29141,20 +29146,21 @@
  				854FE7340A2297BE0058D7AD /* NodeIterator.cpp in Sources */,
  				4FFC022B1643B710004E1638 /* NodeRareData.cpp in Sources */,
  				A74F3EF31678B24A00B05A6E /* NodeRenderingTraversal.cpp in Sources */,
@@ -242,7 +242,7 @@ index 0e39879..f1af9fa 100644
  				E16982601134636A00894115 /* ObjCRuntimeObject.mm in Sources */,
  				7E5D7A76161D3F8F00896C34 /* OESElementIndexUint.cpp in Sources */,
 diff --git a/Source/WebCore/inspector/InspectorAllInOne.cpp b/Source/WebCore/inspector/InspectorAllInOne.cpp
-index c0211db..4fa5a8b 100644
+index a2a266c..e848d31 100644
 --- a/Source/WebCore/inspector/InspectorAllInOne.cpp
 +++ b/Source/WebCore/inspector/InspectorAllInOne.cpp
 @@ -29,20 +29,21 @@
@@ -586,5 +586,5 @@ index f91a685..fa71eb9 100644
  
  #endif // !defined(InstrumentingAgents_h)
 -- 
-2.0.1
+2.2.2
 

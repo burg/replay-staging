@@ -1,4 +1,4 @@
-From cb2c64cbad7ea2ef5a77d9c26c93a424486f1df6 Mon Sep 17 00:00:00 2001
+From 667da2ae339c2359e7bb24261810ba5d1c836306 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 20 Aug 2014 12:50:30 -0700
 Subject: [PATCH] Web Replay: Use framework prefixes for framework-specific
@@ -63,7 +63,7 @@ Also rename SerializationMethods to ReplayInputCoders to match WebKit2 naming sc
  rename Source/WebCore/replay/{ReplayInputDispatchMethods.cpp => WebReplayInputDispatchMethods.cpp} (99%)
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index 65c3f59..e467acc 100644
+index 55d0a90..0240cb8 100644
 --- a/Source/JavaScriptCore/ChangeLog
 +++ b/Source/JavaScriptCore/ChangeLog
 @@ -1,10 +1,21 @@
@@ -116,10 +116,10 @@ index 089e388..283b209 100644
              ("WebCore", "WebReplayInputs.h")
          ),
 diff --git a/Source/WebCore/CMakeLists.txt b/Source/WebCore/CMakeLists.txt
-index 4fa2fc2..236d897 100644
+index 2caa3bd..3315aaa 100644
 --- a/Source/WebCore/CMakeLists.txt
 +++ b/Source/WebCore/CMakeLists.txt
-@@ -3064,27 +3064,27 @@ if (ENABLE_WEB_REPLAY)
+@@ -3083,27 +3083,27 @@ if (ENABLE_WEB_REPLAY)
          VERBATIM)
  
      list(APPEND WebCore_SOURCES
@@ -151,7 +151,7 @@ index 4fa2fc2..236d897 100644
          page/UserMessageHandlersNamespace.idl
          page/WebKitNamespace.idl
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index faceb52..8733e19 100644
+index 44e4972..91873b8 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,40 @@
@@ -196,10 +196,10 @@ index faceb52..8733e19 100644
  
          * WebCore.xcodeproj/project.pbxproj: Make SerializationMethods.h a private header.
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index 4e51880..390035e 100644
+index 2a00536..121b395 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -3651,30 +3651,28 @@
+@@ -3671,30 +3671,28 @@
  		99CC0B4D18BE9849006CEBCC /* AllReplayInputs.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B3818BE9849006CEBCC /* AllReplayInputs.h */; };
  		99CC0B4E18BE9849006CEBCC /* CapturingInputCursor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B3918BE9849006CEBCC /* CapturingInputCursor.cpp */; };
  		99CC0B4F18BE9849006CEBCC /* CapturingInputCursor.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B3A18BE9849006CEBCC /* CapturingInputCursor.h */; };
@@ -232,7 +232,7 @@ index 4e51880..390035e 100644
  		9A528E8317D7F52F00AA9518 /* FloatingObjects.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9A528E8117D7F52F00AA9518 /* FloatingObjects.cpp */; };
  		9A528E8417D7F52F00AA9518 /* FloatingObjects.h in Headers */ = {isa = PBXBuildFile; fileRef = 9A528E8217D7F52F00AA9518 /* FloatingObjects.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		9AB1F38018E2489A00534743 /* CSSToLengthConversionData.h in Headers */ = {isa = PBXBuildFile; fileRef = 9AB1F37E18E2489A00534743 /* CSSToLengthConversionData.h */; };
-@@ -5532,20 +5530,22 @@
+@@ -5551,20 +5549,22 @@
  		C348612315FDE21E007A1CC9 /* InputTypeNames.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C348612115FDE21E007A1CC9 /* InputTypeNames.cpp */; };
  		C348612415FDE21E007A1CC9 /* InputTypeNames.h in Headers */ = {isa = PBXBuildFile; fileRef = C348612215FDE21E007A1CC9 /* InputTypeNames.h */; };
  		C375D7FD16639519006184AB /* TypeAhead.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C375D7FB16639519006184AB /* TypeAhead.cpp */; };
@@ -255,7 +255,7 @@ index 4e51880..390035e 100644
  		C4D4F52B1975C88B003EF5BC /* ReplayableTimer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4D4F5271975C88B003EF5BC /* ReplayableTimer.cpp */; };
  		C4D4F52C1975C88B003EF5BC /* ReplayableTimer.h in Headers */ = {isa = PBXBuildFile; fileRef = C4D4F5281975C88B003EF5BC /* ReplayableTimer.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		C4D4F52D1975C88B003EF5BC /* ReplayableTimers.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4D4F5291975C88B003EF5BC /* ReplayableTimers.cpp */; };
-@@ -10833,30 +10833,30 @@
+@@ -10876,30 +10876,30 @@
  		99CC0B3818BE9849006CEBCC /* AllReplayInputs.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AllReplayInputs.h; sourceTree = "<group>"; };
  		99CC0B3918BE9849006CEBCC /* CapturingInputCursor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CapturingInputCursor.cpp; sourceTree = "<group>"; };
  		99CC0B3A18BE9849006CEBCC /* CapturingInputCursor.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = CapturingInputCursor.h; sourceTree = "<group>"; };
@@ -290,7 +290,7 @@ index 4e51880..390035e 100644
  		9A1B6F96158869C80011A8C4 /* JSDOMStringListCustom.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = JSDOMStringListCustom.cpp; sourceTree = "<group>"; };
  		9A528E8117D7F52F00AA9518 /* FloatingObjects.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = FloatingObjects.cpp; sourceTree = "<group>"; };
  		9A528E8217D7F52F00AA9518 /* FloatingObjects.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FloatingObjects.h; sourceTree = "<group>"; };
-@@ -18437,36 +18437,34 @@
+@@ -18494,36 +18494,34 @@
  				99C7CCB418C6B8990032E413 /* MemoizedDOMResult.cpp */,
  				99C7CCB218C663E40032E413 /* MemoizedDOMResult.h */,
  				C4D4F5271975C88B003EF5BC /* ReplayableTimer.cpp */,
@@ -331,7 +331,7 @@ index 4e51880..390035e 100644
  				FE69986F192087E7006936BD /* FloatingPointEnvironment.cpp */,
  				FE699870192087E7006936BD /* FloatingPointEnvironment.h */,
  				A148328C187F508700DA63A6 /* WAKAppKitStubs.h */,
-@@ -26023,21 +26021,20 @@
+@@ -26098,21 +26096,20 @@
  				BEA807C90F714A0300524199 /* SelectionRect.h in Headers */,
  				51405C89190B014400754F94 /* SelectionRectGatherer.h in Headers */,
  				CDCFABBD18C0AF78006F8450 /* SelectionSubtreeRoot.h in Headers */,
@@ -353,7 +353,7 @@ index 4e51880..390035e 100644
  				93309E10099E64920056E581 /* SetNodeAttributeCommand.h in Headers */,
  				B8DBDB4C130B0F8A00F5CDB1 /* SetSelectionCommand.h in Headers */,
  				93F1994F08245E59001E9ABC /* Settings.h in Headers */,
-@@ -26710,20 +26707,21 @@
+@@ -26786,20 +26783,21 @@
  				8AA61D00144D595B00F37350 /* WebKitCSSRegionRule.h in Headers */,
  				BC9ADD230CC4032600098C4C /* WebKitCSSTransformValue.h in Headers */,
  				3FFFF9A9159D9A550020BBD5 /* WebKitCSSViewportRule.h in Headers */,
@@ -375,7 +375,7 @@ index 4e51880..390035e 100644
  				97AABD1F14FA09D5007457AE /* WebSocketChannelClient.h in Headers */,
  				4A38BF5114FE1C0900612512 /* WebSocketDeflateFramer.h in Headers */,
  				97AABD2114FA09D5007457AE /* WebSocketDeflater.h in Headers */,
-@@ -27123,20 +27121,22 @@
+@@ -27200,20 +27198,22 @@
  			buildActionMask = 2147483647;
  			files = (
  				5D87BB8311E3ED8600702B6F /* ExportFileGenerator.cpp in Sources */,
@@ -398,7 +398,7 @@ index 4e51880..390035e 100644
  				37F57ABF1A50728100876F98 /* AccessibilityListBoxOption.cpp in Sources */,
  				37F57AC01A50728400876F98 /* AccessibilityMediaControls.cpp in Sources */,
  				76CDD2F21103DA6600680521 /* AccessibilityMenuList.cpp in Sources */,
-@@ -27521,20 +27521,21 @@
+@@ -27600,20 +27600,21 @@
  				93309DDE099E64920056E581 /* DeleteFromTextNodeCommand.cpp in Sources */,
  				93309DE0099E64920056E581 /* DeleteSelectionCommand.cpp in Sources */,
  				A7C9ABF81357A3BF00F5503F /* DetailsMarkerControl.cpp in Sources */,
@@ -420,7 +420,7 @@ index 4e51880..390035e 100644
  				D0BD4F5C1408850F006839B6 /* DictationCommandIOS.cpp in Sources */,
  				312D67B11535691F00563D0D /* Dictionary.cpp in Sources */,
  				937FF3D71A10131B008EBA31 /* DictionaryLookup.mm in Sources */,
-@@ -29316,23 +29317,20 @@
+@@ -29397,23 +29398,20 @@
  				E44614510CD68A3500FADA75 /* RenderVideo.cpp in Sources */,
  				BCEA4867097D93020094C9E4 /* RenderView.cpp in Sources */,
  				BE20507D18A458BF0080647E /* RenderVTTCue.cpp in Sources */,
@@ -444,7 +444,7 @@ index 4e51880..390035e 100644
  				7EE6846C12D26E3800E79415 /* ResourceHandleCFNet.cpp in Sources */,
  				26FAE4CC1852E3A5004C8C46 /* ResourceHandleCFURLConnectionDelegate.cpp in Sources */,
  				26C15CF61857E15D00F15C03 /* ResourceHandleCFURLConnectionDelegateWithOperationQueue.cpp in Sources */,
-@@ -29460,21 +29458,20 @@
+@@ -29542,21 +29540,20 @@
  				B2C3DA2E0D006C1D00EF6F26 /* SegmentedString.cpp in Sources */,
  				BEA807C80F714A0300524199 /* SelectionRect.cpp in Sources */,
  				51405C88190B014400754F94 /* SelectionRectGatherer.cpp in Sources */,
@@ -466,7 +466,7 @@ index 4e51880..390035e 100644
  				E1C2F24A1533A2120083F974 /* SettingsMac.mm in Sources */,
  				0F3DD44F12F5EA1B000D9190 /* ShadowBlur.cpp in Sources */,
  				BC5EB8C30E82031B00B25965 /* ShadowData.cpp in Sources */,
-@@ -30002,20 +29999,21 @@
+@@ -30085,20 +30082,21 @@
  				BC9ADD800CC4092200098C4C /* WebKitCSSTransformValue.cpp in Sources */,
  				3FFFF9A8159D9A550020BBD5 /* WebKitCSSViewportRule.cpp in Sources */,
  				1A1414B513A0F0500019996C /* WebKitFontFamilyNames.cpp in Sources */,
@@ -516,10 +516,10 @@ index 6ecd7c0..1398501 100644
  
  static Ref<Inspector::Protocol::Replay::ReplayPosition> buildInspectorObjectForPosition(const ReplayPosition& position)
 diff --git a/Source/WebCore/loader/SubresourceLoader.cpp b/Source/WebCore/loader/SubresourceLoader.cpp
-index cd52987..3104eef 100644
+index 302ecae..522ae27 100644
 --- a/Source/WebCore/loader/SubresourceLoader.cpp
 +++ b/Source/WebCore/loader/SubresourceLoader.cpp
-@@ -48,21 +48,21 @@
+@@ -47,21 +47,21 @@
  #include <wtf/text/CString.h>
  
  #if PLATFORM(IOS)
@@ -539,7 +539,7 @@ index cd52987..3104eef 100644
  
  DEFINE_DEBUG_ONLY_GLOBAL(WTF::RefCountedLeakCounter, subresourceLoaderCounter, ("SubresourceLoader"));
  
- SubresourceLoader::RequestCountTracker::RequestCountTracker(CachedResourceLoader* cachedResourceLoader, CachedResource* resource)
+ SubresourceLoader::RequestCountTracker::RequestCountTracker(CachedResourceLoader& cachedResourceLoader, CachedResource* resource)
      : m_cachedResourceLoader(cachedResourceLoader)
      , m_resource(resource)
 diff --git a/Source/WebCore/page/DOMTimer.cpp b/Source/WebCore/page/DOMTimer.cpp
@@ -894,5 +894,5 @@ index 29508c8..ea452e6 100644
      Frame* frame = frameFromFrameIndex(&page, frameIndex);
      ASSERT(frame);
 -- 
-2.0.1
+2.2.2
 

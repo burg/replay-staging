@@ -1,4 +1,4 @@
-From 20cb6e39d815bea80c35b65cff3362e8cc4a8083 Mon Sep 17 00:00:00 2001
+From 098b3400a9c1236eb50e3176035d23af8449c702 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 15 Jul 2014 15:34:16 -0700
 Subject: [PATCH] Web Replay: window.history.length should be captured at main
@@ -85,7 +85,7 @@ LayoutTests:
  create mode 100644 LayoutTests/inspector/replay/history-length-single-segment.html
 
 diff --git a/LayoutTests/ChangeLog b/LayoutTests/ChangeLog
-index 0b78500..3efb834 100644
+index ed72020..04fde5d 100644
 --- a/LayoutTests/ChangeLog
 +++ b/LayoutTests/ChangeLog
 @@ -1,10 +1,20 @@
@@ -99,16 +99,16 @@ index 0b78500..3efb834 100644
 +        * inspector/replay/history-length-single-segment-expected.txt: Added.
 +        * inspector/replay/history-length-single-segment.html: Added.
 +
- 2015-01-21  Brent Fulgham  <bfulgham@apple.com>
+ 2015-02-01  Commit Queue  <commit-queue@webkit.org>
  
-         [Win] Unreviewed gardening after reactivating some tests.
+         Unreviewed, rolling out r179467 and r179470.
+         https://bugs.webkit.org/show_bug.cgi?id=141144
  
-         * platform/win/TestExpectations: Add failure entries for a few tests with bug reports.
+         Broke svg/custom/use-events-crash.svg (Requested by ap on
+         #webkit).
  
- 2015-01-21  Manuel Rego Casasnovas  <rego@igalia.com>
+         Reverted changesets:
  
-         first-letter pseudo-element from ancestors is not being ignored in grids and flexboxes
-         https://bugs.webkit.org/show_bug.cgi?id=138424
 diff --git a/LayoutTests/inspector/replay/history-length-single-segment-expected.txt b/LayoutTests/inspector/replay/history-length-single-segment-expected.txt
 new file mode 100644
 index 0000000..b797ffd
@@ -165,7 +165,7 @@ index 0000000..a88d9c1
 +</body>
 +</html>
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 8d8c73a..9df74c2 100644
+index a028b1d..6d85a2b 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,64 @@
@@ -234,12 +234,12 @@ index 8d8c73a..9df74c2 100644
          come to WebCore from WK1/WK2 WebProcess. This handles most UI-driven
          navigation commands, such as clicking the stop or reload buttons, or
 diff --git a/Source/WebCore/history/BackForwardClient.h b/Source/WebCore/history/BackForwardClient.h
-index 4718736..2c65273 100644
+index 0820415..1496af3 100644
 --- a/Source/WebCore/history/BackForwardClient.h
 +++ b/Source/WebCore/history/BackForwardClient.h
 @@ -43,20 +43,21 @@ public:
  
-     virtual void addItem(PassRefPtr<HistoryItem>) = 0;
+     virtual void addItem(Ref<HistoryItem>&&) = 0;
  
      virtual void goToItem(HistoryItem*) = 0;
          
@@ -260,7 +260,7 @@ index 4718736..2c65273 100644
  #endif
  
 diff --git a/Source/WebCore/history/BackForwardController.cpp b/Source/WebCore/history/BackForwardController.cpp
-index 9c16722..b914f80 100644
+index 1aeb63c..0a32923 100644
 --- a/Source/WebCore/history/BackForwardController.cpp
 +++ b/Source/WebCore/history/BackForwardController.cpp
 @@ -120,16 +120,21 @@ int BackForwardController::backCount() const
@@ -286,12 +286,12 @@ index 9c16722..b914f80 100644
  
  } // namespace WebCore
 diff --git a/Source/WebCore/history/BackForwardController.h b/Source/WebCore/history/BackForwardController.h
-index f23b7e4..31a3290 100644
+index 589ee5e..f0b1509 100644
 --- a/Source/WebCore/history/BackForwardController.h
 +++ b/Source/WebCore/history/BackForwardController.h
 @@ -52,20 +52,21 @@ public:
  
-     void addItem(PassRefPtr<HistoryItem>);
+     void addItem(Ref<HistoryItem>&&);
      void setCurrentItem(HistoryItem*);
          
      int count() const;
@@ -312,14 +312,14 @@ index f23b7e4..31a3290 100644
      RefPtr<BackForwardClient> m_client;
  };
 diff --git a/Source/WebCore/history/BackForwardList.cpp b/Source/WebCore/history/BackForwardList.cpp
-index 1e5e774..0bd8429 100644
+index 0104d26..b57a626 100644
 --- a/Source/WebCore/history/BackForwardList.cpp
 +++ b/Source/WebCore/history/BackForwardList.cpp
-@@ -247,20 +247,26 @@ bool BackForwardList::clearAllPageCaches()
-         HistoryItem* item = m_entries[i].get();
+@@ -242,20 +242,26 @@ bool BackForwardList::clearAllPageCaches()
+     for (auto& item : m_entries) {
          if (item->isInPageCache()) {
              didRemoveAtLeastOneItem = true;
-             pageCache()->remove(item);
+             PageCache::singleton().remove(item);
          }
      }
      return didRemoveAtLeastOneItem;
@@ -334,16 +334,16 @@ index 1e5e774..0bd8429 100644
 +
  void BackForwardList::close()
  {
-     int size = m_entries.size();
-     for (int i = 0; i < size; ++i)
-         pageCache()->remove(m_entries[i].get());
+     for (auto& item : m_entries)
+         PageCache::singleton().remove(item);
      m_entries.clear();
      m_entryHash.clear();
-     m_page = 0;
+     m_page = nullptr;
      m_closed = true;
  }
+ 
 diff --git a/Source/WebCore/history/BackForwardList.h b/Source/WebCore/history/BackForwardList.h
-index a33c8a6..5fcbc56 100644
+index 5929276..5c00eca 100644
 --- a/Source/WebCore/history/BackForwardList.h
 +++ b/Source/WebCore/history/BackForwardList.h
 @@ -60,20 +60,21 @@ public:
@@ -896,7 +896,7 @@ index 8f7589c..d6b79e7 100644
                  "name": "LoadURLRequest",
                  "description": "The embedder requested that the specified frame start a new load.",
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index f81e8df..46ac201 100644
+index d3dc062..192d444 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,21 @@
@@ -922,7 +922,7 @@ index f81e8df..46ac201 100644
          an enum with uint64_t-sized storage rather than int.
  
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebBackForwardListProxy.h b/Source/WebKit2/WebProcess/WebPage/WebBackForwardListProxy.h
-index aa147e1..a282212 100644
+index 2cbded2..b6db6568 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebBackForwardListProxy.h
 +++ b/Source/WebKit2/WebProcess/WebPage/WebBackForwardListProxy.h
 @@ -38,21 +38,21 @@ class WebBackForwardListProxy : public WebCore::BackForwardClient {
@@ -942,12 +942,12 @@ index aa147e1..a282212 100644
  private:
      WebBackForwardListProxy(WebPage*);
  
-     virtual void addItem(PassRefPtr<WebCore::HistoryItem>) override;
+     virtual void addItem(Ref<WebCore::HistoryItem>&&) override;
  
      virtual void goToItem(WebCore::HistoryItem*) override;
          
      virtual WebCore::HistoryItem* itemAtIndex(int) override;
      virtual int backListCount() override;
 -- 
-2.0.1
+2.2.2
 

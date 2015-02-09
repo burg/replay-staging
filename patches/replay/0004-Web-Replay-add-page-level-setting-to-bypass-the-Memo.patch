@@ -1,4 +1,4 @@
-From 91684a4c4357bd79317457988ee29c9f2451f41a Mon Sep 17 00:00:00 2001
+From db562e28f1abbe21757504d4c12a2de50c817903 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Wed, 11 Jun 2014 15:33:16 -0700
 Subject: [PATCH] Web Replay: add page-level setting to bypass the MemoryCache
@@ -76,7 +76,7 @@ and bypass cache session id are both considered to be non-ephemeral.
  11 files changed, 108 insertions(+), 11 deletions(-)
 
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 9a74002..e66f755 100644
+index 3d0b0de..8440af5 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,62 @@
@@ -143,14 +143,14 @@ index 9a74002..e66f755 100644
          some elements. This can execute event handlers nondeterministically.
  
 diff --git a/Source/WebCore/loader/cache/CachedResourceLoader.cpp b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
-index 7b74c9a..60d7dbe 100644
+index 3dca1ae..c49401a 100644
 --- a/Source/WebCore/loader/cache/CachedResourceLoader.cpp
 +++ b/Source/WebCore/loader/cache/CachedResourceLoader.cpp
-@@ -448,21 +448,21 @@ CachedResourceHandle<CachedResource> CachedResourceLoader::requestResource(Cache
-         return 0;
+@@ -460,21 +460,21 @@ CachedResourceHandle<CachedResource> CachedResourceLoader::requestResource(Cache
+         return nullptr;
  
      if (!canRequest(type, url, request.options(), request.forPreload()))
-         return 0;
+         return nullptr;
  
  #if ENABLE(CONTENT_EXTENSIONS)
      if (frame() && frame()->page() && frame()->page()->userContentController() && frame()->page()->userContentController()->contentFilterBlocksURL(url))
@@ -169,10 +169,10 @@ index 7b74c9a..60d7dbe 100644
      // See if we can use an existing resource from the cache.
      CachedResourceHandle<CachedResource> resource;
  #if ENABLE(CACHE_PARTITIONING)
-@@ -512,37 +512,40 @@ CachedResourceHandle<CachedResource> CachedResourceLoader::requestResource(Cache
+@@ -523,37 +523,40 @@ CachedResourceHandle<CachedResource> CachedResourceLoader::requestResource(Cache
              if (resource->inCache())
-                 memoryCache().remove(resource.get());
-             return 0;
+                 memoryCache().remove(*resource);
+             return nullptr;
          }
      }
  
@@ -208,19 +208,19 @@ index 7b74c9a..60d7dbe 100644
      LOG(ResourceLoading, "Resource %p created to revalidate %p", newResource.get(), resource);
      newResource->setResourceToRevalidate(resource);
      
-     memoryCache().remove(resource);
-     memoryCache().add(newResource.get());
+     memoryCache().remove(*resource);
+     memoryCache().add(*newResource);
 diff --git a/Source/WebCore/loader/cache/MemoryCache.cpp b/Source/WebCore/loader/cache/MemoryCache.cpp
-index 2d3804d..5de382b 100644
+index 02f8a0f..3d15edf 100644
 --- a/Source/WebCore/loader/cache/MemoryCache.cpp
 +++ b/Source/WebCore/loader/cache/MemoryCache.cpp
-@@ -100,20 +100,23 @@ URL MemoryCache::removeFragmentIdentifierIfNeeded(const URL& originalURL)
+@@ -101,20 +101,23 @@ URL MemoryCache::removeFragmentIdentifierIfNeeded(const URL& originalURL)
      URL url = originalURL;
      url.removeFragmentIdentifier();
      return url;
  }
  
- bool MemoryCache::add(CachedResource* resource)
+ bool MemoryCache::add(CachedResource& resource)
  {
      if (disabled())
          return false;
@@ -230,16 +230,16 @@ index 2d3804d..5de382b 100644
 +
      ASSERT(WTF::isMainThread());
  
-     CachedResourceMap& resources = getSessionMap(resource->sessionID());
  #if ENABLE(CACHE_PARTITIONING)
-     CachedResourceItem* originMap = resources.get(resource->url());
-     if (!originMap) {
-         originMap = new CachedResourceItem;
-         resources.set(resource->url(), adoptPtr(originMap));
-     }
-     originMap->set(resource->cachePartition(), resource);
+     auto key = std::make_pair(resource.url(), resource.cachePartition());
+ #else
+     auto& key = resource.url();
+ #endif
+     ensureSessionResourceMap(resource.sessionID()).set(key, &resource);
+     resource.setInCache(true);
+     
 diff --git a/Source/WebCore/page/Page.cpp b/Source/WebCore/page/Page.cpp
-index 8c318b2..409807a 100644
+index 06b91ba..4e12ca0 100644
 --- a/Source/WebCore/page/Page.cpp
 +++ b/Source/WebCore/page/Page.cpp
 @@ -1193,22 +1193,22 @@ void Page::storageBlockingStateChanged()
@@ -273,7 +273,7 @@ index 8c318b2..409807a 100644
      m_visitedLinkStore->addPage(*this);
  
      invalidateStylesForAllLinks();
-     pageCache()->markPagesForFullStyleRecalc(this);
+     PageCache::singleton().markPagesForFullStyleRecalc(*this);
  }
  
  SessionID Page::sessionID() const
@@ -328,7 +328,7 @@ index 976f4de..e8a7ba4 100644
  // The empty value is emptySessionID(), the deleted value is (-1)
  struct SessionIDHash {
 diff --git a/Source/WebCore/page/Settings.cpp b/Source/WebCore/page/Settings.cpp
-index 89b4323..a1ed5ee 100644
+index 53d2f95..21ae98d 100644
 --- a/Source/WebCore/page/Settings.cpp
 +++ b/Source/WebCore/page/Settings.cpp
 @@ -34,20 +34,21 @@
@@ -353,9 +353,9 @@ index 89b4323..a1ed5ee 100644
  
  namespace WebCore {
  
-@@ -179,20 +180,21 @@ Settings::Settings(Page* page)
+@@ -178,20 +179,21 @@ Settings::Settings(Page* page)
+ #endif
      SETTINGS_INITIALIZER_LIST
-     , m_screenFontSubstitutionEnabled(shouldEnableScreenFontSubstitutionByDefault())
      , m_isJavaEnabled(false)
      , m_isJavaEnabledForLocalFiles(true)
      , m_loadsImagesAutomatically(false)
@@ -375,7 +375,7 @@ index 89b4323..a1ed5ee 100644
      , m_scrollingPerformanceLoggingEnabled(false)
      , m_timeWithoutMouseMovementBeforeHidingControls(3)
      , m_setImageLoadingSettingsTimer(*this, &Settings::imageLoadingSettingsTimerFired)
-@@ -502,20 +504,30 @@ double Settings::domTimerAlignmentInterval() const
+@@ -494,20 +496,30 @@ double Settings::domTimerAlignmentInterval() const
      return m_page->timerAlignmentInterval();
  }
  
@@ -407,10 +407,10 @@ index 89b4323..a1ed5ee 100644
          return;
  
 diff --git a/Source/WebCore/page/Settings.h b/Source/WebCore/page/Settings.h
-index cbc28ac..724457e 100644
+index 8231861..886f30c 100644
 --- a/Source/WebCore/page/Settings.h
 +++ b/Source/WebCore/page/Settings.h
-@@ -182,21 +182,24 @@ public:
+@@ -179,21 +179,24 @@ public:
      WEBCORE_EXPORT void setLayoutInterval(std::chrono::milliseconds);
      std::chrono::milliseconds layoutInterval() const { return m_layoutInterval; }
  
@@ -436,9 +436,9 @@ index cbc28ac..724457e 100644
      static void setShouldUseHighResolutionTimers(bool);
      static bool shouldUseHighResolutionTimers() { return gShouldUseHighResolutionTimers; }
  #endif
-@@ -302,20 +305,21 @@ private:
+@@ -297,20 +300,21 @@ private:
+     SETTINGS_MEMBER_VARIABLES
  
-     bool m_screenFontSubstitutionEnabled : 1;
      bool m_isJavaEnabled : 1;
      bool m_isJavaEnabledForLocalFiles : 1;
      bool m_loadsImagesAutomatically : 1;
@@ -523,7 +523,7 @@ index 065a494..41ab99d 100644
      // The active cursor is set to nullptr when invalid.
      RefPtr<JSC::InputCursor> m_activeCursor;
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index ffd8958..60731fb 100644
+index 0e0cf13..57fb71b 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,24 @@
@@ -550,7 +550,7 @@ index ffd8958..60731fb 100644
  
          * CMakeLists.txt: Add replay/ directory to header include paths.
  
- 2015-01-21  Zan Dobersek  <zdobersek@igalia.com>
+ 2015-02-01  Chris Dumez  <cdumez@apple.com>
 diff --git a/Source/WebKit2/Shared/SessionTracker.cpp b/Source/WebKit2/Shared/SessionTracker.cpp
 index ac79a9d..0886af1 100644
 --- a/Source/WebKit2/Shared/SessionTracker.cpp
@@ -596,5 +596,5 @@ index ac79a9d..0886af1 100644
          storageSessionToID().remove(session(sessionID));
          staticSessionMap().remove(sessionID);
 -- 
-2.0.1
+2.2.2
 

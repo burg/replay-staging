@@ -1,0 +1,39 @@
+From 0aec7bc96877efb125b8268cec17920e07dc2dcc Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Mon, 2 Feb 2015 11:12:09 -0800
+Subject: [PATCH] FIXUP bypass cache session id
+
+---
+ Source/WebCore/loader/cache/MemoryCache.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Source/WebCore/loader/cache/MemoryCache.cpp b/Source/WebCore/loader/cache/MemoryCache.cpp
+index 3d15edf..62c81c8 100644
+--- a/Source/WebCore/loader/cache/MemoryCache.cpp
++++ b/Source/WebCore/loader/cache/MemoryCache.cpp
+@@ -101,21 +101,21 @@ URL MemoryCache::removeFragmentIdentifierIfNeeded(const URL& originalURL)
+     URL url = originalURL;
+     url.removeFragmentIdentifier();
+     return url;
+ }
+ 
+ bool MemoryCache::add(CachedResource& resource)
+ {
+     if (disabled())
+         return false;
+ 
+-    if (resource->sessionID() == SessionID::bypassCacheSessionID())
++    if (resource.sessionID() == SessionID::bypassCacheSessionID())
+         return false;
+ 
+     ASSERT(WTF::isMainThread());
+ 
+ #if ENABLE(CACHE_PARTITIONING)
+     auto key = std::make_pair(resource.url(), resource.cachePartition());
+ #else
+     auto& key = resource.url();
+ #endif
+     ensureSessionResourceMap(resource.sessionID()).set(key, &resource);
+-- 
+2.2.2
+

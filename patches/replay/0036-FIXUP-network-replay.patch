@@ -1,0 +1,62 @@
+From b81460605ecbba5626af756a4cb0204169762d27 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Mon, 2 Feb 2015 13:12:22 -0800
+Subject: [PATCH] FIXUP network replay
+
+---
+ Source/WebKit2/NetworkProcess/cache/NetworkCache.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/Source/WebKit2/NetworkProcess/cache/NetworkCache.cpp b/Source/WebKit2/NetworkProcess/cache/NetworkCache.cpp
+index c1dacc1..fd142da 100644
+--- a/Source/WebKit2/NetworkProcess/cache/NetworkCache.cpp
++++ b/Source/WebKit2/NetworkProcess/cache/NetworkCache.cpp
+@@ -214,21 +214,21 @@ static NetworkCacheKey makeCacheKey(const WebCore::ResourceRequest& request)
+ #endif
+     if (partition.isEmpty())
+         partition = ASCIILiteral("No partition");
+     return NetworkCacheKey(request.httpMethod(), partition, request.url().string());
+ }
+ 
+ void NetworkCache::retrieve(const WebCore::ResourceRequest& originalRequest, std::function<void (std::unique_ptr<Entry>)> completionHandler)
+ {
+     ASSERT(isEnabled());
+ 
+-    LOG(NetworkCache, "(NetworkProcess) retrieving %s priority %d", originalRequest.url().string().ascii().data(), originalRequest.priority());
++    LOG(NetworkCache, "(NetworkProcess) retrieving %s priority %lld", originalRequest.url().string().ascii().data(), originalRequest.priority());
+ 
+     if (!canRetrieve(originalRequest)) {
+         completionHandler(nullptr);
+         return;
+     }
+ 
+     auto startTime = std::chrono::system_clock::now();
+ 
+     NetworkCacheKey storageKey = makeCacheKey(originalRequest);
+     unsigned priority = originalRequest.priority();
+@@ -245,21 +245,21 @@ void NetworkCache::retrieve(const WebCore::ResourceRequest& originalRequest, std
+         if (!entry) {
+             LOG(NetworkCache, "(NetworkProcess) not found in storage");
+             capture->completionHandler(nullptr);
+             return false;
+         }
+         auto decodedEntry = decodeStorageEntry(*entry, capture->originalRequest);
+         bool success = !!decodedEntry;
+ #if !LOG_DISABLED
+         auto elapsedMS = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - startTime).count();
+ #endif
+-        LOG(NetworkCache, "(NetworkProcess) retrieve complete success=%d priority=%d time=%lldms", success, capture->originalRequest.priority(), elapsedMS);
++        LOG(NetworkCache, "(NetworkProcess) retrieve complete success=%d priority=%lld time=%lldms", success, capture->originalRequest.priority(), elapsedMS);
+         capture->completionHandler(WTF::move(decodedEntry));
+         return success;
+     });
+ }
+ 
+ static bool canStore(const WebCore::ResourceRequest& originalRequest, const WebCore::ResourceResponse& response)
+ {
+     if (!originalRequest.url().protocolIsInHTTPFamily()) {
+         LOG(NetworkCache, "(NetworkProcess) not HTTP");
+         return false;
+-- 
+2.2.2
+

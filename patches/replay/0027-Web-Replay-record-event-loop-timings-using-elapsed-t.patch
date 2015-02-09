@@ -1,4 +1,4 @@
-From d8641eabdb1553849545a4d705405aa20cbd2df4 Mon Sep 17 00:00:00 2001
+From 3c55aee3f49224cf9452562ed6beece9388b3dfe Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Fri, 19 Sep 2014 15:00:18 -0700
 Subject: [PATCH] Web Replay: record event loop timings using elapsed time
@@ -72,7 +72,7 @@ Don't pass around timestamps collected during playback, since they aren't used.
  13 files changed, 111 insertions(+), 17 deletions(-)
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index b0596c5..f1f7c47 100644
+index 243d747..1fe8294 100644
 --- a/Source/JavaScriptCore/ChangeLog
 +++ b/Source/JavaScriptCore/ChangeLog
 @@ -1,10 +1,21 @@
@@ -148,7 +148,7 @@ index b39111c..2d79dea 100644
              "description": "Fired when session playback has paused, but not finished.",
              "parameters": [
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index fb6d279..260a25d 100644
+index 6be41c3..4903d27 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,51 @@
@@ -645,7 +645,7 @@ index 0504d29..e5b2399 100644
      switch (queue) {
      case InputQueue::EventLoopInput: return "(DSPTCH-LOAD)";
 diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
-index 9e09833..fa69b0a 100644
+index cf52e77..c8f66ab 100644
 --- a/Source/WebInspectorUI/ChangeLog
 +++ b/Source/WebInspectorUI/ChangeLog
 @@ -1,10 +1,25 @@
@@ -736,5 +736,5 @@ index 9166db7..36bd03c 100644
      {
          WebInspector.replayManager.playbackFinished();
 -- 
-2.0.1
+2.2.2
 

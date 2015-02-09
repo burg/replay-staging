@@ -1,4 +1,4 @@
-From 9d84ff0f396b25cd5a422a515fa206a19cf7fc48 Mon Sep 17 00:00:00 2001
+From 61095dc2e43e05e7cff5967da09bb707e9c816f7 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Fri, 23 Jan 2015 15:03:00 -0800
 Subject: [PATCH] [Scry] Basic prototype for capturing element snapshots.
@@ -25,7 +25,7 @@ the old one if its bounding box is different (changed size or position).
  Source/WebCore/inspector/InspectorTimelineAgent.h  |   3 +-
  Source/WebCore/platform/graphics/ImageBuffer.cpp   |  32 +++
  Source/WebCore/platform/graphics/ImageBuffer.h     |   2 +
- .../Localizations/en.lproj/localizedStrings.js     | Bin 56390 -> 56496 bytes
+ .../Localizations/en.lproj/localizedStrings.js     | Bin 56848 -> 56954 bytes
  Source/WebInspectorUI/UserInterface/Base/Main.js   |   3 +
  .../UserInterface/Controllers/DOMTracingManager.js |  95 ++++++++
  Source/WebInspectorUI/UserInterface/Main.html      |   2 +
@@ -897,7 +897,7 @@ index 610c4cd..2d71964 100644
  
  inline void InspectorInstrumentation::didScrollLayer(Frame& frame)
 diff --git a/Source/WebCore/inspector/InspectorPageAgent.cpp b/Source/WebCore/inspector/InspectorPageAgent.cpp
-index fd733d6..1a06430 100644
+index f91f7ee..37330948 100644
 --- a/Source/WebCore/inspector/InspectorPageAgent.cpp
 +++ b/Source/WebCore/inspector/InspectorPageAgent.cpp
 @@ -835,27 +835,27 @@ void InspectorPageAgent::frameClearedScheduledNavigation(Frame& frame)
@@ -959,10 +959,10 @@ index bfd5775..6ef7974 100644
  
      // Cross-agents API
 diff --git a/Source/WebCore/inspector/InspectorTimelineAgent.cpp b/Source/WebCore/inspector/InspectorTimelineAgent.cpp
-index 1a0fd9b..d2ae8e3 100644
+index f6276cc..24778c0 100644
 --- a/Source/WebCore/inspector/InspectorTimelineAgent.cpp
 +++ b/Source/WebCore/inspector/InspectorTimelineAgent.cpp
-@@ -326,27 +326,34 @@ void InspectorTimelineAgent::willRecalculateStyle(Frame* frame)
+@@ -329,27 +329,34 @@ void InspectorTimelineAgent::willRecalculateStyle(Frame* frame)
  void InspectorTimelineAgent::didRecalculateStyle()
  {
      didCompleteCurrentRecord(TimelineRecordType::RecalculateStyles);
@@ -999,7 +999,7 @@ index 1a0fd9b..d2ae8e3 100644
  
  void InspectorTimelineAgent::didScroll()
  {
-@@ -683,26 +690,16 @@ void InspectorTimelineAgent::pushCurrentRecord(RefPtr<InspectorObject>&& data, T
+@@ -686,26 +693,16 @@ void InspectorTimelineAgent::pushCurrentRecord(RefPtr<InspectorObject>&& data, T
  {
      pushCurrentRecord(createRecordEntry(WTF::move(data), type, captureCallStack, frame));
  }
@@ -1160,16 +1160,16 @@ index 1955712..f305253 100644
      
      String toDataURL(const String& mimeType, const double* quality = 0, CoordinateSystem = LogicalCoordinateSystem) const;
 diff --git a/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js b/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js
-index 95f0fe71b094ce402920bc08549b8454e40a34e7..e4b08017c6382d65b745bee57a98f6e255bf2954 100644
+index 23ece6bc35ba0ba3b54d09447dc3e1481b39c49a..764fc6ec91b5c327ae2ed4769d16652d12ec90e4 100644
 GIT binary patch
-delta 42
-vcmX@MgL%VF<_&R|*^?Qv859^?C$D#s<PKpdVn}2Fi%jl!x7-|Y`5gxUIfD*7
+delta 48
+ycmbQRhxykY<_#KG*^?Qv859^?CkMt#@`f-JF(fj;L<-}~CpTPW*{pW;6$b!-PY>1r
 
 delta 14
-Wcmdn6llj;V<_&R|H=nrtf&&0L_y`RE
+Wcmeyhhk3#t<_#KGH&43yf&&0L!3V$q
 
 diff --git a/Source/WebInspectorUI/UserInterface/Base/Main.js b/Source/WebInspectorUI/UserInterface/Base/Main.js
-index 5c73e0e..abeba1a 100644
+index 21c57f9..83d5630 100644
 --- a/Source/WebInspectorUI/UserInterface/Base/Main.js
 +++ b/Source/WebInspectorUI/UserInterface/Base/Main.js
 @@ -59,20 +59,22 @@ WebInspector.loaded = function()
@@ -1442,5 +1442,5 @@ index bcabcd4..bec4ab4 100644
  
          if (this._canAddAttributes) {
 -- 
-2.0.1
+2.2.2
 

@@ -1,4 +1,4 @@
-From bedb8bef9b20218a18ac9a6f6bb76904faadaa05 Mon Sep 17 00:00:00 2001
+From 3a47e1db35dff9444f5f924b8489a280d1a944cd Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Sat, 23 Aug 2014 16:21:19 -0700
 Subject: [PATCH] Web Replay: capture and dispatch navigation inputs from
@@ -81,10 +81,10 @@ Add handle* interception methods for navigation inputs and route through them.
  delete mode 100644 Source/WebCore/replay/UserInputBridge.h
 
 diff --git a/Source/WebCore/CMakeLists.txt b/Source/WebCore/CMakeLists.txt
-index 236d897..784bcf4 100644
+index 3315aaa..ed529d4 100644
 --- a/Source/WebCore/CMakeLists.txt
 +++ b/Source/WebCore/CMakeLists.txt
-@@ -2457,21 +2457,20 @@ set(WebCore_SOURCES
+@@ -2466,21 +2466,20 @@ set(WebCore_SOURCES
      rendering/svg/SVGTextLayoutAttributesBuilder.cpp
      rendering/svg/SVGTextLayoutEngine.cpp
      rendering/svg/SVGTextLayoutEngineBaseline.cpp
@@ -107,7 +107,7 @@ index 236d897..784bcf4 100644
      style/StyleFontSizeFunctions.cpp
      style/StyleResolveForDocument.cpp
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 7554abb..cb4175a 100644
+index 67f75e5..6f87b1e 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,12 +1,41 @@
@@ -153,10 +153,10 @@ index 7554abb..cb4175a 100644
  
          * WebCore.exp.in:
 diff --git a/Source/WebCore/WebCore.exp.in b/Source/WebCore/WebCore.exp.in
-index f5dc907..d2088fd 100644
+index 5f56f68..7463324 100644
 --- a/Source/WebCore/WebCore.exp.in
 +++ b/Source/WebCore/WebCore.exp.in
-@@ -664,24 +664,20 @@ __ZN7WebCore15SQLiteStatement8bindBlobEiRKN3WTF6StringE
+@@ -662,24 +662,20 @@ __ZN7WebCore15SQLiteStatement8bindBlobEiRKN3WTF6StringE
  __ZN7WebCore15SQLiteStatement8bindTextEiRKN3WTF6StringE
  __ZN7WebCore15SQLiteStatement8finalizeEv
  __ZN7WebCore15SQLiteStatement9bindInt64Eix
@@ -181,7 +181,7 @@ index f5dc907..d2088fd 100644
  __ZN7WebCore15reportExceptionEPN3JSC9ExecStateENS0_7JSValueEPNS_12CachedScriptE
  __ZN7WebCore15setDOMExceptionEPN3JSC9ExecStateEi
  __ZN7WebCore15visitedLinkHashEPKtj
-@@ -3506,44 +3502,32 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
+@@ -3495,44 +3491,32 @@ __ZTVN7WebCore32WebVideoFullscreenInterfaceAVKitE
  
  #if ENABLE(VIDEO_TRACK)
  __ZN7WebCore9PageGroup18captionPreferencesEv
@@ -226,7 +226,7 @@ index f5dc907..d2088fd 100644
  __ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
  __ZN3JSC11InputTraitsIN7WebCore18EndSegmentSentinelEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore20BeginSegmentSentinelEE4typeEv
-@@ -3566,20 +3550,22 @@ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6decodeERNS_12Enc
+@@ -3555,20 +3539,22 @@ __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6decodeERNS_12Enc
  __ZN3JSC11InputTraitsIN7WebCore28ResourceLoaderDidReceiveDataEE6encodeERNS_12EncodedValueERKS2_
  __ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE4typeEv
  __ZN3JSC11InputTraitsIN7WebCore30ResourceLoaderDidFinishLoadingEE6decodeERNS_12EncodedValueERNSt3__110unique_ptrIS2_NS6_14default_deleteIS2_EEEE
@@ -250,10 +250,10 @@ index f5dc907..d2088fd 100644
  __ZN7WebCore19frameFromFrameIndexEPNS_4PageEj
  __ZN7WebCore19frameIndexFromFrameEPKNS_5FrameE
 diff --git a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
-index bdfa9b9..c200037 100644
+index 0c0820a..941dba7 100644
 --- a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
 +++ b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj
-@@ -12376,20 +12376,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -12421,20 +12421,21 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugSuffix|x64'">true</ExcludedFromBuild>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
        <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
@@ -275,7 +275,7 @@ index bdfa9b9..c200037 100644
      <ClCompile Include="..\xml\XMLSerializer.cpp" />
      <ClCompile Include="..\xml\XMLTreeViewer.cpp" />
      <ClCompile Include="..\xml\XPathEvaluator.cpp" />
-@@ -20407,21 +20408,20 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -20453,21 +20454,20 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
      <ClInclude Include="..\rendering\svg\SVGTextLayoutAttributes.h" />
      <ClInclude Include="..\rendering\svg\SVGTextLayoutAttributesBuilder.h" />
      <ClInclude Include="..\rendering\svg\SVGTextLayoutEngine.h" />
@@ -298,10 +298,10 @@ index bdfa9b9..c200037 100644
      <ClInclude Include="..\xml\XMLSerializer.h" />
      <ClInclude Include="..\xml\XMLTreeViewer.h" />
 diff --git a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
-index 6b86c6d..63656d9 100644
+index 2623d1e..2d64c54 100644
 --- a/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
 +++ b/Source/WebCore/WebCore.vcxproj/WebCore.vcxproj.filters
-@@ -2900,23 +2900,20 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -2897,23 +2897,20 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
      </ClCompile>
      <ClCompile Include="..\rendering\svg\SVGTextRunRenderingContext.cpp">
        <Filter>rendering\svg</Filter>
@@ -325,7 +325,7 @@ index 6b86c6d..63656d9 100644
        <Filter>xml</Filter>
      </ClCompile>
      <ClCompile Include="..\xml\XMLHttpRequest.cpp">
-@@ -9890,23 +9887,20 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
+@@ -9914,23 +9911,20 @@ ﻿<?xml version="1.0" encoding="utf-8"?>
      </ClInclude>
      <ClInclude Include="..\rendering\svg\SVGTextQuery.h">
        <Filter>rendering\svg</Filter>
@@ -350,10 +350,10 @@ index 6b86c6d..63656d9 100644
      </ClInclude>
      <ClInclude Include="..\xml\XMLHttpRequest.h">
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index 8922a51..0e39879 100644
+index 5eb90ca..4b85277 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -3637,22 +3637,20 @@
+@@ -3657,22 +3657,20 @@
  		97E4029013A696ED00913D67 /* IconController.h in Headers */ = {isa = PBXBuildFile; fileRef = 97E4028E13A696ED00913D67 /* IconController.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		97F8E665151D4A4B00D2D181 /* WorkerGlobalScopeNotifications.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 97F8E661151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.cpp */; };
  		97F8E666151D4A4E00D2D181 /* WorkerGlobalScopeNotifications.h in Headers */ = {isa = PBXBuildFile; fileRef = 97F8E662151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.h */; };
@@ -376,7 +376,7 @@ index 8922a51..0e39879 100644
  		99CC0B5118BE9849006CEBCC /* EventLoopInputDispatcher.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B3C18BE9849006CEBCC /* EventLoopInputDispatcher.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		99CC0B5218BE9849006CEBCC /* FunctorInputCursor.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B3D18BE9849006CEBCC /* FunctorInputCursor.h */; };
  		99CC0B5318BE9849006CEBCC /* ReplayController.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B3E18BE9849006CEBCC /* ReplayController.cpp */; };
-@@ -10820,22 +10818,20 @@
+@@ -10863,22 +10861,20 @@
  		97F8E661151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WorkerGlobalScopeNotifications.cpp; sourceTree = "<group>"; };
  		97F8E662151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WorkerGlobalScopeNotifications.h; sourceTree = "<group>"; };
  		97F8E663151D4A3F00D2D181 /* WorkerGlobalScopeNotifications.idl */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = WorkerGlobalScopeNotifications.idl; sourceTree = "<group>"; };
@@ -399,7 +399,7 @@ index 8922a51..0e39879 100644
  		99CC0B3E18BE9849006CEBCC /* ReplayController.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReplayController.cpp; sourceTree = "<group>"; };
  		99CC0B3F18BE9849006CEBCC /* ReplayController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ReplayController.h; sourceTree = "<group>"; };
  		99CC0B4018BE9849006CEBCC /* ReplayingInputCursor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReplayingInputCursor.cpp; sourceTree = "<group>"; };
-@@ -18443,22 +18439,20 @@
+@@ -18500,22 +18496,20 @@
  				99CC0B3F18BE9849006CEBCC /* ReplayController.h */,
  				99CC0B4018BE9849006CEBCC /* ReplayingInputCursor.cpp */,
  				99CC0B4118BE9849006CEBCC /* ReplayingInputCursor.h */,
@@ -422,7 +422,7 @@ index 8922a51..0e39879 100644
  			sourceTree = "<group>";
  		};
  		A148328B187F506800DA63A6 /* wak */ = {
-@@ -26564,21 +26558,20 @@
+@@ -26640,21 +26634,20 @@
  				F55B3DDE1251F12D003EF269 /* URLInputType.h in Headers */,
  				A72763BF16689BFB002FCACB /* UserActionElementSet.h in Headers */,
  				868160D618766A130021E79D /* UserActivity.h in Headers */,
@@ -444,7 +444,7 @@ index 8922a51..0e39879 100644
  				BCA2B061105047600043BD1C /* UserScript.h in Headers */,
  				BCA2B08B10505BCD0043BD1C /* UserScriptTypes.h in Headers */,
  				BC8BF151105813BF00A40A07 /* UserStyleSheet.h in Headers */,
-@@ -29880,21 +29873,20 @@
+@@ -29963,21 +29956,20 @@
  				868160D418766A0A0021E79D /* UserActivity.cpp in Sources */,
  				868160D518766A0E0021E79D /* UserActivityMac.mm in Sources */,
  				5D5975B71963637B00D00878 /* UserAgent.mm in Sources */,
@@ -467,7 +467,7 @@ index 8922a51..0e39879 100644
  				7C74D43B1882400400E5ED57 /* UTextProviderUTF16.cpp in Sources */,
  				1FAFBF1815A5FA6E00083A20 /* UTIUtilities.mm in Sources */,
 diff --git a/Source/WebCore/page/Page.cpp b/Source/WebCore/page/Page.cpp
-index 2c38829..d0b13cc 100644
+index 9535751..f7777bc 100644
 --- a/Source/WebCore/page/Page.cpp
 +++ b/Source/WebCore/page/Page.cpp
 @@ -79,21 +79,20 @@
@@ -515,7 +515,7 @@ index 2c38829..d0b13cc 100644
      , m_progress(std::make_unique<ProgressTracker>(*pageConfiguration.progressTrackerClient))
      , m_backForwardController(std::make_unique<BackForwardController>(*this, pageConfiguration.backForwardClient))
 diff --git a/Source/WebCore/page/Page.h b/Source/WebCore/page/Page.h
-index 28c04d8..fcc92fb 100644
+index 7fcf7ab..6f65a62 100644
 --- a/Source/WebCore/page/Page.h
 +++ b/Source/WebCore/page/Page.h
 @@ -69,21 +69,20 @@ class ContextMenuClient;
@@ -1076,7 +1076,7 @@ index 5c14bd1..6aba286 100644
      for (RefPtr<HistoryItem> historyEntry : m_entries)
          page.backForward().addItem(historyEntry->copy());
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 94dbf9a..8c710c7 100644
+index 4c2aa19..cf33d00 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,12 +1,44 @@
@@ -1266,7 +1266,7 @@ index 202540d..a193929 100644
  
  #endif // ENABLE(WEB_REPLAY)
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-index eb4e9c2..4ad83ae 100644
+index 8fbe5a9..9430311 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 @@ -150,21 +150,20 @@
@@ -1291,12 +1291,12 @@ index eb4e9c2..4ad83ae 100644
  #include <runtime/JSLock.h>
  #include <wtf/RunLoop.h>
  
-@@ -1038,61 +1037,94 @@ void WebPage::close()
+@@ -1052,61 +1051,94 @@ void WebPage::close()
      bool isRunningModal = m_isRunningModal;
      m_isRunningModal = false;
  
      // The WebPage can be destroyed by this call.
-     WebProcess::shared().removeWebPage(m_pageID);
+     WebProcess::singleton().removeWebPage(m_pageID);
  
      if (isRunningModal)
          RunLoop::main().stop();
@@ -1342,7 +1342,7 @@ index eb4e9c2..4ad83ae 100644
  
  void WebPage::loadURLInFrame(const String& url, uint64_t frameID)
  {
-     WebFrame* frame = WebProcess::shared().webFrame(frameID);
+     WebFrame* frame = WebProcess::singleton().webFrame(frameID);
      if (!frame)
          return;
  
@@ -1375,7 +1375,7 @@ index eb4e9c2..4ad83ae 100644
  
      // Let the InjectedBundle know we are about to start the load, passing the user data from the UIProcess
      // to all the client to set up any needed state.
-     m_loaderClient.willLoadURLRequest(this, request, WebProcess::shared().transformHandlesToObjects(userData.object()).get());
+     m_loaderClient.willLoadURLRequest(this, request, WebProcess::singleton().transformHandlesToObjects(userData.object()).get());
  
      // Initate the load in WebCore.
 -    corePage()->userInputBridge().loadRequest(FrameLoadRequest(m_mainFrame->coreFrame(), request));
@@ -1391,7 +1391,7 @@ index eb4e9c2..4ad83ae 100644
      m_pendingNavigationID = navigationID;
  
      ResourceRequest request(baseURL);
-@@ -1153,55 +1185,89 @@ void WebPage::navigateToURLWithSimulatedClick(const String& url, IntPoint docume
+@@ -1167,55 +1199,89 @@ void WebPage::navigateToURLWithSimulatedClick(const String& url, IntPoint docume
      Frame* mainFrame = m_mainFrame->coreFrame();
      Document* mainFrameDocument = mainFrame->document();
      if (!mainFrameDocument)
@@ -1421,7 +1421,7 @@ index eb4e9c2..4ad83ae 100644
 +
  void WebPage::stopLoadingFrame(uint64_t frameID)
  {
-     WebFrame* frame = WebProcess::shared().webFrame(frameID);
+     WebFrame* frame = WebProcess::singleton().webFrame(frameID);
      if (!frame)
          return;
  
@@ -1485,10 +1485,10 @@ index eb4e9c2..4ad83ae 100644
      if (!item)
          return;
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.h b/Source/WebKit2/WebProcess/WebPage/WebPage.h
-index c56a6f5..85d06ce 100644
+index f6e7f84..42448d3 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.h
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.h
-@@ -128,20 +128,21 @@ class KeyboardEvent;
+@@ -129,20 +129,21 @@ class KeyboardEvent;
  class Page;
  class PrintContext;
  class Range;
@@ -1510,7 +1510,7 @@ index c56a6f5..85d06ce 100644
  class DrawingArea;
  class InjectedBundleBackForwardList;
  class NotificationPermissionRequestManager;
-@@ -866,20 +867,26 @@ public:
+@@ -867,20 +868,26 @@ public:
          User,
          Synthetic
      };
@@ -1538,5 +1538,5 @@ index c56a6f5..85d06ce 100644
      void platformDetach();
  
 -- 
-2.0.1
+2.2.2
 

@@ -1,4 +1,4 @@
-From 12bf41f91d8879ababdd8af1cb69266ed4627674 Mon Sep 17 00:00:00 2001
+From 600ef972d74c30fd07c8bd39050cffa9de0f2e3f Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Thu, 21 Aug 2014 16:12:31 -0700
 Subject: [PATCH] Web Replay: add support for dispatching inputs with Page or
@@ -55,7 +55,7 @@ is only available to inputs defined in WebKit2.
  copy Source/{WebCore/replay/EventLoopInput.h => WebKit2/WebProcess/Replay/WebEventLoopInput.h} (60%)
 
 diff --git a/Source/JavaScriptCore/ChangeLog b/Source/JavaScriptCore/ChangeLog
-index f026956..2133276 100644
+index 7bc9dd40..9299e17 100644
 --- a/Source/JavaScriptCore/ChangeLog
 +++ b/Source/JavaScriptCore/ChangeLog
 @@ -1,12 +1,29 @@
@@ -242,7 +242,7 @@ index 283b209..9d83252 100644
              shouldQualifyType = self.target_framework is not _type.framework
              formals_list.append("%s %s" % (_type.argument_type(shouldQualifyType), _member.memberName))
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index c13cf08..6d2703c 100644
+index 069f13d..a21b688 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,22 @@
@@ -334,10 +334,10 @@ index 65510e0..c219067 100644
      virtual const String& type() const override final
      {
 diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
-index d5c7c96..a6d54e6 100644
+index ff03fff..37723c4 100644
 --- a/Source/WebKit2/CMakeLists.txt
 +++ b/Source/WebKit2/CMakeLists.txt
-@@ -51,21 +51,20 @@ set(WebKit2_INCLUDE_DIRECTORIES
+@@ -56,21 +56,20 @@ set(WebKit2_INCLUDE_DIRECTORIES
      "${WEBKIT2_DIR}/WebProcess/InjectedBundle/API/c"
      "${WEBKIT2_DIR}/WebProcess/InjectedBundle/DOM"
      "${WEBKIT2_DIR}/WebProcess/Launching"
@@ -359,13 +359,13 @@ index d5c7c96..a6d54e6 100644
      "${WEBCORE_DIR}/Modules/mediastream"
      "${WEBCORE_DIR}/Modules/networkinfo"
      "${WEBCORE_DIR}/Modules/notifications"
-@@ -764,37 +763,34 @@ if (ENABLE_PLUGIN_PROCESS)
-     target_link_libraries(PluginProcess ${PluginProcess_LIBRARIES})
-     set_target_properties(PluginProcess PROPERTIES FOLDER "WebKit")
-     install(TARGETS PluginProcess DESTINATION "${LIBEXEC_INSTALL_DIR}")
+@@ -813,37 +812,34 @@ if (ENABLE_DATABASE_PROCESS)
+     target_link_libraries(DatabaseProcess ${DatabaseProcess_LIBRARIES})
+     set_target_properties(DatabaseProcess PROPERTIES FOLDER "WebKit")
+     install(TARGETS DatabaseProcess DESTINATION "${LIBEXEC_INSTALL_DIR}")
  
-     if (WebKit2_PluginProcess_OUTPUT_NAME)
-       set_target_properties(PluginProcess PROPERTIES OUTPUT_NAME ${WebKit2_PluginProcess_OUTPUT_NAME})
+     if (WebKit2_DatabaseProcess_OUTPUT_NAME)
+         set_target_properties(DatabaseProcess PROPERTIES OUTPUT_NAME ${WebKit2_DatabaseProcess_OUTPUT_NAME})
      endif ()
  endif ()
  
@@ -403,7 +403,7 @@ index d5c7c96..a6d54e6 100644
  install(TARGETS WebKit2 DESTINATION "${LIB_INSTALL_DIR}")
  install(TARGETS WebProcess DESTINATION "${LIBEXEC_INSTALL_DIR}")
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index cf4fa32..56e92c7 100644
+index a96d731..0747c84 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,30 @@
@@ -438,10 +438,10 @@ index cf4fa32..56e92c7 100644
          the big function with cases to encode each input based on its type tag.
  
 diff --git a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
-index a2deece..7f489f4 100644
+index 642c30b..1907cb7 100644
 --- a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
 +++ b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
-@@ -1593,20 +1593,22 @@
+@@ -1602,20 +1602,22 @@
  		C0337DD8127A51B6008FF4F4 /* WebTouchEvent.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0337DD7127A51B6008FF4F4 /* WebTouchEvent.cpp */; };
  		C0337DDD127A521C008FF4F4 /* WebPlatformTouchPoint.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0337DDC127A521C008FF4F4 /* WebPlatformTouchPoint.cpp */; };
  		C06C6095124C144B0001682F /* WebPageCreationParameters.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C06C6093124C14430001682F /* WebPageCreationParameters.cpp */; };
@@ -464,7 +464,7 @@ index a2deece..7f489f4 100644
  		C5237F6012441CA300780472 /* WebEditorClientMac.mm in Sources */ = {isa = PBXBuildFile; fileRef = C5237F5F12441CA300780472 /* WebEditorClientMac.mm */; };
  		C54256B518BEC18C00DE4179 /* WKFormInputControl.h in Headers */ = {isa = PBXBuildFile; fileRef = C54256AF18BEC18B00DE4179 /* WKFormInputControl.h */; };
  		C54256B618BEC18C00DE4179 /* WKFormInputControl.mm in Sources */ = {isa = PBXBuildFile; fileRef = C54256B018BEC18B00DE4179 /* WKFormInputControl.mm */; };
-@@ -3776,20 +3778,22 @@
+@@ -3810,20 +3812,22 @@
  		C0CE72581247E4DA00BC0EC4 /* WebPage.messages.in */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = WebPage.messages.in; sourceTree = "<group>"; };
  		C0CE729E1247E71D00BC0EC4 /* WebPageMessageReceiver.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WebPageMessageReceiver.cpp; sourceTree = "<group>"; };
  		C0CE729F1247E71D00BC0EC4 /* WebPageMessages.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WebPageMessages.h; sourceTree = "<group>"; };
@@ -487,7 +487,7 @@ index a2deece..7f489f4 100644
  		C517388012DF8F4F00EE3F47 /* DragControllerAction.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DragControllerAction.h; sourceTree = "<group>"; };
  		C5237F5F12441CA300780472 /* WebEditorClientMac.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = WebEditorClientMac.mm; sourceTree = "<group>"; };
  		C54256AF18BEC18B00DE4179 /* WKFormInputControl.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WKFormInputControl.h; path = ios/forms/WKFormInputControl.h; sourceTree = "<group>"; };
-@@ -7182,20 +7186,22 @@
+@@ -7237,20 +7241,22 @@
  			sourceTree = "<group>";
  			tabWidth = 8;
  			usesTabs = 0;
@@ -510,7 +510,7 @@ index a2deece..7f489f4 100644
  				C5FA1ED118E1062200B3F402 /* WKAirPlayRoutePicker.h */,
  				C5FA1ED218E1062200B3F402 /* WKAirPlayRoutePicker.mm */,
  				A58B6F0618FCA733008CBA53 /* WKFileUploadPanel.h */,
-@@ -7786,20 +7792,21 @@
+@@ -7846,20 +7852,21 @@
  				1AA83F6D1A5B63FF00026EC6 /* WebDatabaseProvider.h in Headers */,
  				CD19A26E1A13E834008D650E /* WebDiagnosticLoggingClient.h in Headers */,
  				1A5B1C5518987EDF004FCF9B /* WebDocumentLoader.h in Headers */,
@@ -532,7 +532,7 @@ index a2deece..7f489f4 100644
  				BC032D7F10F4378D0058C15A /* WebFrameLoaderClient.h in Headers */,
  				9391F2CB121B67AD00EBF7E8 /* WebFrameNetworkingContext.h in Headers */,
  				BCB9F6A01123A84B00A137E0 /* WebFramePolicyListenerProxy.h in Headers */,
-@@ -9751,20 +9758,21 @@
+@@ -9842,20 +9849,21 @@
  				BC4075FB124FF0270068F20A /* WKErrorRef.cpp in Sources */,
  				7C89D2A31A678875003A5FDE /* WKUserScriptRef.cpp in Sources */,
  				A58B6F0918FCA733008CBA53 /* WKFileUploadPanel.mm in Sources */,
@@ -738,5 +738,5 @@ index f5b7652..bb1af77 100644
  bool WebReplayClient::decodeInput(EncodedValue& encodedInput, std::unique_ptr<NondeterministicInputBase>& decodedInput)
  {
 -- 
-2.0.1
+2.2.2
 

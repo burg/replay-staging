@@ -1,4 +1,4 @@
-From 465b63e21c24cb851229bed50c0d5025a7fc1c3f Mon Sep 17 00:00:00 2001
+From 1681ed2bc3513a669f556d0934f0ecd7b939baa3 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Sat, 20 Sep 2014 12:52:14 -0700
 Subject: [PATCH] Hack to get the overview timeline data to persist during
@@ -753,5 +753,5 @@ index 8b0c0b0..aa4d1db 100644
          // Only a single record type is supported right now.
          console.assert(!lastRecordType || record.type === lastRecordType);
 -- 
-2.0.1
+2.2.2
 

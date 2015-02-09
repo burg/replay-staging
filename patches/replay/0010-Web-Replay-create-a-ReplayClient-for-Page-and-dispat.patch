@@ -1,4 +1,4 @@
-From d6c96930072ceb03ee4b74071863a7b8feb242d8 Mon Sep 17 00:00:00 2001
+From cb5d0a6f3f772e6da3fbfcea9ea7ca8b804d5629 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Tue, 19 Aug 2014 15:05:20 -0700
 Subject: [PATCH] Web Replay: create a ReplayClient for Page and dispatch
@@ -135,7 +135,7 @@ index 3302f58..9af0827 100644
  SPECIALIZE_TYPE_TRAITS_BEGIN(Test::HandleWheelEvent)
      static bool isType(const NondeterministicInputBase& input) { return input.type() == InputTraits<Test::HandleWheelEvent>::type(); }
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 7d31cdc..8ef8c12 100644
+index f005c5b..41ef031 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,48 @@
@@ -188,10 +188,10 @@ index 7d31cdc..8ef8c12 100644
          interleaving of callbacks and other event loop items (which run JS) is also
          nondeterministic.
 diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-index e1294d1..0089245 100644
+index 55b8b1d..ed15e44 100644
 --- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
 +++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
-@@ -3645,41 +3645,41 @@
+@@ -3665,41 +3665,41 @@
  		98CE432A129E00E5005821DC /* LinkLoader.h in Headers */ = {isa = PBXBuildFile; fileRef = 98CE4329129E00E5005821DC /* LinkLoader.h */; };
  		98EB1F951313FE0500D0E1EA /* NotImplemented.h in Headers */ = {isa = PBXBuildFile; fileRef = 98EB1F941313FE0500D0E1EA /* NotImplemented.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		9920398218B95BC600B39AF9 /* UserInputBridge.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9920398018B95BC600B39AF9 /* UserInputBridge.cpp */; };
@@ -236,7 +236,7 @@ index e1294d1..0089245 100644
  		9B24DE8E15194B9500C59C27 /* HTMLBDIElement.h in Headers */ = {isa = PBXBuildFile; fileRef = 9B24DE8C15194B9500C59C27 /* HTMLBDIElement.h */; };
  		9B2D8A7914997CCF00ECEF3E /* UndoStep.h in Headers */ = {isa = PBXBuildFile; fileRef = 9B2D8A7814997CCF00ECEF3E /* UndoStep.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		9B32CDA913DF7FA900F34D13 /* RenderedPosition.h in Headers */ = {isa = PBXBuildFile; fileRef = 9B32CDA713DF7FA900F34D13 /* RenderedPosition.h */; };
-@@ -5535,20 +5535,21 @@
+@@ -5554,20 +5554,21 @@
  		C375D7FE16639519006184AB /* TypeAhead.h in Headers */ = {isa = PBXBuildFile; fileRef = C375D7FC16639519006184AB /* TypeAhead.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		C37CDEBD149EF2030042090D /* ColorChooserClient.h in Headers */ = {isa = PBXBuildFile; fileRef = C37CDEBC149EF2030042090D /* ColorChooserClient.h */; settings = {ATTRIBUTES = (Private, ); }; };
  		C3CF17A415B0063F00276D39 /* IdTargetObserver.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C3CF17A015B0063F00276D39 /* IdTargetObserver.cpp */; };
@@ -258,7 +258,7 @@ index e1294d1..0089245 100644
  		C5137CF211A58378004ADB99 /* JSDOMStringList.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */; };
  		C5137CF311A58378004ADB99 /* JSDOMStringList.h in Headers */ = {isa = PBXBuildFile; fileRef = C5137CF111A58378004ADB99 /* JSDOMStringList.h */; };
  		C5278B0C17F212EA003A2998 /* PlatformPasteboardIOS.mm in Sources */ = {isa = PBXBuildFile; fileRef = C5278B0B17F212EA003A2998 /* PlatformPasteboardIOS.mm */; };
-@@ -12968,20 +12969,21 @@
+@@ -13010,20 +13011,21 @@
  		C375D7FC16639519006184AB /* TypeAhead.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TypeAhead.h; sourceTree = "<group>"; };
  		C37CDEBC149EF2030042090D /* ColorChooserClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ColorChooserClient.h; sourceTree = "<group>"; };
  		C3CF17A015B0063F00276D39 /* IdTargetObserver.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = IdTargetObserver.cpp; sourceTree = "<group>"; };
@@ -280,7 +280,7 @@ index e1294d1..0089245 100644
  		C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = JSDOMStringList.cpp; sourceTree = "<group>"; };
  		C5137CF111A58378004ADB99 /* JSDOMStringList.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSDOMStringList.h; sourceTree = "<group>"; };
  		C5278B0B17F212EA003A2998 /* PlatformPasteboardIOS.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = PlatformPasteboardIOS.mm; path = ios/PlatformPasteboardIOS.mm; sourceTree = "<group>"; };
-@@ -18436,20 +18438,23 @@
+@@ -18493,20 +18495,23 @@
  				C4D4F5271975C88B003EF5BC /* ReplayableTimer.cpp */,
  				C4D4F5281975C88B003EF5BC /* ReplayableTimer.h */,
  				C4D4F5291975C88B003EF5BC /* ReplayableTimers.cpp */,
@@ -304,7 +304,7 @@ index e1294d1..0089245 100644
  				99CC0B4B18BE9849006CEBCC /* SerializationMethods.h */,
  				9920398018B95BC600B39AF9 /* UserInputBridge.cpp */,
  				9920398118B95BC600B39AF9 /* UserInputBridge.h */,
-@@ -24947,20 +24952,21 @@
+@@ -25016,20 +25021,21 @@
  				C572EE1F1201C9BC007D8F82 /* JSIDBIndex.h in Headers */,
  				C585A68D11D4FB08004C3E4B /* JSIDBKeyRange.h in Headers */,
  				C585A68F11D4FB08004C3E4B /* JSIDBObjectStore.h in Headers */,
@@ -323,9 +323,9 @@ index e1294d1..0089245 100644
  				E44614190CD6826900FADA75 /* JSMediaError.h in Headers */,
  				BC3C39B70C0D3D8D005F4D7A /* JSMediaList.h in Headers */,
  				D3A94A47122DC40F00A37BBC /* JSMediaQueryList.h in Headers */,
+ 				6F995A381A70833700A735F4 /* JSWebGLTransformFeedback.h in Headers */,
  				7C5343FD17B74B63004232F0 /* JSMediaQueryListListener.h in Headers */,
  				CD9DE17517AAC74C00EA386D /* JSMediaSource.h in Headers */,
- 				07C59B7217F79C7C000FBCBB /* JSMediaSourceStates.h in Headers */,
 diff --git a/Source/WebCore/loader/EmptyClients.cpp b/Source/WebCore/loader/EmptyClients.cpp
 index 89d5486..f2af3f7 100644
 --- a/Source/WebCore/loader/EmptyClients.cpp
@@ -414,7 +414,7 @@ index dcc34ddc..6e85cd5 100644
      virtual void setController(DeviceMotionController*) override { }
      virtual DeviceMotionData* lastMotion() const override { return 0; }
 diff --git a/Source/WebCore/page/Page.cpp b/Source/WebCore/page/Page.cpp
-index 409807a..2c38829 100644
+index 4e12ca0..9535751 100644
 --- a/Source/WebCore/page/Page.cpp
 +++ b/Source/WebCore/page/Page.cpp
 @@ -92,20 +92,21 @@
@@ -1134,17 +1134,17 @@ index e0a6aad..7a47503 100644
  
      EventLoopInputDispatcher& dispatcher() const { return *m_dispatcher; }
 diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
-index a7ee383..68821f3 100644
+index 8faaba4..6f91a03 100644
 --- a/Source/WebKit2/CMakeLists.txt
 +++ b/Source/WebKit2/CMakeLists.txt
-@@ -762,15 +762,25 @@ if (ENABLE_PLUGIN_PROCESS)
-     add_webkit2_prefix_header(PluginProcess)
-     target_link_libraries(PluginProcess ${PluginProcess_LIBRARIES})
-     set_target_properties(PluginProcess PROPERTIES FOLDER "WebKit")
-     install(TARGETS PluginProcess DESTINATION "${LIBEXEC_INSTALL_DIR}")
+@@ -811,15 +811,25 @@ if (ENABLE_DATABASE_PROCESS)
+     add_webkit2_prefix_header(DatabaseProcess)
+     target_link_libraries(DatabaseProcess ${DatabaseProcess_LIBRARIES})
+     set_target_properties(DatabaseProcess PROPERTIES FOLDER "WebKit")
+     install(TARGETS DatabaseProcess DESTINATION "${LIBEXEC_INSTALL_DIR}")
  
-     if (WebKit2_PluginProcess_OUTPUT_NAME)
-       set_target_properties(PluginProcess PROPERTIES OUTPUT_NAME ${WebKit2_PluginProcess_OUTPUT_NAME})
+     if (WebKit2_DatabaseProcess_OUTPUT_NAME)
+         set_target_properties(DatabaseProcess PROPERTIES OUTPUT_NAME ${WebKit2_DatabaseProcess_OUTPUT_NAME})
      endif ()
  endif ()
  
@@ -1164,7 +1164,7 @@ index a7ee383..68821f3 100644
  install(TARGETS WebKit2 DESTINATION "${LIB_INSTALL_DIR}")
  install(TARGETS WebProcess DESTINATION "${LIBEXEC_INSTALL_DIR}")
 diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
-index 46ac201..a72c7c2 100644
+index 192d444..e3aeca0 100644
 --- a/Source/WebKit2/ChangeLog
 +++ b/Source/WebKit2/ChangeLog
 @@ -1,10 +1,29 @@
@@ -1198,10 +1198,10 @@ index 46ac201..a72c7c2 100644
  
          * WebProcess/WebPage/WebBackForwardListProxy.h:
 diff --git a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
-index 80e3abe..068c21b 100644
+index 0ca12f0..60d7f47 100644
 --- a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
 +++ b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
-@@ -1593,20 +1593,22 @@
+@@ -1602,20 +1602,22 @@
  		C0337DD8127A51B6008FF4F4 /* WebTouchEvent.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0337DD7127A51B6008FF4F4 /* WebTouchEvent.cpp */; };
  		C0337DDD127A521C008FF4F4 /* WebPlatformTouchPoint.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0337DDC127A521C008FF4F4 /* WebPlatformTouchPoint.cpp */; };
  		C06C6095124C144B0001682F /* WebPageCreationParameters.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C06C6093124C14430001682F /* WebPageCreationParameters.cpp */; };
@@ -1224,7 +1224,7 @@ index 80e3abe..068c21b 100644
  		C54256BA18BEC18C00DE4179 /* WKFormSelectControl.h in Headers */ = {isa = PBXBuildFile; fileRef = C54256B418BEC18C00DE4179 /* WKFormSelectControl.h */; };
  		C55CB5B718C269CF00CA81E1 /* WKFormSelectPopover.mm in Sources */ = {isa = PBXBuildFile; fileRef = C57193BA18C149D0002D0F12 /* WKFormSelectPopover.mm */; };
  		C55CB5B818C2A5D600CA81E1 /* WKFormSelectPicker.mm in Sources */ = {isa = PBXBuildFile; fileRef = C57193B918C149D0002D0F12 /* WKFormSelectPicker.mm */; };
-@@ -3770,20 +3772,22 @@
+@@ -3804,20 +3806,22 @@
  		C0CE72581247E4DA00BC0EC4 /* WebPage.messages.in */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = WebPage.messages.in; sourceTree = "<group>"; };
  		C0CE729E1247E71D00BC0EC4 /* WebPageMessageReceiver.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WebPageMessageReceiver.cpp; sourceTree = "<group>"; };
  		C0CE729F1247E71D00BC0EC4 /* WebPageMessages.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WebPageMessages.h; sourceTree = "<group>"; };
@@ -1247,7 +1247,7 @@ index 80e3abe..068c21b 100644
  		C54256B418BEC18C00DE4179 /* WKFormSelectControl.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WKFormSelectControl.h; path = ios/forms/WKFormSelectControl.h; sourceTree = "<group>"; };
  		C554FFA212E4E8EA002F22C0 /* WebDragClientMac.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = WebDragClientMac.mm; sourceTree = "<group>"; };
  		C57193B918C149D0002D0F12 /* WKFormSelectPicker.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WKFormSelectPicker.mm; path = ios/forms/WKFormSelectPicker.mm; sourceTree = "<group>"; };
-@@ -5873,20 +5877,22 @@
+@@ -5923,20 +5927,22 @@
  				512127C11908239A00DAF35C /* WebPasteboardOverrides.cpp */,
  				512127C21908239A00DAF35C /* WebPasteboardOverrides.h */,
  				1A3E736011CC2659007BD539 /* WebPlatformStrategies.cpp */,
@@ -1270,7 +1270,7 @@ index 80e3abe..068c21b 100644
  			path = WebCoreSupport;
  			sourceTree = "<group>";
  		};
-@@ -7863,20 +7869,21 @@
+@@ -7923,20 +7929,21 @@
  				7CE4D21B1A4914A300C7F152 /* WebProcessPool.h in Headers */,
  				7CE4D2281A4916C200C7F152 /* WebProcessPoolMessages.h in Headers */,
  				BC032DD510F4389F0058C15A /* WebProcessProxy.h in Headers */,
@@ -1292,7 +1292,7 @@ index 80e3abe..068c21b 100644
  				D3B9484911FF4B6500032B39 /* WebSearchPopupMenu.h in Headers */,
  				1A53C2AA1A325730004E8C70 /* WebsiteDataStore.h in Headers */,
  				CEDBA84819FDA00A006866A5 /* WebSQLiteDatabaseTracker.h in Headers */,
-@@ -9620,20 +9627,21 @@
+@@ -9711,20 +9718,21 @@
  				BC111B11112F5E4F00337BAB /* WebProcessProxy.cpp in Sources */,
  				1A04F6191A4A3A7A00A21B6E /* WebProcessProxyCocoa.mm in Sources */,
  				2DA944B01884E9BA00ED86DB /* WebProcessProxyIOS.mm in Sources */,
@@ -1425,7 +1425,7 @@ index 0000000..cee44c3
 +
 +#endif // WebReplayClient_h
 diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
-index 44f5433..a467e1f 100644
+index 60a10b9..fe9428b 100644
 --- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 +++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
 @@ -177,20 +177,24 @@
@@ -1453,7 +1453,7 @@ index 44f5433..a467e1f 100644
  #if PLATFORM(GTK)
  #include <gtk/gtk.h>
  #include "DataObjectGtk.h"
-@@ -355,20 +359,23 @@ WebPage::WebPage(uint64_t pageID, const WebPageCreationParameters& parameters)
+@@ -358,20 +362,23 @@ WebPage::WebPage(uint64_t pageID, const WebPageCreationParameters& parameters)
  #if ENABLE(CONTEXT_MENUS)
      pageConfiguration.contextMenuClient = new WebContextMenuClient(this);
  #endif
@@ -1478,5 +1478,5 @@ index 44f5433..a467e1f 100644
      pageConfiguration.databaseProvider = WebDatabaseProvider::getOrCreate(m_pageGroup->pageGroupID());
      pageConfiguration.storageNamespaceProvider = WebStorageNamespaceProvider::getOrCreate(m_pageGroup->pageGroupID());
 -- 
-2.0.1
+2.2.2
 

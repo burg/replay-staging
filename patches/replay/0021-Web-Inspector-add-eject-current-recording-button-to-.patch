@@ -1,4 +1,4 @@
-From 58beaf0d5937390426625efc914f7d876e461ed7 Mon Sep 17 00:00:00 2001
+From 0467354631e1dd777fc9468431300db88802c8e7 Mon Sep 17 00:00:00 2001
 From: "Brian J. Burg" <burg@cs.washington.edu>
 Date: Mon, 11 Aug 2014 23:52:17 -0700
 Subject: [PATCH] Web Inspector: add eject current recording button to the
@@ -48,7 +48,7 @@ This will be replaced soon with a mini-timeline content view.
  Source/WebCore/inspector/InspectorReplayAgent.cpp  |   7 +++
  Source/WebCore/inspector/InspectorReplayAgent.h    |   1 +
  Source/WebInspectorUI/ChangeLog                    |  32 ++++++++++++++
- .../Localizations/en.lproj/localizedStrings.js     | Bin 56276 -> 56390 bytes
+ .../Localizations/en.lproj/localizedStrings.js     | Bin 56734 -> 56848 bytes
  .../UserInterface/Controllers/ReplayManager.js     |  33 ++++++++++++++
  .../UserInterface/Images/ReplayEjectButton.svg     |   8 ++++
  .../UserInterface/Views/ReplayDashboardView.css    |  13 ++++++
@@ -89,7 +89,7 @@ index 7bc26bd..b39111c 100644
              "description": "Splices the specified session segment into the session at the specified index.",
              "parameters": [
 diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
-index 8d1642a..0152221 100644
+index 70e6686..f0d621b 100644
 --- a/Source/WebCore/ChangeLog
 +++ b/Source/WebCore/ChangeLog
 @@ -1,10 +1,25 @@
@@ -177,7 +177,7 @@ index 3632c4f..3596bfe 100644
  
  private:
 diff --git a/Source/WebInspectorUI/ChangeLog b/Source/WebInspectorUI/ChangeLog
-index 636d06a..9e09833 100644
+index 69c8fc3..cf52e77 100644
 --- a/Source/WebInspectorUI/ChangeLog
 +++ b/Source/WebInspectorUI/ChangeLog
 @@ -1,10 +1,42 @@
@@ -213,34 +213,34 @@ index 636d06a..9e09833 100644
 +        (WebInspector.ReplayDashboardView.prototype._playbackFinished):
 +        (WebInspector.ReplayDashboardView.prototype._activeSessionChanged):
 +
- 2015-01-20  Joseph Pecoraro  <pecoraro@apple.com>
+ 2015-01-30  Joseph Pecoraro  <pecoraro@apple.com>
  
-         Web Inspector: Use spread operator in a few places
-         https://bugs.webkit.org/show_bug.cgi?id=140699
+         Remote Web Inspector should not show undock toolbar buttons
+         https://bugs.webkit.org/show_bug.cgi?id=141061
  
-         Reviewed by Geoffrey Garen.
+         Reviewed by Timothy Hatcher.
  
-         * UserInterface/Controllers/ProbeManager.js:
-         (WebInspector.ProbeManager.prototype.get probeSets):
-         Simplify by using the spread operator.
+         * UserInterface/Base/Main.js:
+         (WebInspector.contentLoaded):
+         Be sure to update the toolbar's dock navigation icons because they
 diff --git a/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js b/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js
-index dc4820b6aa8455a2e29cbb04460a9e1c46a3d1c6..95f0fe71b094ce402920bc08549b8454e40a34e7 100644
+index 7582144e24b98b701083f2a4c5ae5dfbd6671ea0..23ece6bc35ba0ba3b54d09447dc3e1481b39c49a 100644
 GIT binary patch
-delta 457
-zcmcbzo%z@fX3qcr$`}$EiWn3oZcyB)oh!u2AfuqlP|P5!FnOU+GJ?06SNOXTGlQDK
-z<a{@=$+B+3VD?2{oyqZT#}UdvvK(*|F8W$b-s{9O`K%Y;<oWJ8tXT}H49SxV4k@#{
-zGQil9lcSGnOr9SsFj?QjX7YX?sm=Nx-JHxoXH4E3=*SFm2xE{w3V(j6FPLu_Y>FZe
-z<HO_`Lx8SC(huXq<adV1qR7MeF!|b0c@%jVA141k)Eq?~#-AVRHn~5XW3p(tz~s_!
-zrOl$@=9$b49!it_54eJ9``h}HB@Re$et2L%2U6IrJZXx;Q`yXYDp?Ro=%KbAB5)sS
-LtFTxza4`S?`Z0F~
+delta 479
+zcmbQYn|Z<>X3qcr$`}$EiWn3oZcyB)oh!u2AfuqlP|P5!FnOU+GJ?06SNN$hGlQDK
+z<gad;U|P}rvpQU{5<@J50)s6OD>1k-q%dSMlmOXqqZIutCcll5n%wK5!=A;E%8<-Z
+zGMVqV_~f&TxHw%I5F+-I{k;Sx%X->OwhxrrEbH0L$qY1PvSP3!Gss2ngY;4Oy<xs!
+zzI=!&iad-Dl$QkRPh!Xc+L;G*mM%jsLq3pBg_?#(7H0PHP+1hSVSJc;c9=YhJd6*M
+zzZ+(bA`j#DhPh3yk7V0?KHNQvnZZM8vg9FG5WP9^5GN-h+$V25tulG~X+ea@=8dP@
+Uk+_o`@9H8Xfjku!YX&X`01gLsjQ{`u
 
-delta 467
-zcmX@MgZavKX0Ct#8Oj(E8HyMbCO5JwZq&*Z;#81fP-Q4qkY$*>Kqwi(+sq^U-H1s+
-zZE~)g_+%M3VG#49o9W~<xBY5xElLcr3<?akK&-^z%8<g4$xy<e0F#~U=w~^3j}y=2
-z3GP;tFZl9JUf^Lf*}zw7^8$}<PG+F0$$CMK%pi*kg7s1O0%5*jzD2Mpiad-Dl$QkR
-zPh!YnNM*<a+N;Zu%a9MGQ=z8ek%gJ96)KBjHjEFGe-|o`A`j!k<P*ZoQRHEKfiSm8
-z5ge1-!UZNj3s>6Q7H*!&tmMHk`M?2JCMA!_>u(!Q?m8f~Iq2Yi4n$y2mO5pM!c*B?
-Vb1GSo10Iz3we^rWs?635TmVM)aq<8F
+delta 449
+zcmbQRhk4#^X0Ct#8Oj(E8HyMbCO5JwZq&*Z;#81fP-Q4qkY$*>Kqwi(+sq^U)R;*@
+zZE~ZV_~d(T!XV~EKi$bb?#DS`T7Yt52+l-5%gJ%EQj_cAbS8!JP44rwnY<xTYIC1w
+zHzzYt$7GpcM`n;U3Bmd({C{D-VE%*<Qxtg^A1E&g)StwV!;s35$B@FH%aF^E52RC}
+zrs0u=nJp0}i()p650k$WCXXTy<HO|r!p%|SVf=q#Zj(PmvTb&VaL-~=@|YZWS9tQA
+zL&hNH#CpTY4-T_Ujyfc=S?2J54n)vSesbCrg{QLF?M$*DA|%i1=pl1dnXMVP0F=*n
+A1ONa4
 
 diff --git a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
 index 6994bc0..d3f562e 100644
@@ -498,5 +498,5 @@ index a53ea11..956da3e 100644
      }
  };
 -- 
-2.0.1
+2.2.2
 
