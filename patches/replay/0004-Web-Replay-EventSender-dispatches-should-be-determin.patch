@@ -1,0 +1,306 @@
+From d0fe6664e51ede2a687ae845df825544643aa595 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Fri, 10 Oct 2014 16:41:36 -0700
+Subject: [PATCH] Web Replay: EventSender dispatches should be deterministic
+ https://bugs.webkit.org/show_bug.cgi?id=137090
+
+Reviewed by NOBODY (OOPS!).
+
+EventSender asynchronously dispatches fire the load, error, and beforeload events
+some elements. This can execute event handlers nondeterministically.
+
+Pass a Document reference to all EventSenders and use a ReplayableTimer
+inside of EventSender to ensure deterministic run loop ordering.
+
+No new tests (OOPS!).
+
+[TEST STRATEGY]
+Create tests that generate load/beforeload/error events,
+and capture/replay it. It may be easier to reuse existing tests for
+this functionality, doing capture/replay for each separately.
+
+* dom/Document.cpp:
+(WebCore::Document::Document):
+* dom/EventSender.h:
+(WebCore::EventSender::EventSender):
+(WebCore::EventSender::timerFired):
+(WebCore::EventSender<T>::dispatchEventSoon):
+(WebCore::EventSender::eventType):
+(WebCore::EventSender<T>::EventSender):
+* dom/SharedEventSenders.cpp:
+(WebCore::SharedEventSenders::linkLoadEventSender):
+(WebCore::SharedEventSenders::styleLoadEventSender):
+(WebCore::SharedEventSenders::imageBeforeloadEventSender):
+(WebCore::SharedEventSenders::imageLoadEventSender):
+(WebCore::SharedEventSenders::imageErrorEventSender):
+* dom/SharedEventSenders.h:
+(WebCore::SharedEventSenders::SharedEventSenders):
+---
+ Source/WebCore/ChangeLog                  | 37 +++++++++++++++++++++++++++++++
+ Source/WebCore/dom/Document.cpp           |  2 +-
+ Source/WebCore/dom/EventSender.h          | 12 +++++-----
+ Source/WebCore/dom/SharedEventSenders.cpp | 10 ++++-----
+ Source/WebCore/dom/SharedEventSenders.h   |  6 ++++-
+ 5 files changed, 55 insertions(+), 12 deletions(-)
+
+diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
+index fc89098..477abd6 100644
+--- a/Source/WebCore/ChangeLog
++++ b/Source/WebCore/ChangeLog
+@@ -1,12 +1,49 @@
+ 2014-10-10  Brian J. Burg  <burg@cs.washington.edu>
+ 
++        Web Replay: EventSender dispatches should be deterministic
++        https://bugs.webkit.org/show_bug.cgi?id=137090
++
++        Reviewed by NOBODY (OOPS!).
++
++        EventSender asynchronously dispatches fire the load, error, and beforeload events
++        some elements. This can execute event handlers nondeterministically.
++
++        Pass a Document reference to all EventSenders and use a ReplayableTimer
++        inside of EventSender to ensure deterministic run loop ordering.
++
++        No new tests (OOPS!).
++
++        [TEST STRATEGY]
++        Create tests that generate load/beforeload/error events,
++        and capture/replay it. It may be easier to reuse existing tests for
++        this functionality, doing capture/replay for each separately.
++
++        * dom/Document.cpp:
++        (WebCore::Document::Document):
++        * dom/EventSender.h:
++        (WebCore::EventSender::EventSender):
++        (WebCore::EventSender::timerFired):
++        (WebCore::EventSender<T>::dispatchEventSoon):
++        (WebCore::EventSender::eventType):
++        (WebCore::EventSender<T>::EventSender):
++        * dom/SharedEventSenders.cpp:
++        (WebCore::SharedEventSenders::linkLoadEventSender):
++        (WebCore::SharedEventSenders::styleLoadEventSender):
++        (WebCore::SharedEventSenders::imageBeforeloadEventSender):
++        (WebCore::SharedEventSenders::imageLoadEventSender):
++        (WebCore::SharedEventSenders::imageErrorEventSender):
++        * dom/SharedEventSenders.h:
++        (WebCore::SharedEventSenders::SharedEventSenders):
++
++2014-10-10  Brian J. Burg  <burg@cs.washington.edu>
++
+         Web Replay: EventSender dispatches should be per-Document
+         https://bugs.webkit.org/show_bug.cgi?id=136051
+ 
+         EventSender uses a Timer to asynchronously dispatch the same event to multiple
+         elements of the same type on a future run loop. However, we previously dispatched events
+         to elements from any Document rather than the one that requested the event send.
+ 
+         This patch changes EventSender to be associated with a single Document. EventSenders
+         for each Document are lazily allocated. Further per-Document or global optimizations
+         are possible.
+diff --git a/Source/WebCore/dom/Document.cpp b/Source/WebCore/dom/Document.cpp
+index 85510ef..9d2f209 100644
+--- a/Source/WebCore/dom/Document.cpp
++++ b/Source/WebCore/dom/Document.cpp
+@@ -464,21 +464,21 @@ Document::Document(Frame* frame, const URL& url, unsigned documentClasses, unsig
+ #endif
+     , m_createRenderers(true)
+     , m_inPageCache(false)
+     , m_accessKeyMapValid(false)
+     , m_documentClasses(documentClasses)
+     , m_isSynthesized(constructionFlags & Synthesized)
+     , m_isNonRenderedPlaceholder(constructionFlags & NonRenderedPlaceholder)
+     , m_sawElementsInKnownNamespaces(false)
+     , m_isSrcdocDocument(false)
+     , m_eventQueue(*this)
+-    , m_sharedEventSenders(std::make_unique<SharedEventSenders>())
++    , m_sharedEventSenders(std::make_unique<SharedEventSenders>(*this))
+     , m_weakFactory(this)
+ #if ENABLE(FULLSCREEN_API)
+     , m_areKeysEnabledInFullScreen(0)
+     , m_fullScreenRenderer(nullptr)
+     , m_fullScreenChangeDelayTimer(*this, &Document::fullScreenChangeDelayTimerFired)
+     , m_isAnimatingFullScreen(false)
+ #endif
+     , m_loadEventDelayCount(0)
+     , m_loadEventDelayTimer(*this, &Document::loadEventDelayTimerFired)
+     , m_referrerPolicy(ReferrerPolicyDefault)
+diff --git a/Source/WebCore/dom/EventSender.h b/Source/WebCore/dom/EventSender.h
+index 97a91e7..e83d67a 100644
+--- a/Source/WebCore/dom/EventSender.h
++++ b/Source/WebCore/dom/EventSender.h
+@@ -19,62 +19,64 @@
+  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #ifndef EventSender_h
+ #define EventSender_h
+ 
+-#include "Timer.h"
++#include "ReplayableTimer.h"
+ #include <wtf/Vector.h>
+ 
+ namespace WebCore {
+ 
+ template<typename T> class EventSender {
+     WTF_MAKE_NONCOPYABLE(EventSender); WTF_MAKE_FAST_ALLOCATED;
+ public:
+-    explicit EventSender(const AtomicString& eventType);
++    explicit EventSender(Document&, const AtomicString& eventType);
+ 
+     const AtomicString& eventType() const { return m_eventType; }
+     void dispatchEventSoon(T&);
+     void cancelEvent(T&);
+     void dispatchPendingEvents();
+ 
+ #ifndef NDEBUG
+     bool hasPendingEvents(T& sender) const
+     {
+         return m_dispatchSoonList.find(&sender) != notFound || m_dispatchingList.find(&sender) != notFound;
+     }
+ #endif
+ 
+ private:
+     void timerFired() { dispatchPendingEvents(); }
+ 
+     AtomicString m_eventType;
+-    Timer m_timer;
++    Document& m_document;
++    ReplayableTimer m_timer;
+     Vector<T*> m_dispatchSoonList;
+     Vector<T*> m_dispatchingList;
+ };
+ 
+-template<typename T> EventSender<T>::EventSender(const AtomicString& eventType)
++template<typename T> EventSender<T>::EventSender(Document& document, const AtomicString& eventType)
+     : m_eventType(eventType)
++    , m_document(document)
+     , m_timer(*this, &EventSender::timerFired)
+ {
+ }
+ 
+ template<typename T> void EventSender<T>::dispatchEventSoon(T& sender)
+ {
+     m_dispatchSoonList.append(&sender);
+     if (!m_timer.isActive())
+-        m_timer.startOneShot(0);
++        m_timer.startOneShot(0, &m_document);
+ }
+ 
+ template<typename T> void EventSender<T>::cancelEvent(T& sender)
+ {
+     // Remove instances of this sender from both lists.
+     // Use loops because we allow multiple instances to get into the lists.
+     for (auto& event : m_dispatchSoonList) {
+         if (event == &sender)
+             event = nullptr;
+     }
+diff --git a/Source/WebCore/dom/SharedEventSenders.cpp b/Source/WebCore/dom/SharedEventSenders.cpp
+index 2145dd4..d7eea40 100644
+--- a/Source/WebCore/dom/SharedEventSenders.cpp
++++ b/Source/WebCore/dom/SharedEventSenders.cpp
+@@ -28,48 +28,48 @@
+ 
+ #include "HTMLLinkElement.h"
+ #include "HTMLStyleElement.h"
+ #include "ImageLoader.h"
+ 
+ namespace WebCore {
+ 
+ EventSender<HTMLLinkElement>& SharedEventSenders::linkLoadEventSender()
+ {
+     if (!m_linkLoadEventSender)
+-        m_linkLoadEventSender = std::make_unique<EventSender<HTMLLinkElement>>(eventNames().loadEvent);
++        m_linkLoadEventSender = std::make_unique<EventSender<HTMLLinkElement>>(this->m_document, eventNames().loadEvent);
+ 
+     return *m_linkLoadEventSender;
+ }
+ 
+ EventSender<HTMLStyleElement>& SharedEventSenders::styleLoadEventSender()
+ {
+     if (!m_styleLoadEventSender)
+-        m_styleLoadEventSender = std::make_unique<EventSender<HTMLStyleElement>>(eventNames().loadEvent);
++        m_styleLoadEventSender = std::make_unique<EventSender<HTMLStyleElement>>(this->m_document, eventNames().loadEvent);
+ 
+     return *m_styleLoadEventSender;
+ }
+ 
+ EventSender<ImageLoader>& SharedEventSenders::imageBeforeloadEventSender()
+ {
+     if (!m_imageBeforeloadEventSender)
+-        m_imageBeforeloadEventSender = std::make_unique<EventSender<ImageLoader>>(eventNames().beforeloadEvent);
++        m_imageBeforeloadEventSender = std::make_unique<EventSender<ImageLoader>>(this->m_document, eventNames().beforeloadEvent);
+ 
+     return *m_imageBeforeloadEventSender;
+ }
+ 
+ EventSender<ImageLoader>& SharedEventSenders::imageLoadEventSender()
+ {
+     if (!m_imageLoadEventSender)
+-        m_imageLoadEventSender = std::make_unique<EventSender<ImageLoader>>(eventNames().loadEvent);
++        m_imageLoadEventSender = std::make_unique<EventSender<ImageLoader>>(this->m_document, eventNames().loadEvent);
+ 
+     return *m_imageLoadEventSender;
+ }
+ 
+ EventSender<ImageLoader>& SharedEventSenders::imageErrorEventSender()
+ {
+     if (!m_imageErrorEventSender)
+-        m_imageErrorEventSender = std::make_unique<EventSender<ImageLoader>>(eventNames().errorEvent);
++        m_imageErrorEventSender = std::make_unique<EventSender<ImageLoader>>(this->m_document, eventNames().errorEvent);
+ 
+     return *m_imageErrorEventSender;
+ }
+ 
+ } // namespace WebCore
+diff --git a/Source/WebCore/dom/SharedEventSenders.h b/Source/WebCore/dom/SharedEventSenders.h
+index d97c878..8ad67ae 100644
+--- a/Source/WebCore/dom/SharedEventSenders.h
++++ b/Source/WebCore/dom/SharedEventSenders.h
+@@ -24,35 +24,39 @@
+  */
+ 
+ #ifndef SharedEventSenders_h
+ #define SharedEventSenders_h
+ 
+ #include "EventNames.h"
+ #include "EventSender.h"
+ 
+ namespace WebCore {
+ 
++class Document;
+ class HTMLLinkElement;
+ class HTMLStyleElement;
+ class ImageLoader;
+ 
+ class SharedEventSenders {
+     WTF_MAKE_NONCOPYABLE(SharedEventSenders); WTF_MAKE_FAST_ALLOCATED;
+ public:
+-    explicit SharedEventSenders() { }
++    explicit SharedEventSenders(Document& document)
++        : m_document(document) { }
+ 
+     EventSender<HTMLLinkElement>& linkLoadEventSender();
+     EventSender<HTMLStyleElement>& styleLoadEventSender();
+     EventSender<ImageLoader>& imageBeforeloadEventSender();
+     EventSender<ImageLoader>& imageLoadEventSender();
+     EventSender<ImageLoader>& imageErrorEventSender();
+ private:
++    Document& m_document;
++
+     std::unique_ptr<EventSender<HTMLLinkElement>> m_linkLoadEventSender;
+     std::unique_ptr<EventSender<HTMLStyleElement>> m_styleLoadEventSender;
+     std::unique_ptr<EventSender<ImageLoader>> m_imageBeforeloadEventSender;
+     std::unique_ptr<EventSender<ImageLoader>> m_imageLoadEventSender;
+     std::unique_ptr<EventSender<ImageLoader>> m_imageErrorEventSender;
+ };
+ 
+ } // namespace WebCore
+ 
+ #endif // SharedEventSenders_h
+-- 
+2.2.2
+

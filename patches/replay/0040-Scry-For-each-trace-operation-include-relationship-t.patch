@@ -1,0 +1,662 @@
+From de8203ef93cda4c99ae416ab51cbb143eeaa658f Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Fri, 13 Feb 2015 15:10:21 -0800
+Subject: [PATCH] [Scry] For each trace operation, include relationship to
+ target element if any.
+
+Some things to look at:
+
+* Hierarchy of modifications (target.innerHTML = ... will cause many changes)
+* Eventual parenting (attach a subtree together, then append at once to root. Maybe link to earlier ops?)
+* Generalized dependency tracking: 1st is scope-based, 2nd is time-based
+---
+ .../inspector/protocol/DOMTracing.json             |  14 ++++++++
+ .../inspector/protocol/Timeline.json               |   3 +-
+ .../WebCore/inspector/ElementTraceOperations.cpp   |  16 +++++++++
+ Source/WebCore/inspector/ElementTraceOperations.h  |  15 ++++++++
+ .../WebCore/inspector/InspectorDOMTracingAgent.cpp |  31 +++++++++++++++-
+ .../Localizations/en.lproj/localizedStrings.js     | Bin 57888 -> 58436 bytes
+ .../UserInterface/Controllers/DOMTracingManager.js |  26 ++++++++++++--
+ .../UserInterface/Models/ElementSnapshot.js        |   1 -
+ .../Models/TraceOperationTimelineRecord.js         |  39 ++++++++++++++++++++-
+ .../UserInterface/Protocol/DOMTracingObserver.js   |   4 +--
+ .../Views/ElementTrackingTimelineDataGridNode.js   |   5 +++
+ .../Views/ElementTrackingTimelineView.js           |   5 ++-
+ 12 files changed, 149 insertions(+), 10 deletions(-)
+
+diff --git a/Source/JavaScriptCore/inspector/protocol/DOMTracing.json b/Source/JavaScriptCore/inspector/protocol/DOMTracing.json
+index 15407d3..215d95d 100644
+--- a/Source/JavaScriptCore/inspector/protocol/DOMTracing.json
++++ b/Source/JavaScriptCore/inspector/protocol/DOMTracing.json
+@@ -54,20 +54,33 @@
+         },
+         {
+             "id": "TraceOperationType",
+             "type": "string",
+             "enum": [
+                 "ElementInserted",
+                 "ElementRemoved",
+                 "AttributeModified",
+                 "AttributeRemoved"
+             ]
++        },
++        {
++            "id": "ElementRelation",
++            "type": "string",
++            "enum": [
++                "Target",
++                "Parent",
++                "Child",
++                "Ancestor",
++                "Descendant",
++                "Sibling",
++                "None"
++            ]
+         }
+     ],
+     "commands": [
+         {
+             "name": "startTrackingElement",
+             "description": "Sets the element whose changes should be tracked.",
+             "parameters": [
+                  { "name": "nodeId", "$ref": "DOM.NodeId", "description": "Identifier for the element that should be tracked." }
+             ]
+         },
+@@ -95,17 +108,18 @@
+             "description": "Called when an element snapshot is created.",
+             "parameters": [
+                 { "name": "snapshot", "$ref": "ElementSnapshot", "description": "Snapshot data for an element." }
+             ]
+         },
+         {
+             "name": "operationRecorded",
+             "description": "Called when an element trace operation is recorded.",
+             "parameters": [
+                 { "name": "type", "$ref": "TraceOperationType" },
++                { "name": "relation", "$ref": "ElementRelation", "description": "How the operation's element is related to the target element." },
+                 { "name": "data", "type": "object" },
+                 { "name": "timestamp", "type": "number" },
+                 { "name": "stackTrace", "$ref": "Console.StackTrace", "optional": true }
+             ]
+         }
+     ]
+ }
+diff --git a/Source/JavaScriptCore/inspector/protocol/Timeline.json b/Source/JavaScriptCore/inspector/protocol/Timeline.json
+index 9642292..d99fe05 100644
+--- a/Source/JavaScriptCore/inspector/protocol/Timeline.json
++++ b/Source/JavaScriptCore/inspector/protocol/Timeline.json
+@@ -29,21 +29,22 @@
+                 "FunctionCall",
+                 "ProbeSample",
+                 "ConsoleProfile",
+                 "GCEvent",
+                 "RequestAnimationFrame",
+                 "CancelAnimationFrame",
+                 "FireAnimationFrame",
+                 "WebSocketCreate",
+                 "WebSocketSendHandshakeRequest",
+                 "WebSocketReceiveHandshakeResponse",
+-                "WebSocketDestroy"
++                "WebSocketDestroy",
++                "ElementTracking"
+             ],
+             "description": "Timeline record type."
+         },
+         {
+             "id": "TimelineEvent",
+             "type": "object",
+             "properties": [
+                 { "name": "type", "$ref": "EventType", "description": "Event type." },
+                 { "name": "data", "type": "object", "description": "Event data." },
+                 { "name": "children", "type": "array", "optional": true, "items": { "$ref": "TimelineEvent" }, "description": "Nested records." }
+diff --git a/Source/WebCore/inspector/ElementTraceOperations.cpp b/Source/WebCore/inspector/ElementTraceOperations.cpp
+index d1a9888..b363669 100644
+--- a/Source/WebCore/inspector/ElementTraceOperations.cpp
++++ b/Source/WebCore/inspector/ElementTraceOperations.cpp
+@@ -36,20 +36,36 @@ Inspector::Protocol::DOMTracing::TraceOperationType traceOperationTypeToProtocol
+     case TraceOperationType::ElementInserted: return Inspector::Protocol::DOMTracing::TraceOperationType::ElementInserted;
+     case TraceOperationType::ElementRemoved: return Inspector::Protocol::DOMTracing::TraceOperationType::ElementRemoved;
+     case TraceOperationType::AttributeModified: return Inspector::Protocol::DOMTracing::TraceOperationType::AttributeModified;
+     case TraceOperationType::AttributeRemoved: return Inspector::Protocol::DOMTracing::TraceOperationType::AttributeRemoved;
+     default:
+         ASSERT_NOT_REACHED();
+         return Inspector::Protocol::DOMTracing::TraceOperationType::ElementInserted;
+     }
+ }
+ 
++Inspector::Protocol::DOMTracing::ElementRelation elementRelationToProtocolEnum(ElementRelation relation)
++{
++    switch (relation) {
++    case ElementRelation::Target: return Inspector::Protocol::DOMTracing::ElementRelation::Target;
++    case ElementRelation::Parent: return Inspector::Protocol::DOMTracing::ElementRelation::Parent;
++    case ElementRelation::Child: return Inspector::Protocol::DOMTracing::ElementRelation::Child;
++    case ElementRelation::Ancestor: return Inspector::Protocol::DOMTracing::ElementRelation::Ancestor;
++    case ElementRelation::Descendant: return Inspector::Protocol::DOMTracing::ElementRelation::Descendant;
++    case ElementRelation::Sibling: return Inspector::Protocol::DOMTracing::ElementRelation::Sibling;
++    case ElementRelation::None: return Inspector::Protocol::DOMTracing::ElementRelation::None;
++    default:
++        ASSERT_NOT_REACHED();
++        return Inspector::Protocol::DOMTracing::ElementRelation::None;
++    }
++}
++
+ Ref<InspectorObject> ElementInsertedOperation::createProtocolObject() const
+ {
+     auto payload = InspectorObject::create();
+     payload->setInteger(ASCIILiteral("childNodeId"), this->childNodeId);
+     payload->setInteger(ASCIILiteral("parentNodeId"), this->parentNodeId);
+     return WTF::move(payload);
+ };
+ 
+ Ref<InspectorObject> ElementRemovedOperation::createProtocolObject() const
+ {
+diff --git a/Source/WebCore/inspector/ElementTraceOperations.h b/Source/WebCore/inspector/ElementTraceOperations.h
+index 8623035..b218421 100644
+--- a/Source/WebCore/inspector/ElementTraceOperations.h
++++ b/Source/WebCore/inspector/ElementTraceOperations.h
+@@ -34,27 +34,42 @@ namespace Inspector {
+ 
+ class InspectorObject;
+ 
+ enum class TraceOperationType {
+     ElementInserted,
+     ElementRemoved,
+     AttributeModified,
+     AttributeRemoved
+ };
+ 
++// How the trace operation element is related to the target element.
++enum class ElementRelation {
++    Target,
++    Parent,
++    Child,
++    Ancestor,
++    Descendant,
++    Sibling,
++    None,
++    // SiblingDescendant
++};
++
+ Inspector::Protocol::DOMTracing::TraceOperationType traceOperationTypeToProtocolEnum(TraceOperationType);
++Inspector::Protocol::DOMTracing::ElementRelation elementRelationToProtocolEnum(ElementRelation);
+ 
+ struct TraceOperation {
+     virtual ~TraceOperation() { }
+     virtual TraceOperationType type() const = 0;
+     // Creates a payload with operation-specific data, excluding type().
+     virtual Ref<InspectorObject> createProtocolObject() const = 0;
++
++    ElementRelation relation {ElementRelation::None};
+ };
+ 
+ struct ElementInsertedOperation : public TraceOperation {
+     virtual ~ElementInsertedOperation() { }
+     ElementInsertedOperation(int childNodeId, int parentNodeId)
+         : childNodeId(childNodeId)
+         , parentNodeId(parentNodeId) { }
+ 
+     virtual TraceOperationType type() const override { return TraceOperationType::ElementInserted; }
+     virtual Ref<InspectorObject> createProtocolObject() const override;
+diff --git a/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp b/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp
+index 79d5a8b..8204b08 100644
+--- a/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp
++++ b/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp
+@@ -228,20 +228,44 @@ void InspectorDOMTracingAgent::didPaint(RenderObject& renderer, const LayoutRect
+             commitSnapshot(WTF::move(snapshot));
+ 
+             LOG(WebReplay, "DOM Tracing: Detected rendering differences for element %p - x,y (%.1f, %.1f) w,h (%.1f, %.1f)\n",
+                 m_targetElement.get(),
+                 elementRect.x().toDouble(), elementRect.y().toDouble(),
+                 elementRect.width().toDouble(), elementRect.height().toDouble());
+         }
+     }
+ }
+ 
++static ElementRelation determineRelationshipToTarget(Element& element, Element& target)
++{
++    if (&element == &target)
++        return ElementRelation::Target;
++
++    if (&element == target.parentElement())
++        return ElementRelation::Parent;
++    if (&target == element.parentElement())
++        return ElementRelation::Child;
++
++    if (element.isDescendantOf(&target))
++        return ElementRelation::Descendant;
++    if (target.isDescendantOf(&element))
++        return ElementRelation::Ancestor;
++
++    // Are they siblings?
++    Element* elementParent = element.parentElement();
++    Element* targetParent = target.parentElement();
++    if (elementParent && elementParent == targetParent)
++        return ElementRelation::Sibling;
++
++    return ElementRelation::None;
++}
++
+ void InspectorDOMTracingAgent::didInsertDOMNode(Node& node)
+ {
+ #if ENABLE(WEB_REPLAY)
+     if (!m_stableNodeIdMap.contains(&node))
+         m_stableNodeIdMap.set(&node, m_nextStableNodeId++);
+ #endif
+ 
+     if (!m_targetElement)
+         return;
+ 
+@@ -249,55 +273,59 @@ void InspectorDOMTracingAgent::didInsertDOMNode(Node& node)
+         return;
+ 
+     Element& childElement = downcast<Element>(node);
+ 
+     Element* parentElement = childElement.parentElement();
+     ASSERT(parentElement);
+     int parentNodeId = m_domAgent->pushNodePathToFrontend(parentElement);
+     int childNodeId = m_domAgent->pushNodePathToFrontend(&childElement);
+ 
+     ElementInsertedOperation operation(parentNodeId, childNodeId);
++    operation.relation = determineRelationshipToTarget(childElement, *m_targetElement);
+     pushOperationToFrontend(operation);
+ }
+ 
+ void InspectorDOMTracingAgent::didRemoveDOMNode(Node& node)
+ {
+     if (!m_targetElement)
+         return;
+ 
+     if (!is<Element>(node))
+         return;
+ 
+     Element& element = downcast<Element>(node);
+     int nodeId = m_domAgent->pushNodePathToFrontend(&element);
+ 
+     ElementRemovedOperation operation(nodeId);
++    operation.relation = determineRelationshipToTarget(element, *m_targetElement);
+     pushOperationToFrontend(operation);
+ }
+ 
+ void InspectorDOMTracingAgent::didModifyDOMAttr(Element& element, const AtomicString& name, const AtomicString& value)
+ {
+     if (!m_targetElement)
+         return;
+ 
+     int nodeId = m_domAgent->pushNodePathToFrontend(&element);
+     AttributeModifiedOperation operation(nodeId, name, value);
++    operation.relation = determineRelationshipToTarget(element, *m_targetElement);
+     pushOperationToFrontend(operation);
+ }
+ 
+ void InspectorDOMTracingAgent::didRemoveDOMAttr(Element& element, const AtomicString& name)
+ {
+     if (!m_targetElement)
+         return;
+ 
+     int nodeId = m_domAgent->pushNodePathToFrontend(&element);
+     AttributeRemovedOperation operation(nodeId, name);
++    operation.relation = determineRelationshipToTarget(element, *m_targetElement);
+     pushOperationToFrontend(operation);
+ }
+ 
+ #if ENABLE(WEB_REPLAY)
+ void InspectorDOMTracingAgent::replaySegmentCreated(RefPtr<ReplaySessionSegment>&&)
+ {
+     resetCounters();
+ }
+ 
+ void InspectorDOMTracingAgent::replaySegmentLoaded(RefPtr<ReplaySessionSegment>&&)
+@@ -391,20 +419,21 @@ void InspectorDOMTracingAgent::commitSnapshot(std::unique_ptr<ElementSnapshot> s
+     if (page && page->replayController().sessionState() == SessionState::Replaying)
+         snapshotObject->setTimeIndex(createProtocolObjectForPosition(page->replayController().currentPosition()));
+ #endif
+ 
+     m_frontendDispatcher->snapshotCreated(WTF::move(snapshotObject));
+ }
+ 
+ void InspectorDOMTracingAgent::pushOperationToFrontend(const TraceOperation& operation)
+ {
+     auto operationType = traceOperationTypeToProtocolEnum(operation.type());
++    auto elementRelation = elementRelationToProtocolEnum(operation.relation);
+     double timestamp = m_instrumentingAgents->inspectorEnvironment().executionStopwatch()->elapsedTime();
+     RefPtr<ScriptCallStack> stackTrace = createScriptCallStack(JSMainThreadExecState::currentState(), maxCallStackDepth);
+     RefPtr<Inspector::Protocol::Console::StackTrace> stackTraceObject;
+     if (stackTrace && stackTrace->size())
+         stackTraceObject = stackTrace->buildInspectorArray();
+ 
+-    m_frontendDispatcher->operationRecorded(operationType, operation.createProtocolObject(), timestamp, WTF::move(stackTraceObject));
++    m_frontendDispatcher->operationRecorded(operationType, elementRelation, operation.createProtocolObject(), timestamp, WTF::move(stackTraceObject));
+ }
+ 
+ } // namespace WebCore
+diff --git a/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js b/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js
+index c73a2ed3fe36115908acf86e158d7a82be1b3f3d..1d239c38b1d3eeacf1cc1747191b6ff6f7a54d77 100644
+GIT binary patch
+delta 271
+zcmZ2*g!#w`<_#}I6_XiK8HyQ781fm47?c=d859_7fmn&bks*%(EH}BZ-f;2)A(qWA
+zM3dAehxiLjUgpR*ImlmV@-<Jb&2Bb9F4~?z6BHOi7!rYIqyx<>K`{wMcJjp|`kQAo
+zsELc_0Tm)!=m&H{-sFot`kVJm-zVsq2s9-VBm^`W<T~8u2LTPr0osj2J;=t%8&<Jw
+gu2^|XiZOGttfDx3Fwp2EhMdWcUWS_kj$Duh0Q@aQxBvhE
+
+delta 51
+zcmV-30L=fy$OE9n1F+~7vpyDLCX=8&1d~KPFq7y(46{Bx4n(u2fhHHT5}CXavrMbl
+J8nbrB&K)rB73%;1
+
+diff --git a/Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js b/Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js
+index e207d62..3422942 100644
+--- a/Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js
++++ b/Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js
+@@ -78,54 +78,74 @@ WebInspector.DOMTracingManager.prototype = {
+     {
+         var snapshot = new WebInspector.ElementSnapshot(snapshotPayload);
+         this._snapshotMap.set(snapshot.snapshotId, snapshot);
+ 
+         var eventType = WebInspector.ElementTrackingTimelineRecord.EventType.OutputChanged;
+         var record = new WebInspector.ElementTrackingTimelineRecord(eventType, snapshot);
+         WebInspector.timelineManager.activeRecording.addRecord(record);
+         console.log("Added snapshot record: ", record, snapshot);
+     },
+ 
+-    operationRecorded: function(type, data, timestamp, stackTrace)
++    operationRecorded: function(type, relation, data, timestamp, stackTrace)
+     {
+         var eventType = null;
+         switch (type) {
+         case DOMTracingAgent.TraceOperationType.ElementInserted:
+             eventType = WebInspector.TraceOperationTimelineRecord.EventType.ElementInserted; break;
+         case DOMTracingAgent.TraceOperationType.ElementRemoved:
+             eventType = WebInspector.TraceOperationTimelineRecord.EventType.ElementRemoved; break;
+         case DOMTracingAgent.TraceOperationType.AttributeModified:
+             eventType = WebInspector.TraceOperationTimelineRecord.EventType.AttributeModified; break;
+         case DOMTracingAgent.TraceOperationType.AttributeRemoved:
+             eventType = WebInspector.TraceOperationTimelineRecord.EventType.AttributeRemoved; break;
+         default:
+             console.error("Unknown trace operation type: ", type, data);
+             return;
+         }
+ 
++        var relationToTarget = null;
++        switch (relation) {
++        case DOMTracingAgent.ElementRelation.Target:
++            relationToTarget = WebInspector.TraceOperationTimelineRecord.ElementRelation.Target; break;
++        case DOMTracingAgent.ElementRelation.Ancestor:
++            relationToTarget = WebInspector.TraceOperationTimelineRecord.ElementRelation.Parent; break;
++        case DOMTracingAgent.ElementRelation.Parent:
++            relationToTarget = WebInspector.TraceOperationTimelineRecord.ElementRelation.Child; break;
++        case DOMTracingAgent.ElementRelation.Child:
++            relationToTarget = WebInspector.TraceOperationTimelineRecord.ElementRelation.Ancestor; break;
++        case DOMTracingAgent.ElementRelation.Descendant:
++            relationToTarget = WebInspector.TraceOperationTimelineRecord.ElementRelation.Descendant; break;
++        case DOMTracingAgent.ElementRelation.Sibling:
++            relationToTarget = WebInspector.TraceOperationTimelineRecord.ElementRelation.Sibling; break;
++        case DOMTracingAgent.ElementRelation.None:
++            relationToTarget = WebInspector.TraceOperationTimelineRecord.ElementRelation.None; break;
++        default:
++            console.error("Unknown element relation for operation: ", relation, data);
++            return;
++        }
++
+         var callFrames = WebInspector.TimelineManager.callFramesFromPayload(stackTrace);
+ 
+         var significantCallFrame = null;
+         if (callFrames) {
+             for (var i = 0; i < callFrames.length; ++i) {
+                 if (callFrames[i].nativeCode)
+                     continue;
+                 significantCallFrame = callFrames[i];
+                 break;
+             }
+         }
+ 
+         var sourceCodeLocation = significantCallFrame && significantCallFrame.sourceCodeLocation;
+ 
+-        var record = new WebInspector.TraceOperationTimelineRecord(eventType, data, timestamp, callFrames, sourceCodeLocation);
++        var record = new WebInspector.TraceOperationTimelineRecord(eventType, relationToTarget, data, timestamp, callFrames, sourceCodeLocation);
+         WebInspector.timelineManager.activeRecording.addRecord(record);
+-        console.log("Added trace operation record: ", record);
+     },
+ 
+     // Private
+ 
+     _clearBindings: function()
+     {
+         this._snapshotMap.clear();
+     },
+ 
+     _timelineCapturingStopped: function(event)
+diff --git a/Source/WebInspectorUI/UserInterface/Models/ElementSnapshot.js b/Source/WebInspectorUI/UserInterface/Models/ElementSnapshot.js
+index 71a055d..33d6b34 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/ElementSnapshot.js
++++ b/Source/WebInspectorUI/UserInterface/Models/ElementSnapshot.js
+@@ -22,21 +22,20 @@
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ WebInspector.ElementSnapshot = function(payload)
+ {
+     this.nodeId = payload.nodeId;
+     this.snapshotId = payload.snapshotId;
+     this.elapsedTime = payload.elapsedTimestamp;
+     this.boundingRect = WebInspector.Rect.fromObject(payload.boundingBox);
+-    console.log(this.boundingRect);
+ 
+     if (WebInspector.ReplayManager) {
+         // These are only available if ENABLE(WEB_REPLAY).
+         this.stableNodeId = payload.stableNodeId;
+         this.timeIndex = payload.timeIndex || NaN;
+     }
+ 
+     this._payloadPromise = null;
+ }
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Models/TraceOperationTimelineRecord.js b/Source/WebInspectorUI/UserInterface/Models/TraceOperationTimelineRecord.js
+index f0b9373..51f9982 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/TraceOperationTimelineRecord.js
++++ b/Source/WebInspectorUI/UserInterface/Models/TraceOperationTimelineRecord.js
+@@ -16,62 +16,99 @@
+  * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+  * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+-WebInspector.TraceOperationTimelineRecord = function(eventType, data, timestamp, callFrames, sourceCodeLocation)
++WebInspector.TraceOperationTimelineRecord = function(eventType, relationToTarget, data, timestamp, callFrames, sourceCodeLocation)
+ {
+     WebInspector.TimelineRecord.call(this, WebInspector.TimelineRecord.Type.ElementTracking, timestamp, timestamp, callFrames, sourceCodeLocation);
+ 
+     console.assert(eventType, eventType);
+ 
+     this._eventType = eventType;
++    this._relationToTarget = relationToTarget;
+     this._data = data;
+ };
+ 
+ WebInspector.TraceOperationTimelineRecord.EventType = {
+     ElementInserted: "trace-operation-timeline-record-element-inserted",
+     ElementRemoved: "trace-operation-timeline-record-element-removed",
+     AttributeModified: "trace-operation-timeline-record-attribute-modified",
+     AttributeRemoved: "trace-operation-timeline-record-attribute-removed",
+ };
+ 
++WebInspector.TraceOperationTimelineRecord.ElementRelation = {
++    Target: "trace-operation-timeline-record-element-relation-target",
++    Parent: "trace-operation-timeline-record-element-relation-parent",
++    Child: "trace-operation-timeline-record-element-relation-child",
++    Ancestor: "trace-operation-timeline-record-element-relation-ancestor",
++    Descendant: "trace-operation-timeline-record-element-relation-descendant",
++    Sibling: "trace-operation-timeline-record-element-relation-sibling",
++    None: "trace-operation-timeline-record-element-relation-none",
++};
++
+ WebInspector.TraceOperationTimelineRecord.displayNameForEventType = function(eventType)
+ {
+     switch (eventType) {
+     case WebInspector.TraceOperationTimelineRecord.EventType.ElementInserted:
+         return WebInspector.UIString("Element Inserted");
+     case WebInspector.TraceOperationTimelineRecord.EventType.ElementRemoved:
+         return WebInspector.UIString("Element Removed");
+     case WebInspector.TraceOperationTimelineRecord.EventType.AttributeModified:
+         return WebInspector.UIString("Attribute Modified");
+     case WebInspector.TraceOperationTimelineRecord.EventType.AttributeRemoved:
+         return WebInspector.UIString("Attribute Removed");
+     }
+ };
+ 
++
++WebInspector.TraceOperationTimelineRecord.displayNameForElementRelation = function(relation)
++{
++    switch (relation) {
++    case WebInspector.TraceOperationTimelineRecord.ElementRelation.Target:
++        return WebInspector.UIString("Is Target");
++    case WebInspector.TraceOperationTimelineRecord.ElementRelation.Parent:
++        return WebInspector.UIString("Parent");
++    case WebInspector.TraceOperationTimelineRecord.ElementRelation.Child:
++        return WebInspector.UIString("Child");
++    case WebInspector.TraceOperationTimelineRecord.ElementRelation.Ancestor:
++        return WebInspector.UIString("Ancestor");
++    case WebInspector.TraceOperationTimelineRecord.ElementRelation.Descendant:
++        return WebInspector.UIString("Descendant");
++    case WebInspector.TraceOperationTimelineRecord.ElementRelation.Sibling:
++        return WebInspector.UIString("Sibling");
++    case WebInspector.TraceOperationTimelineRecord.ElementRelation.None:
++        return WebInspector.UIString("None");
++    }
++};
++
+ WebInspector.TraceOperationTimelineRecord.TypeIdentifier = "trace-operation-timeline-record";
+ WebInspector.TraceOperationTimelineRecord.EventTypeCookieKey = "trace-operation-timeline-record-event-type";
+ 
+ WebInspector.TraceOperationTimelineRecord.prototype = {
+     constructor: WebInspector.TraceOperationTimelineRecord,
+     __proto__: WebInspector.TimelineRecord.prototype,
+ 
+     // Public
+ 
+     get eventType()
+     {
+         return this._eventType;
+     },
+ 
++    get relationToTarget()
++    {
++        return this._relationToTarget;
++    },
++
+     saveIdentityToCookie: function(cookie)
+     {
+         WebInspector.TimelineRecord.prototype.saveIdentityToCookie.call(this, cookie);
+ 
+         cookie[WebInspector.TraceOperationTimelineRecord.EventTypeCookieKey] = this._eventType;
+     }
+ };
+diff --git a/Source/WebInspectorUI/UserInterface/Protocol/DOMTracingObserver.js b/Source/WebInspectorUI/UserInterface/Protocol/DOMTracingObserver.js
+index 78a636b..f251c94 100644
+--- a/Source/WebInspectorUI/UserInterface/Protocol/DOMTracingObserver.js
++++ b/Source/WebInspectorUI/UserInterface/Protocol/DOMTracingObserver.js
+@@ -30,15 +30,15 @@ WebInspector.DOMTracingObserver = function()
+ 
+ WebInspector.DOMTracingObserver.prototype = {
+     constructor: WebInspector.DOMTracingObserver,
+     __proto__: WebInspector.Object.prototype,
+ 
+     snapshotCreated: function(snapshot)
+     {
+         WebInspector.domTracingManager.snapshotCreated(snapshot);
+     },
+ 
+-    operationRecorded: function(type, data, timestamp, stackTrace)
++    operationRecorded: function(type, data, relation, timestamp, stackTrace)
+     {
+-        WebInspector.domTracingManager.operationRecorded(type, data, timestamp, stackTrace);
++        WebInspector.domTracingManager.operationRecorded(type, data, relation, timestamp, stackTrace);
+     }
+ };
+diff --git a/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineDataGridNode.js b/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineDataGridNode.js
+index 9aa228c..1444a2e 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineDataGridNode.js
++++ b/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineDataGridNode.js
+@@ -67,20 +67,25 @@ WebInspector.ElementTrackingTimelineDataGridNode.prototype = {
+         const emptyValuePlaceholderString = "\u2014";
+         var value = this.data[columnIdentifier];
+ 
+         switch (columnIdentifier) {
+         case "eventType":
+             if (this._record instanceof WebInspector.ElementTrackingTimelineRecord)
+                 return WebInspector.ElementTrackingTimelineRecord.displayNameForEventType(value);
+             if (this._record instanceof WebInspector.TraceOperationTimelineRecord)
+                 return WebInspector.TraceOperationTimelineRecord.displayNameForEventType(value);
+ 
++        case "relationToTarget":
++            if (this._record instanceof WebInspector.TraceOperationTimelineRecord)
++                return WebInspector.TraceOperationTimelineRecord.displayNameForElementRelation(value);
++            return emptyValuePlaceholderString;
++
+         case "width":
+         case "height":
+             return isNaN(value) ? emptyValuePlaceholderString : WebInspector.UIString("%fpx").format(value);
+ 
+         case "startTime":
+             return isNaN(value) ? emptyValuePlaceholderString : Number.secondsToString(value, true);
+ 
+         }
+ 
+         return WebInspector.TimelineDataGridNode.prototype.createCellContent.call(this, columnIdentifier, cell);
+diff --git a/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineView.js b/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineView.js
+index ee053d3..a198006 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineView.js
++++ b/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineView.js
+@@ -27,41 +27,44 @@ WebInspector.ElementTrackingTimelineView = function(timeline)
+ {
+     WebInspector.TimelineView.call(this, timeline);
+ 
+     console.assert(timeline.type === WebInspector.TimelineRecord.Type.ElementTracking, timeline);
+ 
+     this.navigationSidebarTreeOutline.onselect = this._treeElementSelected.bind(this);
+     this.navigationSidebarTreeOutline.ondeselect = this._treeElementDeselected.bind(this);
+     this.navigationSidebarTreeOutline.element.classList.add(WebInspector.NavigationSidebarPanel.HideDisclosureButtonsStyleClassName);
+     this.navigationSidebarTreeOutline.element.classList.add(WebInspector.ElementTrackingTimelineView.TreeOutlineStyleClassName);
+ 
+-    var columns = {eventType: {}, initiatorCallFrame: {}, width: {}, height: {}, startTime: {}};
++    var columns = {eventType: {}, initiatorCallFrame: {}, relationToTarget: {}, width: {}, height: {}, startTime: {}};
+ 
+     columns.eventType.title = WebInspector.UIString("Type");
+     columns.eventType.width = "15%";
+ 
+     var typeToLabelMap = new Map;
+     for (var key in WebInspector.ElementTrackingTimelineRecord.EventType) {
+         var value = WebInspector.ElementTrackingTimelineRecord.EventType[key];
+         typeToLabelMap.set(value, WebInspector.ElementTrackingTimelineRecord.displayNameForEventType(value));
+     }
+     for (var key in WebInspector.TraceOperationTimelineRecord.EventType) {
+         var value = WebInspector.TraceOperationTimelineRecord.EventType[key];
+         typeToLabelMap.set(value, WebInspector.TraceOperationTimelineRecord.displayNameForEventType(value));
+     }
+ 
+     columns.eventType.scopeBar = WebInspector.TimelineDataGrid.createColumnScopeBar("element-tracking", typeToLabelMap);
+     columns.eventType.hidden = true;
+ 
+     columns.initiatorCallFrame.title = WebInspector.UIString("Location");
+     columns.initiatorCallFrame.width = "25%";
+ 
++    columns.relationToTarget.title = WebInspector.UIString("Relation to Target");
++    columns.relationToTarget.width = "10%";
++
+     columns.width.title = WebInspector.UIString("Width");
+     columns.width.width = "8%";
+ 
+     columns.height.title = WebInspector.UIString("Height");
+     columns.height.width = "8%";
+ 
+     columns.startTime.title = WebInspector.UIString("Time");
+     columns.startTime.width = "8%";
+     columns.startTime.aligned = "right";
+ 
+-- 
+2.2.2
+

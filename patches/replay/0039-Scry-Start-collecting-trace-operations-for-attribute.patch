@@ -1,0 +1,1319 @@
+From 403ce2f8859a2a945ea93aa798c71cbb2ec3841e Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Thu, 12 Feb 2015 18:55:51 -0800
+Subject: [PATCH] [Scry] Start collecting trace operations for attribute
+ modify/remove and element add/remove.
+
+---
+ .../inspector/protocol/DOMTracing.json             |  20 ++++
+ Source/WebCore/WebCore.xcodeproj/project.pbxproj   |   8 ++
+ .../WebCore/inspector/ElementTraceOperations.cpp   |  78 +++++++++++++++
+ Source/WebCore/inspector/ElementTraceOperations.h  | 107 +++++++++++++++++++++
+ .../WebCore/inspector/InspectorDOMTracingAgent.cpp |  70 +++++++++++++-
+ .../WebCore/inspector/InspectorDOMTracingAgent.h   |  10 +-
+ .../WebCore/inspector/InspectorInstrumentation.cpp |   4 +
+ .../Localizations/en.lproj/localizedStrings.js     | Bin 57408 -> 57888 bytes
+ .../UserInterface/Controllers/DOMTracingManager.js |  36 +++++++
+ .../UserInterface/Controllers/TimelineManager.js   |  64 ++++++------
+ Source/WebInspectorUI/UserInterface/Main.html      |   1 +
+ .../Models/ElementTrackingTimeline.js              |   2 +-
+ .../Models/ElementTrackingTimelineRecord.js        |   5 -
+ ...neRecord.js => TraceOperationTimelineRecord.js} |  74 +++++---------
+ .../UserInterface/Protocol/DOMTracingObserver.js   |   5 +
+ .../Views/ElementTrackingTimelineDataGridNode.js   |  12 ++-
+ .../Views/ElementTrackingTimelineView.js           |  18 ++--
+ .../Views/TimelineRecordTreeElement.js             |  12 +--
+ .../UserInterface/Views/TimelineSidebarPanel.js    |   5 +
+ 19 files changed, 422 insertions(+), 109 deletions(-)
+ create mode 100644 Source/WebCore/inspector/ElementTraceOperations.cpp
+ create mode 100644 Source/WebCore/inspector/ElementTraceOperations.h
+ copy Source/WebInspectorUI/UserInterface/Models/{ElementTrackingTimelineRecord.js => TraceOperationTimelineRecord.js} (51%)
+
+diff --git a/Source/JavaScriptCore/inspector/protocol/DOMTracing.json b/Source/JavaScriptCore/inspector/protocol/DOMTracing.json
+index b6c9883..15407d3 100644
+--- a/Source/JavaScriptCore/inspector/protocol/DOMTracing.json
++++ b/Source/JavaScriptCore/inspector/protocol/DOMTracing.json
+@@ -44,20 +44,30 @@
+                 { "name": "timeIndex", "$ref": "ReplayPosition", "optional": true, "description": "Replay position at which the snapshot was taken." }
+             ]
+         },
+         {
+             "id": "ElementSnapshotPayload",
+             "type": "object",
+             "properties": [
+                 { "name": "snapshotId", "$ref": "SnapshotId" },
+                 { "name": "imageData", "type": "string", "description": "Base64-encoded image data for the snapshot." }
+             ]
++        },
++        {
++            "id": "TraceOperationType",
++            "type": "string",
++            "enum": [
++                "ElementInserted",
++                "ElementRemoved",
++                "AttributeModified",
++                "AttributeRemoved"
++            ]
+         }
+     ],
+     "commands": [
+         {
+             "name": "startTrackingElement",
+             "description": "Sets the element whose changes should be tracked.",
+             "parameters": [
+                  { "name": "nodeId", "$ref": "DOM.NodeId", "description": "Identifier for the element that should be tracked." }
+             ]
+         },
+@@ -79,13 +89,23 @@
+             ]
+         }
+      ],
+     "events": [
+         {
+             "name": "snapshotCreated",
+             "description": "Called when an element snapshot is created.",
+             "parameters": [
+                 { "name": "snapshot", "$ref": "ElementSnapshot", "description": "Snapshot data for an element." }
+             ]
++        },
++        {
++            "name": "operationRecorded",
++            "description": "Called when an element trace operation is recorded.",
++            "parameters": [
++                { "name": "type", "$ref": "TraceOperationType" },
++                { "name": "data", "type": "object" },
++                { "name": "timestamp", "type": "number" },
++                { "name": "stackTrace", "$ref": "Console.StackTrace", "optional": true }
++            ]
+         }
+     ]
+ }
+diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
+index 461ad2d..be014fd 100644
+--- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
++++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
+@@ -5548,20 +5548,22 @@
+ 		C348612315FDE21E007A1CC9 /* InputTypeNames.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C348612115FDE21E007A1CC9 /* InputTypeNames.cpp */; };
+ 		C348612415FDE21E007A1CC9 /* InputTypeNames.h in Headers */ = {isa = PBXBuildFile; fileRef = C348612215FDE21E007A1CC9 /* InputTypeNames.h */; };
+ 		C375D7FD16639519006184AB /* TypeAhead.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C375D7FB16639519006184AB /* TypeAhead.cpp */; };
+ 		C375D7FE16639519006184AB /* TypeAhead.h in Headers */ = {isa = PBXBuildFile; fileRef = C375D7FC16639519006184AB /* TypeAhead.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C37CDEBD149EF2030042090D /* ColorChooserClient.h in Headers */ = {isa = PBXBuildFile; fileRef = C37CDEBC149EF2030042090D /* ColorChooserClient.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C3CF17A415B0063F00276D39 /* IdTargetObserver.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C3CF17A015B0063F00276D39 /* IdTargetObserver.cpp */; };
+ 		C3CF17A515B0063F00276D39 /* IdTargetObserver.h in Headers */ = {isa = PBXBuildFile; fileRef = C3CF17A115B0063F00276D39 /* IdTargetObserver.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C3CF17A615B0063F00276D39 /* IdTargetObserverRegistry.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C3CF17A215B0063F00276D39 /* IdTargetObserverRegistry.cpp */; };
+ 		C3CF17A715B0063F00276D39 /* IdTargetObserverRegistry.h in Headers */ = {isa = PBXBuildFile; fileRef = C3CF17A315B0063F00276D39 /* IdTargetObserverRegistry.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C400D10918F1C8F60090D863 /* EventLoopInput.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C400D10818F1C8F60090D863 /* EventLoopInput.cpp */; };
++		C450BFDB1A8AABD000D18277 /* ElementTraceOperations.h in Headers */ = {isa = PBXBuildFile; fileRef = C450BFDA1A8AABD000D18277 /* ElementTraceOperations.h */; };
++		C450BFDD1A8AB9F900D18277 /* ElementTraceOperations.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C450BFDC1A8AB9F900D18277 /* ElementTraceOperations.cpp */; };
+ 		C46871B61A66E07100860C87 /* WebReplayInputCreationMethods.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4218BE9849006CEBCC /* WebReplayInputCreationMethods.cpp */; };
+ 		C46871B71A66E07100860C87 /* WebReplayInputDispatchMethods.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4318BE9849006CEBCC /* WebReplayInputDispatchMethods.cpp */; };
+ 		C46871BA1A67220B00860C87 /* InspectorDOMTracingAgent.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C46871B81A67220B00860C87 /* InspectorDOMTracingAgent.cpp */; };
+ 		C46871BB1A67220B00860C87 /* InspectorDOMTracingAgent.h in Headers */ = {isa = PBXBuildFile; fileRef = C46871B91A67220B00860C87 /* InspectorDOMTracingAgent.h */; };
+ 		C49474A119A2847C009B3DE8 /* SharedEventSenders.h in Headers */ = {isa = PBXBuildFile; fileRef = C49474A019A2847C009B3DE8 /* SharedEventSenders.h */; };
+ 		C49474A819A2D612009B3DE8 /* EventSender.h in Headers */ = {isa = PBXBuildFile; fileRef = CE5CB1B314EDAB6F00BB2795 /* EventSender.h */; };
+ 		C49474AA19A2E2E5009B3DE8 /* SharedEventSenders.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C49474A919A2E2E5009B3DE8 /* SharedEventSenders.cpp */; };
+ 		C49474AC19A3F7A2009B3DE8 /* ReplayClient.h in Headers */ = {isa = PBXBuildFile; fileRef = C49474AB19A3F7A2009B3DE8 /* ReplayClient.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C49E39F71A70334100429A46 /* WebInputs.json in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4C18BE9849006CEBCC /* WebInputs.json */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C4CD629A18383766007EBAF1 /* FrameSnapshotting.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4CD629818383766007EBAF1 /* FrameSnapshotting.cpp */; };
+@@ -13015,20 +13017,22 @@
+ 		C348612215FDE21E007A1CC9 /* InputTypeNames.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = InputTypeNames.h; sourceTree = "<group>"; };
+ 		C375D7FB16639519006184AB /* TypeAhead.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = TypeAhead.cpp; sourceTree = "<group>"; };
+ 		C375D7FC16639519006184AB /* TypeAhead.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TypeAhead.h; sourceTree = "<group>"; };
+ 		C37CDEBC149EF2030042090D /* ColorChooserClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ColorChooserClient.h; sourceTree = "<group>"; };
+ 		C3CF17A015B0063F00276D39 /* IdTargetObserver.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = IdTargetObserver.cpp; sourceTree = "<group>"; };
+ 		C3CF17A115B0063F00276D39 /* IdTargetObserver.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = IdTargetObserver.h; sourceTree = "<group>"; };
+ 		C3CF17A215B0063F00276D39 /* IdTargetObserverRegistry.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = IdTargetObserverRegistry.cpp; sourceTree = "<group>"; };
+ 		C3CF17A315B0063F00276D39 /* IdTargetObserverRegistry.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = IdTargetObserverRegistry.h; sourceTree = "<group>"; };
+ 		C3E61C653A64807A83E76FB8 /* MathMLMencloseElement.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MathMLMencloseElement.cpp; sourceTree = "<group>"; };
+ 		C400D10818F1C8F60090D863 /* EventLoopInput.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = EventLoopInput.cpp; sourceTree = "<group>"; };
++		C450BFDA1A8AABD000D18277 /* ElementTraceOperations.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ElementTraceOperations.h; sourceTree = "<group>"; };
++		C450BFDC1A8AB9F900D18277 /* ElementTraceOperations.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ElementTraceOperations.cpp; sourceTree = "<group>"; };
+ 		C46871B81A67220B00860C87 /* InspectorDOMTracingAgent.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = InspectorDOMTracingAgent.cpp; sourceTree = "<group>"; };
+ 		C46871B91A67220B00860C87 /* InspectorDOMTracingAgent.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = InspectorDOMTracingAgent.h; sourceTree = "<group>"; };
+ 		C49474A019A2847C009B3DE8 /* SharedEventSenders.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SharedEventSenders.h; sourceTree = "<group>"; };
+ 		C49474A919A2E2E5009B3DE8 /* SharedEventSenders.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SharedEventSenders.cpp; sourceTree = "<group>"; };
+ 		C49474AB19A3F7A2009B3DE8 /* ReplayClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ReplayClient.h; sourceTree = "<group>"; };
+ 		C4CD629818383766007EBAF1 /* FrameSnapshotting.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = FrameSnapshotting.cpp; sourceTree = "<group>"; };
+ 		C4CD629918383766007EBAF1 /* FrameSnapshotting.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FrameSnapshotting.h; sourceTree = "<group>"; };
+ 		C4D4F5271975C88B003EF5BC /* ReplayableTimer.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReplayableTimer.cpp; sourceTree = "<group>"; };
+ 		C4D4F5281975C88B003EF5BC /* ReplayableTimer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ReplayableTimer.h; sourceTree = "<group>"; };
+ 		C4D4F5291975C88B003EF5BC /* ReplayableTimers.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReplayableTimers.cpp; sourceTree = "<group>"; };
+@@ -15260,20 +15264,22 @@
+ 				A584FE311864D5AF00843B10 /* CommandLineAPIHost.cpp */,
+ 				A584FE321864D5AF00843B10 /* CommandLineAPIHost.h */,
+ 				A584FE331864D5AF00843B10 /* CommandLineAPIHost.idl */,
+ 				A584FE291863870F00843B10 /* CommandLineAPIModule.cpp */,
+ 				A584FE2A1863870F00843B10 /* CommandLineAPIModule.h */,
+ 				A584FE2718637DCA00843B10 /* CommandLineAPIModuleSource.js */,
+ 				7AABA25714BC613300AA9A11 /* DOMEditor.cpp */,
+ 				7AABA25814BC613300AA9A11 /* DOMEditor.h */,
+ 				7A54881614E432A1006AE05A /* DOMPatchSupport.cpp */,
+ 				7A54881514E432A1006AE05A /* DOMPatchSupport.h */,
++				C450BFDC1A8AB9F900D18277 /* ElementTraceOperations.cpp */,
++				C450BFDA1A8AABD000D18277 /* ElementTraceOperations.h */,
+ 				B885E8D211E06DD2009FFBF4 /* InspectorApplicationCacheAgent.cpp */,
+ 				B885E8D311E06DD2009FFBF4 /* InspectorApplicationCacheAgent.h */,
+ 				7A1F2B51126C61B20006A7E6 /* InspectorClient.cpp */,
+ 				1C81B9580E97330800266E07 /* InspectorClient.h */,
+ 				F3F5CF1012ED81A80084C569 /* InspectorConsoleInstrumentation.h */,
+ 				1C81B9570E97330800266E07 /* InspectorController.cpp */,
+ 				1C81B9560E97330800266E07 /* InspectorController.h */,
+ 				82AB1741124B99EC00C5069D /* InspectorCSSAgent.cpp */,
+ 				82AB1742124B99EC00C5069D /* InspectorCSSAgent.h */,
+ 				7AB0B1BE1211A62200A76940 /* InspectorDatabaseAgent.cpp */,
+@@ -24091,20 +24097,21 @@
+ 				93D3C1590F97A9D70053C013 /* DOMHTMLCanvasElement.h in Headers */,
+ 				93F9B6580BA0F35E00854064 /* DOMHTMLCanvasElementInternal.h in Headers */,
+ 				85DF2F8E0AA3C88100AD64C5 /* DOMHTMLCollection.h in Headers */,
+ 				85E711A20AC5D5350053270F /* DOMHTMLCollectionInternal.h in Headers */,
+ 				F5C041E30FFCA96D00839D4A /* DOMHTMLDataListElement.h in Headers */,
+ 				F5C041E50FFCA96D00839D4A /* DOMHTMLDataListElementInternal.h in Headers */,
+ 				D359D791129CA3C00006E5D2 /* DOMHTMLDetailsElement.h in Headers */,
+ 				D359D793129CA3C00006E5D2 /* DOMHTMLDetailsElementInternal.h in Headers */,
+ 				85BA4D0B0AA688680088052D /* DOMHTMLDirectoryElement.h in Headers */,
+ 				85E711A30AC5D5350053270F /* DOMHTMLDirectoryElementInternal.h in Headers */,
++				C450BFDB1A8AABD000D18277 /* ElementTraceOperations.h in Headers */,
+ 				85BA4D0D0AA688680088052D /* DOMHTMLDivElement.h in Headers */,
+ 				85E711A40AC5D5350053270F /* DOMHTMLDivElementInternal.h in Headers */,
+ 				85BA4D0F0AA688680088052D /* DOMHTMLDListElement.h in Headers */,
+ 				85E711A50AC5D5350053270F /* DOMHTMLDListElementInternal.h in Headers */,
+ 				85BCBC130ABBA87D00381160 /* DOMHTMLDocument.h in Headers */,
+ 				85E711A60AC5D5350053270F /* DOMHTMLDocumentInternal.h in Headers */,
+ 				85DF2EED0AA387CB00AD64C5 /* DOMHTMLElement.h in Headers */,
+ 				85E711A70AC5D5350053270F /* DOMHTMLElementInternal.h in Headers */,
+ 				8540756A0AD6CBF900620C57 /* DOMHTMLEmbedElement.h in Headers */,
+ 				855247D00AD850B80012093B /* DOMHTMLEmbedElementInternal.h in Headers */,
+@@ -28825,20 +28832,21 @@
+ 				A83B78FF0CCAFF15000B0825 /* JSSVGFontFaceSrcElement.cpp in Sources */,
+ 				A83B78FD0CCAFF15000B0825 /* JSSVGFontFaceUriElement.cpp in Sources */,
+ 				B2FA3D980AB75A6F000E5AC4 /* JSSVGForeignObjectElement.cpp in Sources */,
+ 				B2FA3D9A0AB75A6F000E5AC4 /* JSSVGGElement.cpp in Sources */,
+ 				B27B28270CEF0C0700D39D54 /* JSSVGGlyphElement.cpp in Sources */,
+ 				24D9129813CA96DE00D21915 /* JSSVGGlyphRefElement.cpp in Sources */,
+ 				B2FA3D9C0AB75A6F000E5AC4 /* JSSVGGradientElement.cpp in Sources */,
+ 				85174EC2BCCAF17EAE3F46F8 /* JSSVGGraphicsElement.cpp in Sources */,
+ 				8485227B1190162C006EDC7F /* JSSVGHKernElement.cpp in Sources */,
+ 				B2FA3D9E0AB75A6F000E5AC4 /* JSSVGImageElement.cpp in Sources */,
++				C450BFDD1A8AB9F900D18277 /* ElementTraceOperations.cpp in Sources */,
+ 				B2FA3DA00AB75A6F000E5AC4 /* JSSVGLength.cpp in Sources */,
+ 				08E4FE460E2BD41400F4CAE0 /* JSSVGLengthCustom.cpp in Sources */,
+ 				B2FA3DA20AB75A6F000E5AC4 /* JSSVGLengthList.cpp in Sources */,
+ 				B2FA3DA40AB75A6F000E5AC4 /* JSSVGLinearGradientElement.cpp in Sources */,
+ 				B2FA3DA60AB75A6F000E5AC4 /* JSSVGLineElement.cpp in Sources */,
+ 				B2FA3DA80AB75A6F000E5AC4 /* JSSVGMarkerElement.cpp in Sources */,
+ 				B2FA3DAA0AB75A6F000E5AC4 /* JSSVGMaskElement.cpp in Sources */,
+ 				B2FA3DAC0AB75A6F000E5AC4 /* JSSVGMatrix.cpp in Sources */,
+ 				B2FA3DAE0AB75A6F000E5AC4 /* JSSVGMetadataElement.cpp in Sources */,
+ 				B27B28290CEF0C0700D39D54 /* JSSVGMissingGlyphElement.cpp in Sources */,
+diff --git a/Source/WebCore/inspector/ElementTraceOperations.cpp b/Source/WebCore/inspector/ElementTraceOperations.cpp
+new file mode 100644
+index 0000000..d1a9888
+--- /dev/null
++++ b/Source/WebCore/inspector/ElementTraceOperations.cpp
+@@ -0,0 +1,78 @@
++/*
++ * Copyright (C) 2015 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ * 1.  Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ * 2.  Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE AND ITS CONTRIBUTORS "AS IS" AND ANY
++ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
++ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++ * DISCLAIMED. IN NO EVENT SHALL APPLE OR ITS CONTRIBUTORS BE LIABLE FOR ANY
++ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
++ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#include "config.h"
++#include "ElementTraceOperations.h"
++
++#include <inspector/InspectorValues.h>
++
++namespace Inspector {
++
++Inspector::Protocol::DOMTracing::TraceOperationType traceOperationTypeToProtocolEnum(TraceOperationType type)
++{
++    switch (type) {
++    case TraceOperationType::ElementInserted: return Inspector::Protocol::DOMTracing::TraceOperationType::ElementInserted;
++    case TraceOperationType::ElementRemoved: return Inspector::Protocol::DOMTracing::TraceOperationType::ElementRemoved;
++    case TraceOperationType::AttributeModified: return Inspector::Protocol::DOMTracing::TraceOperationType::AttributeModified;
++    case TraceOperationType::AttributeRemoved: return Inspector::Protocol::DOMTracing::TraceOperationType::AttributeRemoved;
++    default:
++        ASSERT_NOT_REACHED();
++        return Inspector::Protocol::DOMTracing::TraceOperationType::ElementInserted;
++    }
++}
++
++Ref<InspectorObject> ElementInsertedOperation::createProtocolObject() const
++{
++    auto payload = InspectorObject::create();
++    payload->setInteger(ASCIILiteral("childNodeId"), this->childNodeId);
++    payload->setInteger(ASCIILiteral("parentNodeId"), this->parentNodeId);
++    return WTF::move(payload);
++};
++
++Ref<InspectorObject> ElementRemovedOperation::createProtocolObject() const
++{
++    auto payload = InspectorObject::create();
++    payload->setInteger(ASCIILiteral("nodeId"), this->nodeId);
++    return WTF::move(payload);
++};
++
++Ref<InspectorObject> AttributeModifiedOperation::createProtocolObject() const
++{
++    auto payload = InspectorObject::create();
++    payload->setInteger(ASCIILiteral("nodeId"), this->nodeId);
++    payload->setString(ASCIILiteral("attributeName"), this->name);
++    payload->setString(ASCIILiteral("attributeValue"), this->value);
++    return WTF::move(payload);
++};
++
++Ref<InspectorObject> AttributeRemovedOperation::createProtocolObject() const
++{
++    auto payload = InspectorObject::create();
++    payload->setInteger(ASCIILiteral("nodeId"), this->nodeId);
++    payload->setString(ASCIILiteral("attributeName"), this->name);
++    return WTF::move(payload);
++};
++
++} // namespace Inspector
+diff --git a/Source/WebCore/inspector/ElementTraceOperations.h b/Source/WebCore/inspector/ElementTraceOperations.h
+new file mode 100644
+index 0000000..8623035
+--- /dev/null
++++ b/Source/WebCore/inspector/ElementTraceOperations.h
+@@ -0,0 +1,107 @@
++/*
++ * Copyright (C) 2015 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ * 1.  Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ * 2.  Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE AND ITS CONTRIBUTORS "AS IS" AND ANY
++ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
++ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++ * DISCLAIMED. IN NO EVENT SHALL APPLE OR ITS CONTRIBUTORS BE LIABLE FOR ANY
++ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
++ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#ifndef ElementTraceOperations_h
++#define ElementTraceOperations_h
++
++#include <inspector/InspectorProtocolObjects.h>
++#include <wtf/Ref.h>
++#include <wtf/text/AtomicString.h>
++
++namespace Inspector {
++
++class InspectorObject;
++
++enum class TraceOperationType {
++    ElementInserted,
++    ElementRemoved,
++    AttributeModified,
++    AttributeRemoved
++};
++
++Inspector::Protocol::DOMTracing::TraceOperationType traceOperationTypeToProtocolEnum(TraceOperationType);
++
++struct TraceOperation {
++    virtual ~TraceOperation() { }
++    virtual TraceOperationType type() const = 0;
++    // Creates a payload with operation-specific data, excluding type().
++    virtual Ref<InspectorObject> createProtocolObject() const = 0;
++};
++
++struct ElementInsertedOperation : public TraceOperation {
++    virtual ~ElementInsertedOperation() { }
++    ElementInsertedOperation(int childNodeId, int parentNodeId)
++        : childNodeId(childNodeId)
++        , parentNodeId(parentNodeId) { }
++
++    virtual TraceOperationType type() const override { return TraceOperationType::ElementInserted; }
++    virtual Ref<InspectorObject> createProtocolObject() const override;
++
++    int childNodeId;
++    int parentNodeId;
++};
++
++struct ElementRemovedOperation : public TraceOperation {
++    virtual ~ElementRemovedOperation() { }
++    ElementRemovedOperation(int nodeId)
++        : nodeId(nodeId) { }
++
++    virtual TraceOperationType type() const override { return TraceOperationType::ElementRemoved; }
++    virtual Ref<InspectorObject> createProtocolObject() const override;
++
++    int nodeId;
++};
++
++struct AttributeModifiedOperation : public TraceOperation {
++    virtual ~AttributeModifiedOperation() { }
++    AttributeModifiedOperation(int nodeId, const AtomicString& name, const AtomicString& value)
++        : nodeId(nodeId)
++        , name(name)
++        , value(value) { }
++
++    virtual TraceOperationType type() const override { return TraceOperationType::AttributeModified; }
++    virtual Ref<InspectorObject> createProtocolObject() const override;
++
++    int nodeId;
++    const AtomicString& name;
++    const AtomicString& value;
++};
++
++struct AttributeRemovedOperation : public TraceOperation {
++    virtual ~AttributeRemovedOperation() { }
++    AttributeRemovedOperation(int nodeId, const AtomicString& name)
++        : nodeId(nodeId)
++        , name(name) { }
++
++    virtual TraceOperationType type() const override { return TraceOperationType::AttributeRemoved; }
++    virtual Ref<InspectorObject> createProtocolObject() const override;
++
++    int nodeId;
++    const AtomicString& name;
++};
++
++} // namespace Inspector
++
++#endif // ElementTraceOperations_h
+diff --git a/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp b/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp
+index f5f0acd..79d5a8b 100644
+--- a/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp
++++ b/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp
+@@ -21,43 +21,49 @@
+  * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #include "config.h"
+ 
+ #include "InspectorDOMTracingAgent.h"
+ 
+ #include "Element.h"
++#include "ElementTraceOperations.h"
+ #include "FrameSnapshotting.h"
+ #include "FrameView.h"
+ #include "ImageBuffer.h"
+ #include "InspectorDOMAgent.h"
+ #include "InspectorPageAgent.h"
+ #include "InstrumentingAgents.h"
++#include "JSMainThreadExecState.h"
+ #include "Logging.h"
+ #include "MainFrame.h"
+ #include "Node.h"
+ #include "Page.h"
+ #include "RenderObject.h"
+ #include <inspector/InspectorFrontendChannel.h>
++#include <inspector/ScriptCallStack.h>
++#include <inspector/ScriptCallStackFactory.h>
+ #include <wtf/Stopwatch.h>
+ #include <wtf/TemporaryChange.h>
+ 
+ #if ENABLE(WEB_REPLAY)
+ #include "ReplayController.h"
+ #endif
+ 
+ using namespace Inspector;
+ 
+ namespace WebCore {
+ 
++static int maxCallStackDepth = 5;
++
+ ElementSnapshot::ElementSnapshot() { }
+ ElementSnapshot::~ElementSnapshot() { }
+ 
+ ElementSnapshot::ElementSnapshot(std::unique_ptr<ImageBuffer> data, const LayoutRect& bounds, uint64_t snapshotId)
+     : imageData(std::move(data))
+     , boundingBox(bounds)
+     , snapshotId(snapshotId)
+ {
+ }
+ 
+@@ -222,32 +228,80 @@ void InspectorDOMTracingAgent::didPaint(RenderObject& renderer, const LayoutRect
+             commitSnapshot(WTF::move(snapshot));
+ 
+             LOG(WebReplay, "DOM Tracing: Detected rendering differences for element %p - x,y (%.1f, %.1f) w,h (%.1f, %.1f)\n",
+                 m_targetElement.get(),
+                 elementRect.x().toDouble(), elementRect.y().toDouble(),
+                 elementRect.width().toDouble(), elementRect.height().toDouble());
+         }
+     }
+ }
+ 
+-#if ENABLE(WEB_REPLAY)
+ void InspectorDOMTracingAgent::didInsertDOMNode(Node& node)
+ {
++#if ENABLE(WEB_REPLAY)
+     if (!m_stableNodeIdMap.contains(&node))
+         m_stableNodeIdMap.set(&node, m_nextStableNodeId++);
++#endif
++
++    if (!m_targetElement)
++        return;
++
++    if (!is<Element>(node))
++        return;
++
++    Element& childElement = downcast<Element>(node);
++
++    Element* parentElement = childElement.parentElement();
++    ASSERT(parentElement);
++    int parentNodeId = m_domAgent->pushNodePathToFrontend(parentElement);
++    int childNodeId = m_domAgent->pushNodePathToFrontend(&childElement);
++
++    ElementInsertedOperation operation(parentNodeId, childNodeId);
++    pushOperationToFrontend(operation);
+ }
+ 
+-void InspectorDOMTracingAgent::didRemoveDOMNode(Node&)
++void InspectorDOMTracingAgent::didRemoveDOMNode(Node& node)
+ {
++    if (!m_targetElement)
++        return;
++
++    if (!is<Element>(node))
++        return;
++
++    Element& element = downcast<Element>(node);
++    int nodeId = m_domAgent->pushNodePathToFrontend(&element);
+ 
++    ElementRemovedOperation operation(nodeId);
++    pushOperationToFrontend(operation);
+ }
+ 
++void InspectorDOMTracingAgent::didModifyDOMAttr(Element& element, const AtomicString& name, const AtomicString& value)
++{
++    if (!m_targetElement)
++        return;
++
++    int nodeId = m_domAgent->pushNodePathToFrontend(&element);
++    AttributeModifiedOperation operation(nodeId, name, value);
++    pushOperationToFrontend(operation);
++}
++
++void InspectorDOMTracingAgent::didRemoveDOMAttr(Element& element, const AtomicString& name)
++{
++    if (!m_targetElement)
++        return;
++
++    int nodeId = m_domAgent->pushNodePathToFrontend(&element);
++    AttributeRemovedOperation operation(nodeId, name);
++    pushOperationToFrontend(operation);
++}
++
++#if ENABLE(WEB_REPLAY)
+ void InspectorDOMTracingAgent::replaySegmentCreated(RefPtr<ReplaySessionSegment>&&)
+ {
+     resetCounters();
+ }
+ 
+ void InspectorDOMTracingAgent::replaySegmentLoaded(RefPtr<ReplaySessionSegment>&&)
+ {
+     resetCounters();
+ }
+ #endif
+@@ -334,11 +388,23 @@ void InspectorDOMTracingAgent::commitSnapshot(std::unique_ptr<ElementSnapshot> s
+     snapshotObject->setStableNodeId(stableNodeId);
+ 
+     Page* page = m_domAgent->pageAgent()->page();
+     if (page && page->replayController().sessionState() == SessionState::Replaying)
+         snapshotObject->setTimeIndex(createProtocolObjectForPosition(page->replayController().currentPosition()));
+ #endif
+ 
+     m_frontendDispatcher->snapshotCreated(WTF::move(snapshotObject));
+ }
+ 
++void InspectorDOMTracingAgent::pushOperationToFrontend(const TraceOperation& operation)
++{
++    auto operationType = traceOperationTypeToProtocolEnum(operation.type());
++    double timestamp = m_instrumentingAgents->inspectorEnvironment().executionStopwatch()->elapsedTime();
++    RefPtr<ScriptCallStack> stackTrace = createScriptCallStack(JSMainThreadExecState::currentState(), maxCallStackDepth);
++    RefPtr<Inspector::Protocol::Console::StackTrace> stackTraceObject;
++    if (stackTrace && stackTrace->size())
++        stackTraceObject = stackTrace->buildInspectorArray();
++
++    m_frontendDispatcher->operationRecorded(operationType, operation.createProtocolObject(), timestamp, WTF::move(stackTraceObject));
++}
++
+ } // namespace WebCore
+diff --git a/Source/WebCore/inspector/InspectorDOMTracingAgent.h b/Source/WebCore/inspector/InspectorDOMTracingAgent.h
+index 8ecd7fc..8f51820 100644
+--- a/Source/WebCore/inspector/InspectorDOMTracingAgent.h
++++ b/Source/WebCore/inspector/InspectorDOMTracingAgent.h
+@@ -26,20 +26,24 @@
+ #ifndef InspectorDOMTracingAgent_h
+ #define InspectorDOMTracingAgent_h
+ 
+ #include "InspectorWebAgentBase.h"
+ #include "LayoutRect.h"
+ #include <inspector/InspectorBackendDispatchers.h>
+ #include <inspector/InspectorFrontendDispatchers.h>
+ #include <wtf/Forward.h>
+ #include <wtf/WeakPtr.h>
+ 
++namespace Inspector {
++struct TraceOperation;
++}
++
+ namespace WebCore {
+ 
+ class Document;
+ class Element;
+ class Frame;
+ class ImageBuffer;
+ class InspectorDOMAgent;
+ class Node;
+ class RenderObject;
+ 
+@@ -75,34 +79,38 @@ public:
+ 
+     // Methods called from the frontend.
+     virtual void startTrackingElement(Inspector::ErrorString&, int nodeId) override;
+     virtual void stopTracking(Inspector::ErrorString&, int nodeId) override;
+     virtual void getSnapshotPayload(Inspector::ErrorString&, int nodeId, RefPtr<Inspector::Protocol::DOMTracing::ElementSnapshotPayload>&) override;
+ 
+     // InspectorInstrumentation callbacks.
+     void frameNavigated(Frame&);
+     void didPaint(RenderObject&, const LayoutRect&);
+ 
+-#if ENABLE(WEB_REPLAY)
+     void didInsertDOMNode(Node&);
+     void didRemoveDOMNode(Node&);
++    void didModifyDOMAttr(Element&, const AtomicString& name, const AtomicString& value);
++    void didRemoveDOMAttr(Element&, const AtomicString& name);
++
++#if ENABLE(WEB_REPLAY)
+     void replaySegmentCreated(RefPtr<ReplaySessionSegment>&&);
+     void replaySegmentLoaded(RefPtr<ReplaySessionSegment>&&);
+ #endif
+ 
+     bool setTargetElement(Element*);
+ private:
+ #if ENABLE(WEB_REPLAY)
+     void resetCounters();
+ #endif
+     void commitSnapshot(std::unique_ptr<ElementSnapshot>);
+     void elementAppearanceChanged();
++    void pushOperationToFrontend(const Inspector::TraceOperation&);
+ 
+     // Use this rather than manually constructing ElementSnapshot to avoid reentrancy issues.
+     std::unique_ptr<ElementSnapshot> createSnapshot(Element&);
+ 
+     std::unique_ptr<Inspector::InspectorDOMTracingFrontendDispatcher> m_frontendDispatcher;
+     RefPtr<Inspector::InspectorDOMTracingBackendDispatcher> m_backendDispatcher;
+ 
+ #if ENABLE(WEB_REPLAY)
+     HashMap<Node*, uint64_t> m_stableNodeIdMap;
+     uint64_t m_nextStableNodeId {1};
+diff --git a/Source/WebCore/inspector/InspectorInstrumentation.cpp b/Source/WebCore/inspector/InspectorInstrumentation.cpp
+index 162750e..0890d29 100644
+--- a/Source/WebCore/inspector/InspectorInstrumentation.cpp
++++ b/Source/WebCore/inspector/InspectorInstrumentation.cpp
+@@ -166,26 +166,30 @@ void InspectorInstrumentation::willModifyDOMAttrImpl(InstrumentingAgents& instru
+     if (InspectorDOMDebuggerAgent* domDebuggerAgent = instrumentingAgents.inspectorDOMDebuggerAgent())
+         domDebuggerAgent->willModifyDOMAttr(element);
+     if (InspectorDOMAgent* domAgent = instrumentingAgents.inspectorDOMAgent())
+         domAgent->willModifyDOMAttr(element, oldValue, newValue);
+ }
+ 
+ void InspectorInstrumentation::didModifyDOMAttrImpl(InstrumentingAgents& instrumentingAgents, Element& element, const AtomicString& name, const AtomicString& value)
+ {
+     if (InspectorDOMAgent* domAgent = instrumentingAgents.inspectorDOMAgent())
+         domAgent->didModifyDOMAttr(element, name, value);
++    if (InspectorDOMTracingAgent* domTracingAgent = instrumentingAgents.inspectorDOMTracingAgent())
++        domTracingAgent->didModifyDOMAttr(element, name, value);
+ }
+ 
+ void InspectorInstrumentation::didRemoveDOMAttrImpl(InstrumentingAgents& instrumentingAgents, Element& element, const AtomicString& name)
+ {
+     if (InspectorDOMAgent* domAgent = instrumentingAgents.inspectorDOMAgent())
+         domAgent->didRemoveDOMAttr(element, name);
++    if (InspectorDOMTracingAgent* domTracingAgent = instrumentingAgents.inspectorDOMTracingAgent())
++        domTracingAgent->didRemoveDOMAttr(element, name);
+ }
+ 
+ void InspectorInstrumentation::didInvalidateStyleAttrImpl(InstrumentingAgents& instrumentingAgents, Node& node)
+ {
+     if (InspectorDOMAgent* domAgent = instrumentingAgents.inspectorDOMAgent())
+         domAgent->didInvalidateStyleAttr(node);
+     if (InspectorDOMDebuggerAgent* domDebuggerAgent = instrumentingAgents.inspectorDOMDebuggerAgent())
+         domDebuggerAgent->didInvalidateStyleAttr(node);
+ }
+ 
+diff --git a/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js b/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js
+index bca266c5c7d87d952c017ab7365781e62fa49d9e..c73a2ed3fe36115908acf86e158d7a82be1b3f3d 100644
+GIT binary patch
+delta 140
+zcmX?bfO)|Y<_(i%Cf|}45L96BWyohpVaQ}i1L9PMl*uop<++hWCqIlfoP0xCXtKd&
+znaSUPw8SN=%@bt)SaW(Z<S`TjwG>S@j8W!>^B77dH*)GvZitkad@Mp>vRb6l=3@~q
+bY?F;HOHHox5tuA>$zpOqsK92fc(X<TR*x<2
+
+delta 27
+jcmZ2*g!#Y$<_(i%Hh0PXvYxylnr%~51>5FV31*D|x0(#P
+
+diff --git a/Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js b/Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js
+index a2c48ba..e207d62 100644
+--- a/Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js
++++ b/Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js
+@@ -78,20 +78,56 @@ WebInspector.DOMTracingManager.prototype = {
+     {
+         var snapshot = new WebInspector.ElementSnapshot(snapshotPayload);
+         this._snapshotMap.set(snapshot.snapshotId, snapshot);
+ 
+         var eventType = WebInspector.ElementTrackingTimelineRecord.EventType.OutputChanged;
+         var record = new WebInspector.ElementTrackingTimelineRecord(eventType, snapshot);
+         WebInspector.timelineManager.activeRecording.addRecord(record);
+         console.log("Added snapshot record: ", record, snapshot);
+     },
+ 
++    operationRecorded: function(type, data, timestamp, stackTrace)
++    {
++        var eventType = null;
++        switch (type) {
++        case DOMTracingAgent.TraceOperationType.ElementInserted:
++            eventType = WebInspector.TraceOperationTimelineRecord.EventType.ElementInserted; break;
++        case DOMTracingAgent.TraceOperationType.ElementRemoved:
++            eventType = WebInspector.TraceOperationTimelineRecord.EventType.ElementRemoved; break;
++        case DOMTracingAgent.TraceOperationType.AttributeModified:
++            eventType = WebInspector.TraceOperationTimelineRecord.EventType.AttributeModified; break;
++        case DOMTracingAgent.TraceOperationType.AttributeRemoved:
++            eventType = WebInspector.TraceOperationTimelineRecord.EventType.AttributeRemoved; break;
++        default:
++            console.error("Unknown trace operation type: ", type, data);
++            return;
++        }
++
++        var callFrames = WebInspector.TimelineManager.callFramesFromPayload(stackTrace);
++
++        var significantCallFrame = null;
++        if (callFrames) {
++            for (var i = 0; i < callFrames.length; ++i) {
++                if (callFrames[i].nativeCode)
++                    continue;
++                significantCallFrame = callFrames[i];
++                break;
++            }
++        }
++
++        var sourceCodeLocation = significantCallFrame && significantCallFrame.sourceCodeLocation;
++
++        var record = new WebInspector.TraceOperationTimelineRecord(eventType, data, timestamp, callFrames, sourceCodeLocation);
++        WebInspector.timelineManager.activeRecording.addRecord(record);
++        console.log("Added trace operation record: ", record);
++    },
++
+     // Private
+ 
+     _clearBindings: function()
+     {
+         this._snapshotMap.clear();
+     },
+ 
+     _timelineCapturingStopped: function(event)
+     {
+         if (this._targetNode)
+diff --git a/Source/WebInspectorUI/UserInterface/Controllers/TimelineManager.js b/Source/WebInspectorUI/UserInterface/Controllers/TimelineManager.js
+index 7c4555a..f9f4fda 100644
+--- a/Source/WebInspectorUI/UserInterface/Controllers/TimelineManager.js
++++ b/Source/WebInspectorUI/UserInterface/Controllers/TimelineManager.js
+@@ -54,20 +54,51 @@ WebInspector.TimelineManager.Event = {
+     RecordingCreated: "timeline-manager-recording-created",
+     RecordingLoaded: "timeline-manager-recording-loaded",
+     CapturingStarted: "timeline-manager-capturing-started",
+     CapturingStopped: "timeline-manager-capturing-stopped"
+ };
+ 
+ WebInspector.TimelineManager.MaximumAutoRecordDuration = 90000; // 90 seconds
+ WebInspector.TimelineManager.MaximumAutoRecordDurationAfterLoadEvent = 10000; // 10 seconds
+ WebInspector.TimelineManager.DeadTimeRequiredToStopAutoRecordingEarly = 2000; // 2 seconds
+ 
++WebInspector.TimelineManager.callFramesFromPayload = function(payload)
++{
++    if (!payload)
++        return null;
++
++    function createCallFrame(payload)
++    {
++        var url = payload.url;
++        var nativeCode = false;
++
++        if (url === "[native code]") {
++            nativeCode = true;
++            url = null;
++        }
++
++        var sourceCode = WebInspector.frameResourceManager.resourceForURL(url);
++        if (!sourceCode)
++            sourceCode = WebInspector.debuggerManager.scriptsForURL(url)[0];
++
++        // The lineNumber is 1-based, but we expect 0-based.
++        var lineNumber = payload.lineNumber - 1;
++
++        var sourceCodeLocation = sourceCode ? sourceCode.createLazySourceCodeLocation(lineNumber, payload.columnNumber) : null;
++        var functionName = payload.functionName !== "global code" ? payload.functionName : null;
++
++        return new WebInspector.CallFrame(null, sourceCodeLocation, functionName, null, null, nativeCode);
++    }
++
++    return payload.map(createCallFrame);
++};
++
+ WebInspector.TimelineManager.prototype = {
+     constructor: WebInspector.TimelineManager,
+     __proto__: WebInspector.Object.prototype,
+ 
+     // Public
+ 
+     // The current recording that new timeline records will be appended to, if any.
+     get activeRecording()
+     {
+         console.assert(this._activeRecording || !this._isCapturing);
+@@ -170,21 +201,21 @@ WebInspector.TimelineManager.prototype = {
+     {
+         // Called from WebInspector.TimelineObserver.
+ 
+         if (!this._isCapturing)
+             return;
+ 
+         function processRecord(recordPayload, parentRecordPayload)
+         {
+             var startTime = this.activeRecording.computeElapsedTime(recordPayload.startTime);
+             var endTime = this.activeRecording.computeElapsedTime(recordPayload.endTime);
+-            var callFrames = this._callFramesFromPayload(recordPayload.stackTrace);
++            var callFrames = WebInspector.TimelineManager.callFramesFromPayload(recordPayload.stackTrace);
+ 
+             var significantCallFrame = null;
+             if (callFrames) {
+                 for (var i = 0; i < callFrames.length; ++i) {
+                     if (callFrames[i].nativeCode)
+                         continue;
+                     significantCallFrame = callFrames[i];
+                     break;
+                 }
+             }
+@@ -429,51 +460,20 @@ WebInspector.TimelineManager.prototype = {
+ 
+         var oldRecording = this._activeRecording;
+         if (oldRecording)
+             oldRecording.unloaded();
+ 
+         this._legacyFirstRecordedTimestamp = NaN;
+         this._activeRecording = newRecording;
+         this.dispatchEventToListeners(WebInspector.TimelineManager.Event.RecordingLoaded, {oldRecording: oldRecording});
+     },
+ 
+-    _callFramesFromPayload: function(payload)
+-    {
+-        if (!payload)
+-            return null;
+-
+-        function createCallFrame(payload)
+-        {
+-            var url = payload.url;
+-            var nativeCode = false;
+-
+-            if (url === "[native code]") {
+-                nativeCode = true;
+-                url = null;
+-            }
+-
+-            var sourceCode = WebInspector.frameResourceManager.resourceForURL(url);
+-            if (!sourceCode)
+-                sourceCode = WebInspector.debuggerManager.scriptsForURL(url)[0];
+-
+-            // The lineNumber is 1-based, but we expect 0-based.
+-            var lineNumber = payload.lineNumber - 1;
+-
+-            var sourceCodeLocation = sourceCode ? sourceCode.createLazySourceCodeLocation(lineNumber, payload.columnNumber) : null;
+-            var functionName = payload.functionName !== "global code" ? payload.functionName : null;
+-
+-            return new WebInspector.CallFrame(null, sourceCodeLocation, functionName, null, null, nativeCode);
+-        }
+-
+-        return payload.map(createCallFrame);
+-    },
+-
+     _addRecord: function(record)
+     {
+         this._activeRecording.addRecord(record);
+ 
+         // Only worry about dead time after the load event.
+         if (!isNaN(WebInspector.frameResourceManager.mainFrame.loadEventTimestamp))
+             this._resetAutoRecordingDeadTimeTimeout();
+     },
+ 
+     _startAutoCapturing: function(event)
+diff --git a/Source/WebInspectorUI/UserInterface/Main.html b/Source/WebInspectorUI/UserInterface/Main.html
+index 38cc178..b2a49ba 100644
+--- a/Source/WebInspectorUI/UserInterface/Main.html
++++ b/Source/WebInspectorUI/UserInterface/Main.html
+@@ -276,20 +276,21 @@
+     <script src="Models/SourceCodeRevision.js"></script>
+     <script src="Models/SourceCodeSearchMatchObject.js"></script>
+     <script src="Models/SourceCodeTextRange.js"></script>
+     <script src="Models/SourceCodeTimeline.js"></script>
+     <script src="Models/SourceMap.js"></script>
+     <script src="Models/SourceMapResource.js"></script>
+     <script src="Models/TextMarker.js"></script>
+     <script src="Models/TextRange.js"></script>
+     <script src="Models/TimelineMarker.js"></script>
+     <script src="Models/TimelineRecording.js"></script>
++    <script src="Models/TraceOperationTimelineRecord.js"></script>
+     <script src="Models/TypeSet.js"></script>
+     <script src="Models/UnitBezier.js"></script>
+ 
+     <script src="Views/ConsoleMessage.js"></script>
+     <script src="Views/ContentView.js"></script>
+     <script src="Views/DataGrid.js"></script>
+     <script src="Views/DetailsSectionRow.js"></script>
+     <script src="Views/HierarchicalPathComponent.js"></script>
+     <script src="Views/NavigationItem.js"></script>
+     <script src="Views/Section.js"></script>
+diff --git a/Source/WebInspectorUI/UserInterface/Models/ElementTrackingTimeline.js b/Source/WebInspectorUI/UserInterface/Models/ElementTrackingTimeline.js
+index b2fc216..f742174 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/ElementTrackingTimeline.js
++++ b/Source/WebInspectorUI/UserInterface/Models/ElementTrackingTimeline.js
+@@ -34,15 +34,15 @@ WebInspector.ElementTrackingTimeline.prototype = {
+ 
+     // Public
+ 
+     reset: function(suppressEvents)
+     {
+         WebInspector.Timeline.prototype.reset.call(this, suppressEvents);
+     },
+ 
+     addRecord: function(record)
+     {
+-        console.assert(record instanceof WebInspector.ElementTrackingTimelineRecord, record);
++        console.assert(record.type === WebInspector.TimelineRecord.Type.ElementTracking, record);
+ 
+         WebInspector.Timeline.prototype.addRecord.call(this, record);
+     }
+ };
+diff --git a/Source/WebInspectorUI/UserInterface/Models/ElementTrackingTimelineRecord.js b/Source/WebInspectorUI/UserInterface/Models/ElementTrackingTimelineRecord.js
+index 1cd557c..ce38f47 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/ElementTrackingTimelineRecord.js
++++ b/Source/WebInspectorUI/UserInterface/Models/ElementTrackingTimelineRecord.js
+@@ -81,25 +81,20 @@ WebInspector.ElementTrackingTimelineRecord.prototype = {
+     get height()
+     {
+         return this._snapshot.boundingRect.size.height;
+     },
+ 
+     get rect()
+     {
+         return this._snapshot.boundingRect;
+     },
+ 
+-    get elapsedTime()
+-    {
+-        return this._snapshot.elapsedTime;
+-    },
+-
+     get snapshot()
+     {
+         return this._snapshot;
+     },
+ 
+     saveIdentityToCookie: function(cookie)
+     {
+         WebInspector.TimelineRecord.prototype.saveIdentityToCookie.call(this, cookie);
+ 
+         cookie[WebInspector.ElementTrackingTimelineRecord.EventTypeCookieKey] = this._eventType;
+diff --git a/Source/WebInspectorUI/UserInterface/Models/ElementTrackingTimelineRecord.js b/Source/WebInspectorUI/UserInterface/Models/TraceOperationTimelineRecord.js
+similarity index 51%
+copy from Source/WebInspectorUI/UserInterface/Models/ElementTrackingTimelineRecord.js
+copy to Source/WebInspectorUI/UserInterface/Models/TraceOperationTimelineRecord.js
+index 1cd557c..f0b9373 100644
+--- a/Source/WebInspectorUI/UserInterface/Models/ElementTrackingTimelineRecord.js
++++ b/Source/WebInspectorUI/UserInterface/Models/TraceOperationTimelineRecord.js
+@@ -16,92 +16,62 @@
+  * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+  * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+-WebInspector.ElementTrackingTimelineRecord = function(eventType, snapshot)
++WebInspector.TraceOperationTimelineRecord = function(eventType, data, timestamp, callFrames, sourceCodeLocation)
+ {
+-    WebInspector.TimelineRecord.call(this, WebInspector.TimelineRecord.Type.ElementTracking, snapshot.elapsedTime, snapshot.elapsedTime);
++    WebInspector.TimelineRecord.call(this, WebInspector.TimelineRecord.Type.ElementTracking, timestamp, timestamp, callFrames, sourceCodeLocation);
+ 
+     console.assert(eventType, eventType);
+-    console.assert(snapshot instanceof WebInspector.ElementSnapshot, snapshot);
+-
+-    if (eventType in WebInspector.ElementTrackingTimelineRecord.EventType)
+-        eventType = WebInspector.ElementTrackingTimelineRecord.EventType[eventType];
+ 
+     this._eventType = eventType;
+-    this._snapshot = snapshot;
++    this._data = data;
+ };
+ 
+-WebInspector.ElementTrackingTimelineRecord.EventType = {
+-    OutputChanged: "element-tracking-timeline-record-output-changed",
++WebInspector.TraceOperationTimelineRecord.EventType = {
++    ElementInserted: "trace-operation-timeline-record-element-inserted",
++    ElementRemoved: "trace-operation-timeline-record-element-removed",
++    AttributeModified: "trace-operation-timeline-record-attribute-modified",
++    AttributeRemoved: "trace-operation-timeline-record-attribute-removed",
+ };
+ 
+-WebInspector.ElementTrackingTimelineRecord.displayNameForEventType = function(eventType)
++WebInspector.TraceOperationTimelineRecord.displayNameForEventType = function(eventType)
+ {
+     switch (eventType) {
+-    case WebInspector.ElementTrackingTimelineRecord.EventType.OutputChanged:
+-        return WebInspector.UIString("Output Changed");
++    case WebInspector.TraceOperationTimelineRecord.EventType.ElementInserted:
++        return WebInspector.UIString("Element Inserted");
++    case WebInspector.TraceOperationTimelineRecord.EventType.ElementRemoved:
++        return WebInspector.UIString("Element Removed");
++    case WebInspector.TraceOperationTimelineRecord.EventType.AttributeModified:
++        return WebInspector.UIString("Attribute Modified");
++    case WebInspector.TraceOperationTimelineRecord.EventType.AttributeRemoved:
++        return WebInspector.UIString("Attribute Removed");
+     }
+ };
+ 
+-WebInspector.ElementTrackingTimelineRecord.TypeIdentifier = "element-tracking-timeline-record";
+-WebInspector.ElementTrackingTimelineRecord.EventTypeCookieKey = "element-tracking-timeline-record-event-type";
++WebInspector.TraceOperationTimelineRecord.TypeIdentifier = "trace-operation-timeline-record";
++WebInspector.TraceOperationTimelineRecord.EventTypeCookieKey = "trace-operation-timeline-record-event-type";
+ 
+-WebInspector.ElementTrackingTimelineRecord.prototype = {
+-    constructor: WebInspector.ElementTrackingTimelineRecord,
++WebInspector.TraceOperationTimelineRecord.prototype = {
++    constructor: WebInspector.TraceOperationTimelineRecord,
+     __proto__: WebInspector.TimelineRecord.prototype,
+ 
+     // Public
+ 
+     get eventType()
+     {
+         return this._eventType;
+     },
+ 
+-    get x()
+-    {
+-        return this._snapshot.boundingRect.origin.x;
+-    },
+-
+-    get y()
+-    {
+-        return this._snapshot.boundingRect.origin.y;
+-    },
+-
+-    get width()
+-    {
+-        return this._snapshot.boundingRect.size.width;
+-    },
+-
+-    get height()
+-    {
+-        return this._snapshot.boundingRect.size.height;
+-    },
+-
+-    get rect()
+-    {
+-        return this._snapshot.boundingRect;
+-    },
+-
+-    get elapsedTime()
+-    {
+-        return this._snapshot.elapsedTime;
+-    },
+-
+-    get snapshot()
+-    {
+-        return this._snapshot;
+-    },
+-
+     saveIdentityToCookie: function(cookie)
+     {
+         WebInspector.TimelineRecord.prototype.saveIdentityToCookie.call(this, cookie);
+ 
+-        cookie[WebInspector.ElementTrackingTimelineRecord.EventTypeCookieKey] = this._eventType;
++        cookie[WebInspector.TraceOperationTimelineRecord.EventTypeCookieKey] = this._eventType;
+     }
+ };
+diff --git a/Source/WebInspectorUI/UserInterface/Protocol/DOMTracingObserver.js b/Source/WebInspectorUI/UserInterface/Protocol/DOMTracingObserver.js
+index 00d5a56..78a636b 100644
+--- a/Source/WebInspectorUI/UserInterface/Protocol/DOMTracingObserver.js
++++ b/Source/WebInspectorUI/UserInterface/Protocol/DOMTracingObserver.js
+@@ -28,12 +28,17 @@ WebInspector.DOMTracingObserver = function()
+     WebInspector.Object.call(this);
+ };
+ 
+ WebInspector.DOMTracingObserver.prototype = {
+     constructor: WebInspector.DOMTracingObserver,
+     __proto__: WebInspector.Object.prototype,
+ 
+     snapshotCreated: function(snapshot)
+     {
+         WebInspector.domTracingManager.snapshotCreated(snapshot);
++    },
++
++    operationRecorded: function(type, data, timestamp, stackTrace)
++    {
++        WebInspector.domTracingManager.operationRecorded(type, data, timestamp, stackTrace);
+     }
+ };
+diff --git a/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineDataGridNode.js b/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineDataGridNode.js
+index 24119e2..9aa228c 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineDataGridNode.js
++++ b/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineDataGridNode.js
+@@ -18,21 +18,24 @@
+  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  * THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ WebInspector.ElementTrackingTimelineDataGridNode = function(timelineRecord, baseStartTime)
+ {
+-    console.assert(timelineRecord instanceof WebInspector.ElementTrackingTimelineRecord, timelineRecord);
++    // ElementTrackingTimelineRecord contains a snapshot, while TraceOperationTimelineRecord contains
++    // free-form data. The same data grid node class should be created for either of them.
++    console.assert(timelineRecord instanceof WebInspector.TimelineRecord, timelineRecord);
++    console.assert(timelineRecord.type === WebInspector.TimelineRecord.Type.ElementTracking, timelineRecord);
+ 
+     WebInspector.TimelineDataGridNode.call(this, false, null);
+ 
+     this._record = timelineRecord;
+     this._baseStartTime = baseStartTime || 0;
+ };
+ 
+ WebInspector.Object.addConstructorFunctions(WebInspector.ElementTrackingTimelineDataGridNode);
+ 
+ WebInspector.ElementTrackingTimelineDataGridNode.IconStyleClassName = "icon";
+@@ -59,24 +62,27 @@ WebInspector.ElementTrackingTimelineDataGridNode.prototype = {
+         return this._record;
+     },
+ 
+     createCellContent: function(columnIdentifier, cell)
+     {
+         const emptyValuePlaceholderString = "\u2014";
+         var value = this.data[columnIdentifier];
+ 
+         switch (columnIdentifier) {
+         case "eventType":
+-            return WebInspector.ElementTrackingTimelineRecord.displayNameForEventType(value);
++            if (this._record instanceof WebInspector.ElementTrackingTimelineRecord)
++                return WebInspector.ElementTrackingTimelineRecord.displayNameForEventType(value);
++            if (this._record instanceof WebInspector.TraceOperationTimelineRecord)
++                return WebInspector.TraceOperationTimelineRecord.displayNameForEventType(value);
+ 
+         case "width":
+         case "height":
+             return isNaN(value) ? emptyValuePlaceholderString : WebInspector.UIString("%fpx").format(value);
+ 
+-        case "elapsedTime":
++        case "startTime":
+             return isNaN(value) ? emptyValuePlaceholderString : Number.secondsToString(value, true);
+ 
+         }
+ 
+         return WebInspector.TimelineDataGridNode.prototype.createCellContent.call(this, columnIdentifier, cell);
+     }
+ };
+diff --git a/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineView.js b/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineView.js
+index 28e8014..ee053d3 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineView.js
++++ b/Source/WebInspectorUI/UserInterface/Views/ElementTrackingTimelineView.js
+@@ -27,55 +27,59 @@ WebInspector.ElementTrackingTimelineView = function(timeline)
+ {
+     WebInspector.TimelineView.call(this, timeline);
+ 
+     console.assert(timeline.type === WebInspector.TimelineRecord.Type.ElementTracking, timeline);
+ 
+     this.navigationSidebarTreeOutline.onselect = this._treeElementSelected.bind(this);
+     this.navigationSidebarTreeOutline.ondeselect = this._treeElementDeselected.bind(this);
+     this.navigationSidebarTreeOutline.element.classList.add(WebInspector.NavigationSidebarPanel.HideDisclosureButtonsStyleClassName);
+     this.navigationSidebarTreeOutline.element.classList.add(WebInspector.ElementTrackingTimelineView.TreeOutlineStyleClassName);
+ 
+-    var columns = {eventType: {}, initiatorCallFrame: {}, width: {}, height: {}, elapsedTime: {}};
++    var columns = {eventType: {}, initiatorCallFrame: {}, width: {}, height: {}, startTime: {}};
+ 
+     columns.eventType.title = WebInspector.UIString("Type");
+     columns.eventType.width = "15%";
+ 
+     var typeToLabelMap = new Map;
+     for (var key in WebInspector.ElementTrackingTimelineRecord.EventType) {
+         var value = WebInspector.ElementTrackingTimelineRecord.EventType[key];
+         typeToLabelMap.set(value, WebInspector.ElementTrackingTimelineRecord.displayNameForEventType(value));
+     }
++    for (var key in WebInspector.TraceOperationTimelineRecord.EventType) {
++        var value = WebInspector.TraceOperationTimelineRecord.EventType[key];
++        typeToLabelMap.set(value, WebInspector.TraceOperationTimelineRecord.displayNameForEventType(value));
++    }
+ 
+     columns.eventType.scopeBar = WebInspector.TimelineDataGrid.createColumnScopeBar("element-tracking", typeToLabelMap);
+     columns.eventType.hidden = true;
+ 
+-    columns.initiatorCallFrame.title = WebInspector.UIString("Initiator");
++    columns.initiatorCallFrame.title = WebInspector.UIString("Location");
+     columns.initiatorCallFrame.width = "25%";
+ 
+     columns.width.title = WebInspector.UIString("Width");
+     columns.width.width = "8%";
+ 
+     columns.height.title = WebInspector.UIString("Height");
+     columns.height.width = "8%";
+ 
+-    columns.elapsedTime.title = WebInspector.UIString("Time");
+-    columns.elapsedTime.width = "8%";
+-    columns.elapsedTime.aligned = "right";
++    columns.startTime.title = WebInspector.UIString("Time");
++    columns.startTime.width = "8%";
++    columns.startTime.aligned = "right";
+ 
+     for (var column in columns)
+         columns[column].sortable = true;
+ 
+     this._dataGrid = new WebInspector.TimelineDataGrid(this.navigationSidebarTreeOutline, columns);
+     this._dataGrid.addEventListener(WebInspector.TimelineDataGrid.Event.FiltersDidChange, this._dataGridFiltersDidChange, this);
+     this._dataGrid.addEventListener(WebInspector.DataGrid.Event.SelectedNodeChanged, this._dataGridNodeSelected, this);
+ 
+-    this._dataGrid.sortColumnIdentifier = "elapsedTime";
++    this._dataGrid.sortColumnIdentifier = "startTime";
+     this._dataGrid.sortOrder = WebInspector.DataGrid.SortOrder.Ascending;
+ 
+     this._hoveredTreeElement = null;
+     this._hoveredDataGridNode = null;
+     this._showingHighlight = false;
+     this._showingHighlightForRecord = null;
+ 
+     this._dataGrid.element.addEventListener("mouseover", this._mouseOverDataGrid.bind(this));
+     this._dataGrid.element.addEventListener("mouseleave", this._mouseLeaveDataGrid.bind(this));
+     this.navigationSidebarTreeOutline.element.addEventListener("mouseover", this._mouseOverTreeOutline.bind(this));
+@@ -174,21 +178,21 @@ WebInspector.ElementTrackingTimelineView.prototype = {
+ 
+             this._dataGrid.addRowInSortOrder(treeElement, dataGridNode);
+         }
+ 
+         this._pendingRecords = [];
+     },
+ 
+     _elementTrackingTimelineRecordAdded: function(event)
+     {
+         var timelineRecord = event.data.record;
+-        console.assert(timelineRecord instanceof WebInspector.ElementTrackingTimelineRecord);
++        console.assert(timelineRecord.type === WebInspector.TimelineRecord.Type.ElementTracking);
+ 
+         this._pendingRecords.push(timelineRecord);
+ 
+         this.needsLayout();
+     },
+ 
+     _dataGridFiltersDidChange: function(event)
+     {
+         WebInspector.timelineSidebarPanel.updateFilter();
+     },
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineRecordTreeElement.js b/Source/WebInspectorUI/UserInterface/Views/TimelineRecordTreeElement.js
+index 07bd4ee..b652575 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineRecordTreeElement.js
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineRecordTreeElement.js
+@@ -93,29 +93,29 @@ WebInspector.TimelineRecordTreeElement = function(timelineRecord, subtitleNameSt
+         case WebInspector.ScriptTimelineRecord.EventType.AnimationFrameCanceled:
+             iconStyleClass = WebInspector.TimelineRecordTreeElement.AnimationRecordIconStyleClass;
+             break;
+         default:
+             console.error("Unknown ScriptTimelineRecord eventType: " + timelineRecord.eventType, timelineRecord);
+         }
+ 
+         break;
+ 
+     case WebInspector.TimelineRecord.Type.ElementTracking:
+-        title = WebInspector.ElementTrackingTimelineRecord.displayNameForEventType(timelineRecord.eventType);
+-        switch (timelineRecord.eventType) {
+-        case WebInspector.ElementTrackingTimelineRecord.EventType.OutputChanged:
++        if (timelineRecord instanceof WebInspector.ElementTrackingTimelineRecord) {
++            title = WebInspector.ElementTrackingTimelineRecord.displayNameForEventType(timelineRecord.eventType);
+             iconStyleClass = WebInspector.TimelineRecordTreeElement.AnimationRecordIconStyleClass;
+-            break;
+-        default:
+-            console.error("Unknown ElementTrackingTimelineRecord eventType: " + timelineRecord.eventType, timelineRecord);
+         }
+ 
++        if (timelineRecord instanceof WebInspector.TraceOperationTimelineRecord) {
++            title = WebInspector.TraceOperationTimelineRecord.displayNameForEventType(timelineRecord.eventType);
++            iconStyleClass = WebInspector.TimelineRecordTreeElement.EvaluatedRecordIconStyleClass;
++        }
+         break;
+ 
+     default:
+         console.error("Unknown TimelineRecord type: " + timelineRecord.type, timelineRecord);
+     }
+ 
+     WebInspector.GeneralTreeElement.call(this, [iconStyleClass], title, subtitle, representedObject || timelineRecord, false);
+ 
+     this.small = true;
+ 
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineSidebarPanel.js b/Source/WebInspectorUI/UserInterface/Views/TimelineSidebarPanel.js
+index b664cf7..de6bd63 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineSidebarPanel.js
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineSidebarPanel.js
+@@ -420,20 +420,25 @@ WebInspector.TimelineSidebarPanel.prototype = {
+             }
+ 
+             previousTreeElement = treeElement;
+         }
+     },
+ 
+     _recordingSelected: function(recording)
+     {
+         console.assert(recording instanceof WebInspector.TimelineRecording, recording);
+ 
++        if (recording === this._displayedRecording && this.selected) {
++            WebInspector.contentBrowser.showContentView(this._displayedContentView);
++            return;
++        }
++
+         var oldRecording = this._displayedRecording || null;
+         if (oldRecording) {
+             oldRecording.removeEventListener(WebInspector.TimelineRecording.Event.TimelineAdded, this._timelineAdded, this);
+             oldRecording.removeEventListener(WebInspector.TimelineRecording.Event.TimelineRemoved, this._timelineRemoved, this);
+ 
+             // Destroy tree elements in one operation to avoid unnecessary fixups.
+             this._timelinesTreeOutline.removeChildren();
+             this._timelineTreeElementMap.clear();
+         }
+ 
+-- 
+2.2.2
+

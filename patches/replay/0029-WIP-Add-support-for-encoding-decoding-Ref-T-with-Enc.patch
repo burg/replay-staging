@@ -1,0 +1,1591 @@
+From e94917187d7c9abfa5a82607e13702cd250b2ce1 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Mon, 2 Feb 2015 13:22:55 -0800
+Subject: [PATCH] [WIP] Add support for encoding/decoding Ref<T> with
+ EncodedType/EncodingTraits.
+
+Use distinct type names for Input, Output, and Element. Fixup code generator. This should be spread across all upper patches, someday.. :\
+---
+ Source/JavaScriptCore/replay/EncodedValue.cpp      |   6 +-
+ Source/JavaScriptCore/replay/EncodedValue.h        |  77 ++++++++--------
+ .../replay/scripts/CodeGeneratorReplayInputs.py    |  40 ++++++--
+ .../scripts/CodeGeneratorReplayInputsTemplates.py  |   6 +-
+ ...e-enum-encoding-helpers.json-TestReplayInputs.h |   9 +-
+ ...enerate-enum-with-guard.json-TestReplayInputs.h |   3 +-
+ ...ums-with-same-base-name.json-TestReplayInputs.h |   6 +-
+ ...t-with-vector-members.json-TestReplayInputs.cpp |  16 ++--
+ ...put-with-vector-members.json-TestReplayInputs.h |   4 +-
+ Source/WebCore/inspector/InspectorReplayAgent.cpp  |   2 +-
+ Source/WebCore/replay/ReplayingInputCursor.cpp     |   2 +-
+ Source/WebCore/replay/WebInputs.json               |   2 +-
+ Source/WebCore/replay/WebReplayInputCoders.cpp     |  30 +++---
+ Source/WebCore/replay/WebReplayInputCoders.h       | 101 +++++++++++++++++----
+ .../replay/WebReplayInputCreationMethods.cpp       |   4 +-
+ .../replay/WebReplayInputDispatchMethods.cpp       |   4 +-
+ Source/WebKit2/Shared/WebEvent.h                   |   9 +-
+ .../WebProcess/Replay/WKReplayInputCoders.cpp      |   2 +-
+ .../WebProcess/Replay/WKReplayInputCoders.h        |  12 ++-
+ 19 files changed, 214 insertions(+), 121 deletions(-)
+
+diff --git a/Source/JavaScriptCore/replay/EncodedValue.cpp b/Source/JavaScriptCore/replay/EncodedValue.cpp
+index 727eba1..898675b 100644
+--- a/Source/JavaScriptCore/replay/EncodedValue.cpp
++++ b/Source/JavaScriptCore/replay/EncodedValue.cpp
+@@ -166,33 +166,33 @@ template<> uint64_t EncodedValue::convertTo<uint64_t>()
+ template<> String EncodedValue::convertTo<String>()
+ {
+     String result;
+     bool castSucceeded = m_value->asString(result);
+     ASSERT_UNUSED(castSucceeded, castSucceeded);
+ 
+     return result;
+ }
+ 
+ template<>
+-void EncodedValue::put<EncodedValue>(const String& key, const typename EncodingTraits<EncodedValue>::DecodedType& value)
++void EncodedValue::put<EncodedValue>(const String& key, typename EncodingTraits<EncodedValue>::InputType value)
+ {
+     asObject()->setValue(key, value.m_value.copyRef());
+ }
+ 
+ template<>
+-void EncodedValue::append<EncodedValue>(const typename EncodingTraits<EncodedValue>::DecodedType& value)
++void EncodedValue::append<EncodedValue>(typename EncodingTraits<EncodedValue>::InputType value)
+ {
+     asArray()->pushValue(value.m_value.copyRef());
+ }
+ 
+ template<>
+-bool EncodedValue::get<EncodedValue>(const String& key, typename EncodingTraits<EncodedValue>::DecodedType& decodedValue)
++bool EncodedValue::get<EncodedValue>(const String& key, typename EncodingTraits<EncodedValue>::OutputType& decodedValue)
+ {
+     RefPtr<Inspector::InspectorValue> value;
+     if (!asObject()->getValue(key, value))
+         return false;
+ 
+     decodedValue = EncodedValue(WTF::move(value));
+     return true;
+ }
+ 
+ 
+diff --git a/Source/JavaScriptCore/replay/EncodedValue.h b/Source/JavaScriptCore/replay/EncodedValue.h
+index f56f085..f0e599f 100644
+--- a/Source/JavaScriptCore/replay/EncodedValue.h
++++ b/Source/JavaScriptCore/replay/EncodedValue.h
+@@ -61,27 +61,26 @@ public:
+     {
+         return EncodedValue(Inspector::InspectorString::create(value));
+     }
+ 
+     static EncodedValue createString(const char* value)
+     {
+         return EncodedValue(Inspector::InspectorString::create(value));
+     }
+ 
+     template<typename T>
+-    void put(const String&, const typename EncodingTraits<T>::DecodedType&);
++    void put(const String&, typename EncodingTraits<T>::InputType);
+ 
+     template<typename T>
+-    void append(const typename EncodingTraits<T>::DecodedType&);
++    void append(typename EncodingTraits<T>::InputType);
+ 
+-    template<typename T> bool get(const String&, typename EncodingTraits<T>::DecodedType&);
+-    template<typename T> bool get(const String&, std::unique_ptr<typename EncodingTraits<T>::DecodedType>&);
++    template<typename T> bool get(const String&, typename EncodingTraits<T>::OutputType&);
+ 
+     template<typename T> T convertTo();
+ 
+     JS_EXPORT_PRIVATE RefPtr<Inspector::InspectorObject> asObject();
+     JS_EXPORT_PRIVATE RefPtr<Inspector::InspectorArray> asArray();
+ 
+ private:
+     RefPtr<Inspector::InspectorValue> m_value;
+ };
+ 
+@@ -89,75 +88,81 @@ template<> JS_EXPORT_PRIVATE bool EncodedValue::convertTo<bool>();
+ template<> JS_EXPORT_PRIVATE double EncodedValue::convertTo<double>();
+ template<> JS_EXPORT_PRIVATE float EncodedValue::convertTo<float>();
+ template<> JS_EXPORT_PRIVATE int32_t EncodedValue::convertTo<int32_t>();
+ template<> JS_EXPORT_PRIVATE int64_t EncodedValue::convertTo<int64_t>();
+ template<> JS_EXPORT_PRIVATE uint32_t EncodedValue::convertTo<uint32_t>();
+ template<> JS_EXPORT_PRIVATE uint64_t EncodedValue::convertTo<uint64_t>();
+ template<> JS_EXPORT_PRIVATE String EncodedValue::convertTo<String>();
+ 
+ template<typename T>
+ struct EncodingTraits {
+-    typedef T DecodedType;
++    typedef const T InputType;
++    typedef T ElementType;
++    typedef T OutputType;
+ 
+-    static EncodedValue encodeValue(const DecodedType&);
++    static EncodedValue encodeValue(InputType);
+ 
+-    static bool decodeValue(EncodedValue&, DecodedType&);
+-    static bool decodeValue(EncodedValue&, std::unique_ptr<DecodedType>&);
++    static bool decodeValue(EncodedValue&, OutputType&);
+ };
+ 
+ template<typename T, size_t inlineCapacity, typename OverflowHandler>
+ struct EncodingTraits<Vector<T, inlineCapacity, OverflowHandler>> {
+-    typedef Vector<typename EncodingTraits<T>::DecodedType, inlineCapacity, OverflowHandler> DecodedType;
++    typedef Vector<typename EncodingTraits<T>::ElementType, inlineCapacity, OverflowHandler> InputType;
++    typedef Vector<typename EncodingTraits<T>::ElementType, inlineCapacity, OverflowHandler> OutputType;
+ 
+-    static EncodedValue encodeValue(const DecodedType& vectorOfValues)
++    static EncodedValue encodeValue(InputType vectorOfValues)
+     {
+         EncodedValue encodedVector = EncodedValue::createArray();
+-        for (const typename EncodingTraits<T>::DecodedType& value : vectorOfValues)
+-            encodedVector.append<T>(value);
++        for (typename EncodingTraits<T>::ElementType& value : vectorOfValues)
++            encodedVector.append<T>(WTF::move(value));
+ 
+         return WTF::move(encodedVector);
+     }
+ 
+-    static bool decodeValue(EncodedValue& encodedVector, DecodedType& decodedValue)
++    static bool decodeValue(EncodedValue& encodedVector, OutputType& decodedValue)
+     {
+         RefPtr<Inspector::InspectorArray> inspectorArray = encodedVector.asArray();
+-        decodedValue = Vector<typename EncodingTraits<T>::DecodedType, inlineCapacity, OverflowHandler>(inspectorArray->length());
++        decodedValue = Vector<typename EncodingTraits<T>::OutputType, inlineCapacity, OverflowHandler>(inspectorArray->length());
+         for (size_t i = 0; i < inspectorArray->length(); ++i) {
+             EncodedValue encodedElement(inspectorArray->get(i));
+             if (!EncodingTraits<T>::decodeValue(encodedElement, decodedValue.at(i)))
+                 return false;
+         }
+         return true;
+     }
+ };
+ 
+ template<> struct EncodingTraits<EncodedValue> {
+-    typedef EncodedValue DecodedType;
++    typedef EncodedValue OutputType;
++    typedef EncodedValue InputType;
+     // We should never attempt to decode or encode an encoded value,
+     // so encodeValue and decodeValue are intentionally omitted here.
+ };
+ 
+ // Specialize byte vectors to use base64 encoding.
+ template<> struct EncodingTraits<Vector<char>> {
+-    typedef Vector<char> DecodedType;
+-    static JS_EXPORT_PRIVATE EncodedValue encodeValue(const DecodedType&);
+-    static JS_EXPORT_PRIVATE bool decodeValue(EncodedValue&, DecodedType&);
++    typedef const Vector<char> InputType;
++    typedef Vector<char> OutputType;
++    static JS_EXPORT_PRIVATE EncodedValue encodeValue(const InputType&);
++    static JS_EXPORT_PRIVATE bool decodeValue(EncodedValue&, OutputType&);
+ };
+ 
+ template<typename T>
+ struct ScalarEncodingTraits {
+-    typedef T DecodedType;
++    typedef const T InputType;
++    typedef T OutputType;
++    typedef T ElementType;
+ 
+-    static JS_EXPORT_PRIVATE EncodedValue encodeValue(const DecodedType& decodedValue);
+-    static bool decodeValue(EncodedValue& encodedValue, DecodedType& decodedValue)
++    static JS_EXPORT_PRIVATE EncodedValue encodeValue(InputType&);
++    static bool decodeValue(EncodedValue& encodedValue, OutputType& decodedValue)
+     {
+-        decodedValue = encodedValue.convertTo<DecodedType>();
++        decodedValue = encodedValue.convertTo<OutputType>();
+         return true;
+     }
+ };
+ 
+ template<> struct EncodingTraits<bool> : public ScalarEncodingTraits<bool> { };
+ template<> struct EncodingTraits<double> : public ScalarEncodingTraits<double> { };
+ template<> struct EncodingTraits<float> : public ScalarEncodingTraits<float> { };
+ template<> struct EncodingTraits<int32_t> : public ScalarEncodingTraits<int32_t> { };
+ template<> struct EncodingTraits<int64_t> : public ScalarEncodingTraits<int64_t> { };
+ template<> struct EncodingTraits<uint32_t> : public ScalarEncodingTraits<uint32_t> { };
+@@ -166,58 +171,48 @@ template<> struct EncodingTraits<uint64_t> : public ScalarEncodingTraits<uint64_
+ template<> struct EncodingTraits<String> : public ScalarEncodingTraits<String> {
+     static EncodedValue encodeValue(const String& value)
+     {
+         return EncodedValue::createString(value);
+     }
+ };
+ 
+ // Used to disambiguate EncodingTraits specializations with the same concrete type, such
+ // as for ViewState::Flags which is typedef'd to unsigned. <https://webkit.org/b/136297>
+ template <typename EnumType, EnumType tag> class Phantom {};
+-    
++
+ // Base cases for loading and storing values.
+ template<> JS_EXPORT_PRIVATE
+-void EncodedValue::put<EncodedValue>(const String& key, const typename EncodingTraits<EncodedValue>::DecodedType&);
++void EncodedValue::put<EncodedValue>(const String& key, typename EncodingTraits<EncodedValue>::InputType);
+ 
+ template<> JS_EXPORT_PRIVATE
+-void EncodedValue::append<EncodedValue>(const typename EncodingTraits<EncodedValue>::DecodedType&);
++void EncodedValue::append<EncodedValue>(typename EncodingTraits<EncodedValue>::InputType);
+ 
+ template<> JS_EXPORT_PRIVATE
+-bool EncodedValue::get<EncodedValue>(const String& key, typename EncodingTraits<EncodedValue>::DecodedType&);
++bool EncodedValue::get<EncodedValue>(const String& key, typename EncodingTraits<EncodedValue>::OutputType&);
+ 
+ // Load and store types with an accompanying EncodingTraits implementation.
+ template<typename T>
+-void EncodedValue::put(const String& key, const typename EncodingTraits<T>::DecodedType& value)
++void EncodedValue::put(const String& key, typename EncodingTraits<T>::InputType value)
+ {
+-    EncodedValue encodedValue = EncodingTraits<T>::encodeValue(value);
++    EncodedValue encodedValue = EncodingTraits<T>::encodeValue(std::forward<typename EncodingTraits<T>::InputType>(value));
+     put<EncodedValue>(key, encodedValue);
+ }
+ 
+ template<typename T>
+-void EncodedValue::append(const typename EncodingTraits<T>::DecodedType& value)
++void EncodedValue::append(typename EncodingTraits<T>::InputType value)
+ {
+-    EncodedValue encodedValue = EncodingTraits<T>::encodeValue(value);
++    EncodedValue encodedValue = EncodingTraits<T>::encodeValue(std::forward<typename EncodingTraits<T>::InputType>(value));
+     append<EncodedValue>(encodedValue);
+ }
+ 
+ template<typename T>
+-bool EncodedValue::get(const String& key, typename EncodingTraits<T>::DecodedType& decodedValue)
+-{
+-    EncodedValue encodedValue;
+-    if (!get<EncodedValue>(key, encodedValue))
+-        return false;
+-
+-    return EncodingTraits<T>::decodeValue(encodedValue, decodedValue);
+-}
+-
+-template<typename T>
+-bool EncodedValue::get(const String& key, std::unique_ptr<typename EncodingTraits<T>::DecodedType>& decodedValue)
++bool EncodedValue::get(const String& key, typename EncodingTraits<T>::OutputType& decodedValue)
+ {
+     EncodedValue encodedValue;
+     if (!get<EncodedValue>(key, encodedValue))
+         return false;
+ 
+     return EncodingTraits<T>::decodeValue(encodedValue, decodedValue);
+ }
+ 
+ } // namespace JSC
+ 
+diff --git a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
+index ae2b801..a5d1d6a 100644
+--- a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
++++ b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
+@@ -70,32 +70,35 @@ GLOBAL_CONFIG = {
+         # Testing fixtures.
+         (["Test"],
+             ("WebCore", "platform/ExternalNamespaceHeaderIncludeDummy.h")
+         ),
+         (["Test"],
+             ("Test", "platform/InternalNamespaceHeaderIncludeDummy.h")
+         )
+     ],
+ 
+     "implIncludes": [
++        (["WebKit"],
++            ("WebCore", "WebReplayInputs.h")
++        ),
++        (["WebKit"],
++            ("WebKit", "WKReplayInputCoders.h")
++        ),
+         (["WebKit", "WebCore"],
+             ("WebCore", "replay/WebReplayInputCoders.h")
+         ),
+         (["WebKit", "WebCore", "JavaScriptCore"],
+             ("JavaScriptCore", "inspector/InspectorValues.h")
+         ),
+         (["WebKit", "WebCore", "JavaScriptCore"],
+             ("WTF", "wtf/NeverDestroyed.h")
+         ),
+-        (["WebKit"],
+-            ("WebCore", "WebReplayInputs.h")
+-        ),
+ 
+         # Testing fixtures.
+         (["Test"],
+             ("WebCore", "platform/ExternalNamespaceImplIncludeDummy.h")
+         ),
+         (["Test"],
+             ("Test", "platform/InternalNamespaceImplIncludeDummy.h")
+         )
+     ],
+ }
+@@ -265,35 +268,39 @@ class TypeMode:
+     def fromString(modeString):
+         modeString = modeString.upper()
+         if modeString == 'SCALAR':
+             return TypeModes.SCALAR
+         if modeString == 'HEAVY_SCALAR':
+             return TypeModes.HEAVY_SCALAR
+         if modeString == 'OWNED':
+             return TypeModes.OWNED
+         if modeString == 'SHARED':
+             return TypeModes.SHARED
++        if modeString == 'SHARED_REF':
++            return TypeModes.SHARED_REF
+         if modeString == 'VECTOR':
+             return TypeModes.VECTOR
+ 
+         raise ParseException("Unknown type mode: " + modeString)
+ 
+ 
+ class TypeModes:
+     # Copy for assignment and for getter
+     SCALAR = TypeMode("SCALAR")
+     # Copy for assignment, pass by reference for getter
+     HEAVY_SCALAR = TypeMode("HEAVY_SCALAR")
+     # Move for assignment, pass by reference for getter
+     OWNED = TypeMode("OWNED")
+-    # Copy a RefPtr for assignment and getter
++    # Copy/move a RefPtr for assignment and getter
+     SHARED = TypeMode("SHARED")
++    # Copy/move a Ref for assignment and getter
++    SHARED_REF = TypeMode("SHARED_REF")
+     # Move operator for assignment, pass by reference for getter
+     VECTOR = TypeMode("VECTOR")
+ 
+ 
+ class Type:
+     def __init__(self, name, mode, framework, header, enclosing_class, values, guard_values_map, underlying_storage, flags, guard=None):
+         self._name = name
+         self.mode = mode
+         self.framework = framework
+         self.header = header
+@@ -347,34 +354,42 @@ class Type:
+         elif self.enclosing_class is not None:
+             return "%s::%s" % (self.enclosing_class, self._name)
+         else:
+             return self._name
+ 
+     def storage_type(self, qualified=False):
+         if self.mode == TypeModes.OWNED:
+             return "std::unique_ptr<%s>" % self.type_name(qualified)
+         elif self.mode == TypeModes.SHARED:
+             return "RefPtr<%s>" % self.type_name(qualified)
++        elif self.mode == TypeModes.SHARED_REF:
++            return "Ref<%s>" % self.type_name(qualified)
+         else:
+             return self.type_name(qualified)
+ 
+     def borrow_type(self, qualified=False):
+         if self.mode == TypeModes.SCALAR:
+             return self.type_name(qualified)
+         elif self.mode == TypeModes.SHARED:
+             return "RefPtr<%s>" % self.type_name(qualified)
++        elif self.mode == TypeModes.SHARED_REF:
++            return "Ref<%s>" % self.type_name(qualified)
++        elif self.mode == TypeModes.VECTOR and self._element_type.mode == TypeModes.SHARED_REF:
++            return self.type_name(qualified)
+         else:
+             return "const %s&" % self.type_name(qualified)
+ 
+     def argument_type(self, qualified=False):
+         if self.mode == TypeModes.SHARED:
+             return "RefPtr<%s>&&" % self.type_name(qualified)
++        elif self.mode == TypeModes.SHARED_REF:
++            return "Ref<%s>&&" % self.type_name(qualified)
+         else:
+             return self.storage_type(qualified)
+ 
+     def unchecked_enum_type_name(self):
+         components = [self._name]
+         if self.enclosing_class is not None:
+             components [:0] = [self.enclosing_class]
+ 
+         return "".join(components)
+ 
+@@ -414,21 +429,21 @@ class VectorType(Type):
+     def qualified_prefix(self):
+         return ""
+ 
+     def type_name(self, qualified=False):
+         return "Vector<%s>" % self._element_type.storage_type(qualified=qualified)
+ 
+     def encoding_type_argument(self, qualified=False):
+         return "Vector<%s>" % self._element_type.type_name(qualified=qualified)
+ 
+     def argument_type(self, qualified=False):
+-        return self.type_name(qualified=qualified) + "&"
++        return self.type_name(qualified=qualified) + "&&"
+ 
+ 
+ class InputsModel:
+     def __init__(self):
+         self.inputs = []
+         self.types = []
+ 
+         # Types have associated frameworks and are in their namespace, but within the specification
+         # file types are in a flat namespace. Types with the same name are not allowed.
+         self.types_by_name = {}
+@@ -676,21 +691,21 @@ class Generator:
+ 
+     def generate_includes(self, defaults=[], includes_for_types=False):
+         lines = set()
+ 
+         for _type in self._model.types:
+             # Types in the "global" framework are implicitly declared and available in all namespaces.
+             if _type.framework is Frameworks.Global:
+                 continue
+             # For RefCounted types, we reverse when to include the header so that the destructor can be
+             # used in the header file.
+-            include_for_destructor = _type.mode is TypeModes.SHARED
++            include_for_destructor = _type.mode in [TypeModes.SHARED, TypeModes.SHARED_REF]
+             # Enums within classes cannot be forward declared, so we include
+             # headers with the relevant class declaration.
+             include_for_enclosing_class = _type.enclosing_class is not None
+             # Include headers for types like URL and String which are copied, not owned or shared.
+             include_for_copyable_member = _type.mode is TypeModes.HEAVY_SCALAR
+             if (not includes_for_types) ^ (include_for_destructor or include_for_enclosing_class or include_for_copyable_member):
+                 continue
+ 
+             lines.add(self.generate_include_string(_type.framework, _type.header))
+ 
+@@ -806,20 +821,31 @@ class Generator:
+             terms.append(self.setting('exportMacro'))
+         terms.append("%s(%s)" % (_input.name, formals_list))
+         return "    %s;" % " ".join(terms)
+ 
+     def generate_input_destructor_declaration(self, _input):
+         return "    virtual ~%s();" % _input.name
+ 
+     def generate_input_member_getter(self, _member):
+         member_type = self._model.get_type_for_member(_member)
+         shouldQualifyType = self.target_framework is not member_type.framework
++        if member_type.mode is TypeModes.VECTOR and member_type._element_type.mode is TypeModes.SHARED_REF:
++            return "\n".join([
++            "    %s %s() const" % (member_type.borrow_type(shouldQualifyType), _member.memberName),
++            "    {",
++            "        %s copiedVector;" % member_type.storage_type(shouldQualifyType),
++            "        for (auto& element : m_%s)" % _member.memberName,
++            "            copiedVector.append(element.copyRef());",
++            "        return WTF::move(copiedVector);",
++            "    }",
++            ])
++
+         return "    %s %s() const { return %s; }" % (member_type.borrow_type(shouldQualifyType), _member.memberName, self.generate_member_borrow_expression(_member))
+ 
+     def generate_input_member_declaration(self, _member):
+         member_type = self._model.get_type_for_member(_member)
+         shouldQualifyType = self.target_framework is not member_type.framework
+         return "    %s m_%s;" % (member_type.storage_type(shouldQualifyType), _member.memberName)
+ 
+     def generate_input_member_tuples(self, _input):
+         return [(_member, self._model.get_type_for_member(_member)) for _member in _input.members]
+ 
+@@ -1036,21 +1062,21 @@ class Generator:
+     def generate_member_borrow_expression(self, _member):
+         _type = self._model.get_type_for_member(_member)
+         expression = "m_%s" % _member.memberName
+         if _type.mode == TypeModes.OWNED:
+             expression = "*" + expression
+ 
+         return expression
+ 
+     def generate_member_move_expression(self, _member):
+         _type = self._model.get_type_for_member(_member)
+-        if _type.mode in [TypeModes.OWNED, TypeModes.SHARED]:
++        if _type.mode in [TypeModes.OWNED, TypeModes.SHARED, TypeModes.SHARED_REF, TypeModes.VECTOR]:
+             return "WTF::move(%s)" % _member.memberName
+         else:
+             return _member.memberName
+ 
+     def generate_constructor_arguments_list(self, _input):
+         return ", ".join([self.generate_member_move_expression(_member) for _member in _input.members])
+ 
+ 
+ def generate_from_specifications(input_filepaths=[], output_prefix="", output_dirpath=None, framework_name=None, force_output=False):
+ 
+diff --git a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputsTemplates.py b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputsTemplates.py
+index 346190b..88082ff 100644
+--- a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputsTemplates.py
++++ b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputsTemplates.py
+@@ -107,29 +107,31 @@ ${forEachMacro}
+     static bool decode(JSC::EncodedValue&, std::unique_ptr<${qualifiedInputName}>&);
+ };""")
+ 
+     InputTypeTraitsDeclaration = (
+     """SPECIALIZE_TYPE_TRAITS_BEGIN(${qualifiedInputName})
+     static bool isType(const NondeterministicInputBase& input) { return input.type() == InputTraits<${qualifiedInputName}>::type(); }
+ SPECIALIZE_TYPE_TRAITS_END()""")
+ 
+     EnumTraitDeclaration = (
+     """template<> ${structOrClass} EncodingTraits<${encodingTypeArgument}> {
+-    typedef ${enumType} DecodedType;
++    typedef const ${enumType} InputType;
++    typedef ${enumType} OutputType;
+ 
+     static EncodedValue encodeValue(const ${enumType}& value);
+     static bool decodeValue(EncodedValue&, ${enumType}& value);
+ };""")
+ 
+     EnumClassTraitDeclaration = (
+     """template<> ${structOrClass} EncodingTraits<${encodingTypeArgument}> {
+-    typedef ${enumType} DecodedType;
++    typedef const ${enumType} InputType;
++    typedef ${enumType} OutputType;
+ 
+     static EncodedValue encodeValue(const ${enumType}& value);
+     static bool decodeValue(EncodedValue&, ${enumType}& value);
+ };""")
+ 
+     InputClassDeclaration = (
+     """class ${inputName} : public ${baseClass} {
+ public:
+ ${inputConstructor}
+ ${inputDestructor}
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers.json-TestReplayInputs.h
+index 3a5dca4..67b2f58 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-encoding-helpers.json-TestReplayInputs.h
+@@ -48,35 +48,38 @@ class SavedMouseButton;
+ 
+ namespace JSC {
+ template<> struct TEST_EXPORT_MACRO InputTraits<Test::SavedMouseButton> {
+     static InputQueue queue() { return InputQueue::ScriptMemoizedData; }
+     static const String& type();
+ 
+     static void encode(JSC::EncodedValue&, const Test::SavedMouseButton&);
+     static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::SavedMouseButton>&);
+ };
+ template<> struct TEST_EXPORT_MACRO EncodingTraits<Test::InputQueue> {
+-    typedef Test::InputQueue DecodedType;
++    typedef const Test::InputQueue InputType;
++    typedef Test::InputQueue OutputType;
+ 
+     static EncodedValue encodeValue(const Test::InputQueue& value);
+     static bool decodeValue(EncodedValue&, Test::InputQueue& value);
+ };
+ 
+ template<> struct TEST_EXPORT_MACRO EncodingTraits<Test::MouseButton> {
+-    typedef Test::MouseButton DecodedType;
++    typedef const Test::MouseButton InputType;
++    typedef Test::MouseButton OutputType;
+ 
+     static EncodedValue encodeValue(const Test::MouseButton& value);
+     static bool decodeValue(EncodedValue&, Test::MouseButton& value);
+ };
+ 
+ template<> struct TEST_EXPORT_MACRO EncodingTraits<Test::PlatformEvent::Type> {
+-    typedef Test::PlatformEvent::Type DecodedType;
++    typedef const Test::PlatformEvent::Type InputType;
++    typedef Test::PlatformEvent::Type OutputType;
+ 
+     static EncodedValue encodeValue(const Test::PlatformEvent::Type& value);
+     static bool decodeValue(EncodedValue&, Test::PlatformEvent::Type& value);
+ };
+ } // namespace JSC
+ 
+ namespace Test {
+ class SavedMouseButton : public JSC::NondeterministicInput<SavedMouseButton> {
+ public:
+     TEST_EXPORT_MACRO SavedMouseButton(MouseButton button);
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h
+index 9cbd591..b47b702 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h
+@@ -51,21 +51,22 @@ class HandleWheelEvent;
+ namespace JSC {
+ template<> struct TEST_EXPORT_MACRO InputTraits<Test::HandleWheelEvent> {
+     static InputQueue queue() { return InputQueue::EventLoopInput; }
+     static const String& type();
+ 
+     static void encode(JSC::EncodedValue&, const Test::HandleWheelEvent&);
+     static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::HandleWheelEvent>&);
+ };
+ #if ENABLE(DUMMY_FEATURE)
+ template<> struct TEST_EXPORT_MACRO EncodingTraits<Test::PlatformWheelPhase> {
+-    typedef Test::PlatformWheelPhase DecodedType;
++    typedef const Test::PlatformWheelPhase InputType;
++    typedef Test::PlatformWheelPhase OutputType;
+ 
+     static EncodedValue encodeValue(const Test::PlatformWheelPhase& value);
+     static bool decodeValue(EncodedValue&, Test::PlatformWheelPhase& value);
+ };
+ #endif // ENABLE(DUMMY_FEATURE)
+ } // namespace JSC
+ 
+ namespace Test {
+ class HandleWheelEvent : public WebCore::EventLoopInput<HandleWheelEvent> {
+ public:
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.h
+index 72fae85..85318bd 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enums-with-same-base-name.json-TestReplayInputs.h
+@@ -46,28 +46,30 @@ class FormCombo;
+ 
+ namespace JSC {
+ template<> struct TEST_EXPORT_MACRO InputTraits<Test::FormCombo> {
+     static InputQueue queue() { return InputQueue::ScriptMemoizedData; }
+     static const String& type();
+ 
+     static void encode(JSC::EncodedValue&, const Test::FormCombo&);
+     static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::FormCombo>&);
+ };
+ template<> struct TEST_EXPORT_MACRO EncodingTraits<Test::FormData1::Type> {
+-    typedef Test::FormData1::Type DecodedType;
++    typedef const Test::FormData1::Type InputType;
++    typedef Test::FormData1::Type OutputType;
+ 
+     static EncodedValue encodeValue(const Test::FormData1::Type& value);
+     static bool decodeValue(EncodedValue&, Test::FormData1::Type& value);
+ };
+ 
+ template<> struct TEST_EXPORT_MACRO EncodingTraits<Test::FormData2::Type> {
+-    typedef Test::FormData2::Type DecodedType;
++    typedef const Test::FormData2::Type InputType;
++    typedef Test::FormData2::Type OutputType;
+ 
+     static EncodedValue encodeValue(const Test::FormData2::Type& value);
+     static bool decodeValue(EncodedValue&, Test::FormData2::Type& value);
+ };
+ } // namespace JSC
+ 
+ namespace Test {
+ class FormCombo : public JSC::NondeterministicInput<FormCombo> {
+ public:
+     TEST_EXPORT_MACRO FormCombo(JSC::PlatformEvent1::Type eventType1, JSC::PlatformEvent2::Type eventType2, FormData1::Type formType1, FormData2::Type formType2);
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.cpp b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.cpp
+index 91d18f4..b539132 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.cpp
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.cpp
+@@ -30,35 +30,35 @@
+ #include "config.h"
+ #include "generate-input-with-vector-members.json-TestReplayInputs.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ #include "InternalNamespaceImplIncludeDummy.h"
+ #include <platform/ExternalNamespaceImplIncludeDummy.h>
+ #include <things/JSThing.h>
+ #include <things/WebThing.h>
+ 
+ namespace Test {
+-ArrayOfThings::ArrayOfThings(Vector<double>& doubles, Vector<JSC::JSThing>& jsthings, Vector<WebCore::WebThing>& webthings)
++ArrayOfThings::ArrayOfThings(Vector<double>&& doubles, Vector<JSC::JSThing>&& jsthings, Vector<WebCore::WebThing>&& webthings)
+     : JSC::NondeterministicInput<ArrayOfThings>()
+-    , m_doubles(doubles)
+-    , m_jsthings(jsthings)
+-    , m_webthings(webthings)
++    , m_doubles(WTF::move(doubles))
++    , m_jsthings(WTF::move(jsthings))
++    , m_webthings(WTF::move(webthings))
+ {
+ }
+ 
+ ArrayOfThings::~ArrayOfThings()
+ {
+ }
+ 
+-SavedHistory::SavedHistory(Vector<RefPtr<WebCore::HistoryItem>>& entries)
++SavedHistory::SavedHistory(Vector<RefPtr<WebCore::HistoryItem>>&& entries)
+     : JSC::NondeterministicInput<SavedHistory>()
+-    , m_entries(entries)
++    , m_entries(WTF::move(entries))
+ {
+ }
+ 
+ SavedHistory::~SavedHistory()
+ {
+ }
+ } // namespace Test
+ 
+ namespace JSC {
+ const String& InputTraits<Test::ArrayOfThings>::type()
+@@ -81,38 +81,38 @@ bool InputTraits<Test::ArrayOfThings>::decode(EncodedValue& encodedValue, std::u
+         return false;
+ 
+     Vector<JSThing> jsthings;
+     if (!encodedValue.get<Vector<JSThing>>(ASCIILiteral("jsthings"), jsthings))
+         return false;
+ 
+     Vector<WebCore::WebThing> webthings;
+     if (!encodedValue.get<Vector<WebCore::WebThing>>(ASCIILiteral("webthings"), webthings))
+         return false;
+ 
+-    input = std::make_unique<Test::ArrayOfThings>(doubles, jsthings, webthings);
++    input = std::make_unique<Test::ArrayOfThings>(WTF::move(doubles), WTF::move(jsthings), WTF::move(webthings));
+     return true;
+ }
+ 
+ const String& InputTraits<Test::SavedHistory>::type()
+ {
+     static NeverDestroyed<const String> type(ASCIILiteral("SavedHistory"));
+     return type;
+ }
+ 
+ void InputTraits<Test::SavedHistory>::encode(EncodedValue& encodedValue, const Test::SavedHistory& input)
+ {
+     encodedValue.put<Vector<WebCore::HistoryItem>>(ASCIILiteral("entries"), input.entries());
+ }
+ 
+ bool InputTraits<Test::SavedHistory>::decode(EncodedValue& encodedValue, std::unique_ptr<Test::SavedHistory>& input)
+ {
+     Vector<RefPtr<WebCore::HistoryItem>> entries;
+     if (!encodedValue.get<Vector<WebCore::HistoryItem>>(ASCIILiteral("entries"), entries))
+         return false;
+ 
+-    input = std::make_unique<Test::SavedHistory>(entries);
++    input = std::make_unique<Test::SavedHistory>(WTF::move(entries));
+     return true;
+ }
+ 
+ } // namespace JSC
+ 
+ #endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h
+index 684eceb..08ea4de 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-input-with-vector-members.json-TestReplayInputs.h
+@@ -61,35 +61,35 @@ template<> struct TEST_EXPORT_MACRO InputTraits<Test::SavedHistory> {
+ 
+     static void encode(JSC::EncodedValue&, const Test::SavedHistory&);
+     static bool decode(JSC::EncodedValue&, std::unique_ptr<Test::SavedHistory>&);
+ };
+ 
+ } // namespace JSC
+ 
+ namespace Test {
+ class ArrayOfThings : public JSC::NondeterministicInput<ArrayOfThings> {
+ public:
+-    TEST_EXPORT_MACRO ArrayOfThings(Vector<double>& doubles, Vector<JSC::JSThing>& jsthings, Vector<WebCore::WebThing>& webthings);
++    TEST_EXPORT_MACRO ArrayOfThings(Vector<double>&& doubles, Vector<JSC::JSThing>&& jsthings, Vector<WebCore::WebThing>&& webthings);
+     virtual ~ArrayOfThings();
+ 
+     const Vector<double>& doubles() const { return m_doubles; }
+     const Vector<JSC::JSThing>& jsthings() const { return m_jsthings; }
+     const Vector<WebCore::WebThing>& webthings() const { return m_webthings; }
+ private:
+     Vector<double> m_doubles;
+     Vector<JSC::JSThing> m_jsthings;
+     Vector<WebCore::WebThing> m_webthings;
+ };
+ 
+ class SavedHistory : public JSC::NondeterministicInput<SavedHistory> {
+ public:
+-    TEST_EXPORT_MACRO SavedHistory(Vector<RefPtr<WebCore::HistoryItem>>& entries);
++    TEST_EXPORT_MACRO SavedHistory(Vector<RefPtr<WebCore::HistoryItem>>&& entries);
+     virtual ~SavedHistory();
+ 
+     const Vector<RefPtr<WebCore::HistoryItem>>& entries() const { return m_entries; }
+ private:
+     Vector<RefPtr<WebCore::HistoryItem>> m_entries;
+ };
+ } // namespace Test
+ 
+ SPECIALIZE_TYPE_TRAITS_BEGIN(Test::ArrayOfThings)
+     static bool isType(const NondeterministicInputBase& input) { return input.type() == InputTraits<Test::ArrayOfThings>::type(); }
+diff --git a/Source/WebCore/inspector/InspectorReplayAgent.cpp b/Source/WebCore/inspector/InspectorReplayAgent.cpp
+index aa3a27c..a3a7812 100644
+--- a/Source/WebCore/inspector/InspectorReplayAgent.cpp
++++ b/Source/WebCore/inspector/InspectorReplayAgent.cpp
+@@ -39,21 +39,21 @@
+ #include "InspectorPageAgent.h"
+ #include <inspector/InspectorProtocolObjects.h>
+ #include "InstrumentingAgents.h"
+ #include "Logging.h"
+ #include "Page.h"
+ #include "ReplayController.h"
+ #include "ReplayClient.h"
+ #include "ReplaySession.h"
+ #include "ReplaySessionSegment.h"
+ #include "WebReplayInputCoders.h"
+-#include "WebReplayInputs.h" // For EncodingTraits<InputQueue>.
++#include <JavaScriptCore/JSReplayInputs.h>
+ #include <inspector/InspectorValues.h>
+ #include <wtf/text/CString.h>
+ #include <wtf/text/WTFString.h>
+ 
+ using namespace Inspector;
+ 
+ namespace WebCore {
+ 
+ static Ref<Inspector::Protocol::Replay::ReplayPosition> buildInspectorObjectForPosition(const ReplayPosition& position)
+ {
+diff --git a/Source/WebCore/replay/ReplayingInputCursor.cpp b/Source/WebCore/replay/ReplayingInputCursor.cpp
+index e5b2399..1977ad4 100644
+--- a/Source/WebCore/replay/ReplayingInputCursor.cpp
++++ b/Source/WebCore/replay/ReplayingInputCursor.cpp
+@@ -31,21 +31,21 @@
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include "EventLoopInputDispatcher.h"
+ #include "Logging.h"
+ #include "Page.h"
+ #include "ReplayClient.h"
+ #include "ReplayController.h"
+ #include "ReplaySessionSegment.h"
+ #include "SegmentedInputStorage.h"
+ #include "WebReplayInputCoders.h"
+-#include "WebReplayInputs.h"
++#include <JavaScriptCore/JSReplayInputs.h>
+ #include <wtf/Stopwatch.h>
+ #include <wtf/text/CString.h>
+ 
+ namespace WebCore {
+ 
+ #if !LOG_DISABLED
+ // This is used to make the log spew from LOG(WebReplay, ...) more readable.
+ static const char* queueTypeToLogPrefix(InputQueue queue)
+ {
+     switch (queue) {
+diff --git a/Source/WebCore/replay/WebInputs.json b/Source/WebCore/replay/WebInputs.json
+index e0f389f..f6740a7 100644
+--- a/Source/WebCore/replay/WebInputs.json
++++ b/Source/WebCore/replay/WebInputs.json
+@@ -11,21 +11,21 @@
+                     "Unsigned"
+                 ],
+                 "header": "replay/MemoizedDOMResult.h"
+             },
+             {
+                 "name": "FrameLoadRequest", "mode": "OWNED",
+                 "flags": ["STRUCT"],
+                 "header": "loader/FrameLoadRequest.h"
+             },
+             {
+-                "name": "HistoryItem", "mode": "SHARED",
++                "name": "HistoryItem", "mode": "SHARED_REF",
+                 "header": "history/HistoryItem.h"
+             },
+             {
+                 "name": "Page", "mode": "OWNED",
+                 "header": "page/Page.h"
+             },
+             {
+                 "name": "PluginData", "mode": "SHARED",
+                 "header": "plugins/PluginData.h"
+             },
+diff --git a/Source/WebCore/replay/WebReplayInputCoders.cpp b/Source/WebCore/replay/WebReplayInputCoders.cpp
+index bcc98a4..70f5fd0 100644
+--- a/Source/WebCore/replay/WebReplayInputCoders.cpp
++++ b/Source/WebCore/replay/WebReplayInputCoders.cpp
+@@ -136,28 +136,28 @@ Frame* frameFromFrameIndex(Page* page, uint32_t frameIndex)
+ 
+ #define ENCODE_OPTIONAL_TYPE_WITH_KEY(_encodedValue, _type, _key, _value, condition) \
+     if (condition) \
+         ENCODE_TYPE_WITH_KEY(_encodedValue, _type, _key, _value)
+ 
+ #define DECODE_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _lvalue) \
+     if (!_encodedValue.get<_type>(ASCIILiteral(#_key), _lvalue)) \
+         return false
+ 
+ #define DECODE_TYPE_WITH_KEY(_encodedValue, _type, _key) \
+-    EncodingTraits<_type>::DecodedType _key; \
++    EncodingTraits<_type>::OutputType _key; \
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _key)
+ 
+ #define DECODE_OPTIONAL_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _lvalue) \
+     bool _key ## WasDecoded = _encodedValue.get<_type>(ASCIILiteral(#_key), _lvalue)
+ 
+ #define DECODE_OPTIONAL_TYPE_WITH_KEY(_encodedValue, _type, _key) \
+-    EncodingTraits<_type>::DecodedType _key; \
++    EncodingTraits<_type>::OutputType _key; \
+     DECODE_OPTIONAL_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _key)
+ 
+ namespace JSC {
+ 
+ EncodedValue EncodingTraits<FloatSize>::encodeValue(const FloatSize& Size)
+ {
+     EncodedValue encodedData = EncodedValue::createObject();
+ 
+     ENCODE_TYPE_WITH_KEY(encodedData, float, width, Size.width());
+     ENCODE_TYPE_WITH_KEY(encodedData, float, height, Size.height());
+@@ -203,21 +203,20 @@ bool EncodingTraits<FormData>::decodeValue(EncodedValue& encodedData, RefPtr<For
+ {
+     DECODE_TYPE_WITH_KEY(encodedData, bool, alwaysStream);
+     DECODE_TYPE_WITH_KEY(encodedData, Vector<char>, boundary);
+     DECODE_TYPE_WITH_KEY(encodedData, Vector<FormDataElement>, elements);
+     DECODE_TYPE_WITH_KEY(encodedData, int64_t, identifier);
+ 
+     formData = adoptRef(new DeserializedFormData(alwaysStream, boundary, elements, identifier));
+     return true;
+ }
+ 
+-template<>
+ EncodedValue EncodingTraits<FormDataElement>::encodeValue(const FormDataElement& element)
+ {
+     EncodedValue encodedData = EncodedValue::createObject();
+ 
+     ENCODE_TYPE_WITH_KEY(encodedData, FormDataElement::Type, type, element.m_type);
+     switch (element.m_type) {
+     case FormDataElement::Type::Data:
+         ENCODE_TYPE_WITH_KEY(encodedData, Vector<char>, data, element.m_data);
+         break;
+     case FormDataElement::Type::EncodedFile:
+@@ -228,21 +227,20 @@ EncodedValue EncodingTraits<FormDataElement>::encodeValue(const FormDataElement&
+         ENCODE_TYPE_WITH_KEY(encodedData, double, expectedFileModificationTime, element.m_expectedFileModificationTime);
+         break;
+     case FormDataElement::Type::EncodedBlob:
+         ENCODE_TYPE_WITH_KEY(encodedData, URL, blobURL, element.m_url);
+         break;
+     }
+ 
+     return encodedData;
+ }
+ 
+-template<>
+ bool EncodingTraits<FormDataElement>::decodeValue(EncodedValue& encodedData, FormDataElement& element)
+ {
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, FormDataElement::Type, type, element.m_type);
+     switch (element.m_type) {
+     case FormDataElement::Type::Data:
+         DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, Vector<char>, data, element.m_data);
+         break;
+     case FormDataElement::Type::EncodedFile:
+         DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, String, filename, element.m_filename);
+         DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, bool, shouldGenerateFile, element.m_shouldGenerateFile);
+@@ -338,107 +336,109 @@ EncodedValue EncodingTraits<KeypressCommand>::encodeValue(const KeypressCommand&
+ bool EncodingTraits<KeypressCommand>::decodeValue(EncodedValue& encodedValue, KeypressCommand& decodedValue)
+ {
+     DECODE_TYPE_WITH_KEY(encodedValue, String, commandName);
+     DECODE_OPTIONAL_TYPE_WITH_KEY(encodedValue, String, text);
+ 
+     decodedValue = textWasDecoded ? KeypressCommand(commandName, text) : KeypressCommand(commandName);
+     return true;
+ }
+ #endif // USE(APPKIT)
+ 
+-template<>
+ EncodedValue EncodingTraits<MimeClassInfo>::encodeValue(const MimeClassInfo& input)
+ {
+     EncodedValue encodedData = EncodedValue::createObject();
+ 
+     ENCODE_TYPE_WITH_KEY(encodedData, String, type, input.type);
+     ENCODE_TYPE_WITH_KEY(encodedData, String, desc, input.desc);
+     ENCODE_TYPE_WITH_KEY(encodedData, Vector<String>, extensions, input.extensions);
+ 
+     return encodedData;
+ }
+ 
+-template<>
+ bool EncodingTraits<MimeClassInfo>::decodeValue(EncodedValue& encodedData, MimeClassInfo& input)
+ {
+     MimeClassInfo info;
+ 
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, String, type, info.type);
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, String, desc, info.desc);
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, Vector<String>, extensions, info.extensions);
+ 
+     input = info;
+     return true;
+ }
+ 
+-EncodedValue EncodingTraits<HistoryItem>::encodeValue(RefPtr<HistoryItem> item)
++EncodedValue EncodingTraits<HistoryItem>::encodeValue(Ref<HistoryItem> item)
+ {
+     EncodedValue encodedValue = EncodedValue::createObject();
+ 
+     ENCODE_TYPE_WITH_KEY(encodedValue, String, originalURLString, item->originalURLString());
+     ENCODE_TYPE_WITH_KEY(encodedValue, String, urlString, item->urlString());
+     ENCODE_TYPE_WITH_KEY(encodedValue, String, title, item->title());
+     ENCODE_TYPE_WITH_KEY(encodedValue, String, parent, item->parent());
+     ENCODE_TYPE_WITH_KEY(encodedValue, int64_t, documentSequenceNumber, item->documentSequenceNumber());
+     ENCODE_TYPE_WITH_KEY(encodedValue, Vector<String>, documentState, item->documentState());
+     ENCODE_TYPE_WITH_KEY(encodedValue, String, formContentType, item->formContentType());
+     ENCODE_OPTIONAL_TYPE_WITH_KEY(encodedValue, FormData, formData, adoptRef(item->formData()), item->formData());
+     ENCODE_TYPE_WITH_KEY(encodedValue, int64_t, itemSequenceNumber, item->itemSequenceNumber());
+     ENCODE_TYPE_WITH_KEY(encodedValue, String, referrer, item->referrer());
+     ENCODE_TYPE_WITH_KEY(encodedValue, IntPoint, scrollPoint, item->scrollPoint());
+     ENCODE_TYPE_WITH_KEY(encodedValue, float, pageScaleFactor, item->pageScaleFactor());
+     ENCODE_OPTIONAL_TYPE_WITH_KEY(encodedValue, SerializedScriptValue, stateObject, item->stateObject(), item->stateObject().get());
+     ENCODE_TYPE_WITH_KEY(encodedValue, String, target, item->target());
+-    ENCODE_TYPE_WITH_KEY(encodedValue, Vector<HistoryItem>, children, item->children());
++    
++    Vector<Ref<HistoryItem>> copiedVector;
++    for (auto& child : item->children())
++        copiedVector.append(child.copyRef());
++    ENCODE_TYPE_WITH_KEY(encodedValue, Vector<HistoryItem>, children, WTF::move(copiedVector));
+ 
+     return encodedValue;
+ }
+ 
+-bool EncodingTraits<HistoryItem>::decodeValue(EncodedValue& encodedData, RefPtr<HistoryItem>& decodedItem)
++bool EncodingTraits<HistoryItem>::decodeValue(EncodedValue& encodedData, Ref<HistoryItem>& decodedItem)
+ {
+     DECODE_TYPE_WITH_KEY(encodedData, String, originalURLString);
+     DECODE_TYPE_WITH_KEY(encodedData, String, urlString);
+     DECODE_TYPE_WITH_KEY(encodedData, String, title);
+     DECODE_TYPE_WITH_KEY(encodedData, String, parent);
+     DECODE_TYPE_WITH_KEY(encodedData, int64_t, documentSequenceNumber);
+     DECODE_TYPE_WITH_KEY(encodedData, Vector<String>, documentState);
+     DECODE_TYPE_WITH_KEY(encodedData, String, formContentType);
+     DECODE_OPTIONAL_TYPE_WITH_KEY(encodedData, FormData, formData);
+     DECODE_TYPE_WITH_KEY(encodedData, int64_t, itemSequenceNumber);
+     DECODE_TYPE_WITH_KEY(encodedData, String, referrer);
+     DECODE_TYPE_WITH_KEY(encodedData, IntPoint, scrollPoint);
+     DECODE_TYPE_WITH_KEY(encodedData, float, pageScaleFactor);
+     DECODE_OPTIONAL_TYPE_WITH_KEY(encodedData, SerializedScriptValue, stateObject);
+     DECODE_TYPE_WITH_KEY(encodedData, String, target);
+     DECODE_TYPE_WITH_KEY(encodedData, Vector<HistoryItem>, children);
+ 
+-    RefPtr<HistoryItem> item = HistoryItem::create();
++    auto item = HistoryItem::create();
+     item->setOriginalURLString(originalURLString);
+     item->setURLString(urlString);
+     item->setTitle(title);
+     item->setParent(parent);
+     item->setDocumentSequenceNumber(documentSequenceNumber);
+     item->setDocumentState(documentState);
+     item->setFormContentType(formContentType);
+     if (formDataWasDecoded)
+         item->setFormData(formData.release());
+     item->setItemSequenceNumber(itemSequenceNumber);
+     item->setReferrer(referrer);
+     item->setScrollPoint(scrollPoint);
+     item->setPageScaleFactor(pageScaleFactor);
+     item->setTarget(target);
+     for (auto& child : children)
+-        item->addChildItem(child);
++        item->addChildItem(child.copyRef());
+     if (stateObjectWasDecoded)
+         item->setStateObject(stateObject.release());
+ 
+-    decodedItem = item.release();
++    decodedItem = WTF::move(item);
+     return true;
+ }
+ 
+ EncodedValue EncodingTraits<IntPoint>::encodeValue(const IntPoint& point)
+ {
+     EncodedValue encodedData = EncodedValue::createObject();
+ 
+     ENCODE_TYPE_WITH_KEY(encodedData, int, x, point.x());
+     ENCODE_TYPE_WITH_KEY(encodedData, int, y, point.y());
+ 
+@@ -487,35 +487,33 @@ bool EncodingTraits<PluginData>::decodeValue(EncodedValue& encodedData, RefPtr<P
+ 
+     Vector<size_t> castedMimePluginIndices(mimePluginIndices.size());
+     for (uint32_t index : mimePluginIndices)
+         castedMimePluginIndices.append(WTF::safeCast<size_t>(index));
+ 
+     input = adoptRef(new DeserializedPluginData(plugins, mimes, castedMimePluginIndices));
+ 
+     return true;
+ }
+ 
+-template<>
+ EncodedValue EncodingTraits<PluginInfo>::encodeValue(const PluginInfo& input)
+ {
+     EncodedValue encodedData = EncodedValue::createObject();
+ 
+     ENCODE_TYPE_WITH_KEY(encodedData, String, name, input.name);
+     ENCODE_TYPE_WITH_KEY(encodedData, String, file, input.file);
+     ENCODE_TYPE_WITH_KEY(encodedData, String, desc, input.desc);
+     ENCODE_TYPE_WITH_KEY(encodedData, Vector<MimeClassInfo>, mimes, input.mimes);
+     ENCODE_TYPE_WITH_KEY(encodedData, bool, isApplicationPlugin, input.isApplicationPlugin);
+ 
+     return encodedData;
+ }
+ 
+-template<>
+ bool EncodingTraits<PluginInfo>::decodeValue(EncodedValue& encodedData, PluginInfo& input)
+ {
+     PluginInfo info;
+ 
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, String, name, info.name);
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, String, file, info.file);
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, String, desc, info.desc);
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, Vector<MimeClassInfo>, mimes, info.mimes);
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, bool, isApplicationPlugin, info.isApplicationPlugin);
+ 
+@@ -539,37 +537,35 @@ bool EncodingTraits<ResourceError>::decodeValue(EncodedValue& encodedData, std::
+ {
+     DECODE_TYPE_WITH_KEY(encodedData, String, domain);
+     DECODE_TYPE_WITH_KEY(encodedData, int, errorCode);
+     DECODE_TYPE_WITH_KEY(encodedData, String, failingURL);
+     DECODE_TYPE_WITH_KEY(encodedData, String, localizedDescription);
+ 
+     decodedError = std::make_unique<ResourceError>(domain, errorCode, failingURL, localizedDescription);
+     return true;
+ }
+ 
+-template<>
+ EncodedValue EncodingTraits<ResourceLoadTiming>::encodeValue(const ResourceLoadTiming& timingData)
+ {
+     EncodedValue encodedData = EncodedValue::createObject();
+ 
+     ENCODE_TYPE_WITH_KEY(encodedData, int, domainLookupStart, timingData.domainLookupStart);
+     ENCODE_TYPE_WITH_KEY(encodedData, int, domainLookupEnd, timingData.domainLookupEnd);
+     ENCODE_TYPE_WITH_KEY(encodedData, int, connectStart, timingData.connectStart);
+     ENCODE_TYPE_WITH_KEY(encodedData, int, connectEnd, timingData.connectEnd);
+     ENCODE_TYPE_WITH_KEY(encodedData, int, requestStart, timingData.requestStart);
+     ENCODE_TYPE_WITH_KEY(encodedData, int, responseStart, timingData.responseStart);
+     ENCODE_TYPE_WITH_KEY(encodedData, int, secureConnectionStart, timingData.secureConnectionStart);
+ 
+     return encodedData;
+ }
+ 
+-template<>
+ bool EncodingTraits<ResourceLoadTiming>::decodeValue(EncodedValue& encodedData, ResourceLoadTiming& decodedTimings)
+ {
+     ResourceLoadTiming timingData;
+ 
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, int, domainLookupStart, timingData.domainLookupStart);
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, int, domainLookupEnd, timingData.domainLookupEnd);
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, int, connectStart, timingData.connectStart);
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, int, connectEnd, timingData.connectEnd);
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, int, requestStart, timingData.requestStart);
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(encodedData, int, responseStart, timingData.responseStart);
+@@ -722,36 +718,34 @@ EncodedValue EncodingTraits<SharedBuffer>::encodeValue(RefPtr<SharedBuffer> buff
+ bool EncodingTraits<SharedBuffer>::decodeValue(EncodedValue& encodedBuffer, RefPtr<SharedBuffer>& decodedBuffer)
+ {
+     Vector<char, 0> data;
+     if (!base64Decode(encodedBuffer.convertTo<String>(), data))
+         return false;
+ 
+     decodedBuffer = SharedBuffer::adoptVector(data);
+     return true;
+ }
+ 
+-template<>
+ EncodedValue EncodingTraits<SubstituteData>::encodeValue(const SubstituteData& data)
+ {
+     EncodedValue encodedData = EncodedValue::createObject();
+ 
+     ENCODE_TYPE_WITH_KEY(encodedData, SharedBuffer, content, data.content()->copy());
+     ENCODE_TYPE_WITH_KEY(encodedData, String, mimeType, data.mimeType());
+     ENCODE_TYPE_WITH_KEY(encodedData, String, textEncoding, data.textEncoding());
+     ENCODE_TYPE_WITH_KEY(encodedData, URL, failingURL, data.failingURL());
+     ENCODE_TYPE_WITH_KEY(encodedData, URL, responseURL, data.responseURL());
+     ENCODE_TYPE_WITH_KEY(encodedData, bool, shouldRevealToSessionHistory, data.shouldRevealToSessionHistory());
+ 
+     return encodedData;
+ }
+ 
+-template<>
+ bool EncodingTraits<SubstituteData>::decodeValue(EncodedValue& encodedData, SubstituteData& decodedData)
+ {
+ 
+     DECODE_TYPE_WITH_KEY(encodedData, SharedBuffer, content);
+     DECODE_TYPE_WITH_KEY(encodedData, String, mimeType);
+     DECODE_TYPE_WITH_KEY(encodedData, String, textEncoding);
+     DECODE_TYPE_WITH_KEY(encodedData, URL, failingURL);
+     DECODE_TYPE_WITH_KEY(encodedData, URL, responseURL);
+     DECODE_TYPE_WITH_KEY(encodedData, bool, shouldRevealToSessionHistory);
+ 
+diff --git a/Source/WebCore/replay/WebReplayInputCoders.h b/Source/WebCore/replay/WebReplayInputCoders.h
+index 79b3f2b..fd8e291 100644
+--- a/Source/WebCore/replay/WebReplayInputCoders.h
++++ b/Source/WebCore/replay/WebReplayInputCoders.h
+@@ -34,150 +34,217 @@
+ #include <replay/NondeterministicInput.h>
+ #include <wtf/Vector.h>
+ 
+ namespace WebCore {
+ 
+ struct FrameLoadRequest;
+ 
+ class Document;
+ class FloatSize;
+ class FormData;
++class FormDataElement;
+ class Frame;
+ class HTTPHeaderMap;
+ class HistoryItem;
+ class IntPoint;
+ class Page;
+ class PluginData;
+ class ResourceError;
++class ResourceLoadTiming;
+ class ResourceRequest;
+ class ResourceResponse;
+ class SecurityOrigin;
+ class SerializedScriptValue;
+ class SharedBuffer;
++class SubstituteData;
+ class URL;
+ 
++struct MimeClassInfo;
++struct PluginInfo;
++
+ #if USE(APPKIT)
+ struct KeypressCommand;
+ #endif
+ 
+ uint32_t frameIndexFromDocument(const Document*);
+ WEBCORE_EXPORT uint32_t frameIndexFromFrame(const Frame*);
+ Document* documentFromFrameIndex(Page*, uint32_t frameIndex);
+ WEBCORE_EXPORT Frame* frameFromFrameIndex(Page*, uint32_t frameIndex);
+ 
+ } // namespace WebCore
+ 
+ // Template specializations must be defined in the same namespace as the template declaration.
+ namespace JSC {
+ 
+ template<> struct EncodingTraits<WebCore::FloatSize> {
+-    typedef WebCore::FloatSize DecodedType;
++    typedef const WebCore::FloatSize InputType;
++    typedef WebCore::FloatSize OutputType;
+ 
+     static EncodedValue encodeValue(const WebCore::FloatSize& value);
+     static bool decodeValue(EncodedValue&, WebCore::FloatSize& value);
+ };
+ 
+ template<> struct EncodingTraits<WebCore::FormData> {
+-    typedef RefPtr<WebCore::FormData> DecodedType;
++    typedef RefPtr<WebCore::FormData> InputType;
++    typedef RefPtr<WebCore::FormData> OutputType;
+ 
+     static EncodedValue encodeValue(RefPtr<WebCore::FormData>);
+     static bool decodeValue(EncodedValue&, RefPtr<WebCore::FormData>&);
+ };
+ 
++template<> struct EncodingTraits<WebCore::FormDataElement> {
++    typedef const WebCore::FormDataElement& InputType;
++    typedef WebCore::FormDataElement OutputType;
++    typedef WebCore::FormDataElement ElementType;
++
++    static EncodedValue encodeValue(const WebCore::FormDataElement&);
++    static bool decodeValue(EncodedValue&, WebCore::FormDataElement&);
++};
++
+ template<> struct EncodingTraits<WebCore::FrameLoadRequest> {
+-    typedef WebCore::FrameLoadRequest DecodedType;
++    typedef const WebCore::FrameLoadRequest InputType;
++    typedef std::unique_ptr<WebCore::FrameLoadRequest> OutputType;
+ 
+     static EncodedValue encodeValue(const WebCore::FrameLoadRequest& value);
+     static bool decodeValue(EncodedValue&, std::unique_ptr<WebCore::FrameLoadRequest>& value);
+ };
+ 
+ template<> struct EncodingTraits<WebCore::HTTPHeaderMap> {
+-    typedef WebCore::HTTPHeaderMap DecodedType;
++    typedef const WebCore::HTTPHeaderMap InputType;
++    typedef std::unique_ptr<WebCore::HTTPHeaderMap> OutputType;
+ 
+     static EncodedValue encodeValue(const WebCore::HTTPHeaderMap& value);
+     static bool decodeValue(EncodedValue&, std::unique_ptr<WebCore::HTTPHeaderMap>& value);
+ };
+ 
+ template<> struct EncodingTraits<WebCore::IntPoint> {
+-    typedef WebCore::IntPoint DecodedType;
++    typedef const WebCore::IntPoint InputType;
++    typedef WebCore::IntPoint OutputType;
+ 
+     WEBCORE_EXPORT static EncodedValue encodeValue(const WebCore::IntPoint& value);
+     WEBCORE_EXPORT static bool decodeValue(EncodedValue&, WebCore::IntPoint& value);
+ };
+ 
+ #if USE(APPKIT)
+ template<> struct EncodingTraits<WebCore::KeypressCommand> {
+-    typedef WebCore::KeypressCommand DecodedType;
++    typedef const WebCore::KeypressCommand InputType;
++    typedef WebCore::KeypressCommand OutputType;
++    typedef WebCore::KeypressCommand ElementType;
+ 
+     static EncodedValue encodeValue(const WebCore::KeypressCommand& value);
+     static bool decodeValue(EncodedValue&, WebCore::KeypressCommand& value);
+ };
+ #endif // USE(APPKIT)
+ 
+ template<> struct EncodingTraits<WebCore::HistoryItem> {
+-    typedef RefPtr<WebCore::HistoryItem> DecodedType;
++    typedef Ref<WebCore::HistoryItem> InputType;
++    typedef Ref<WebCore::HistoryItem> OutputType;
++    typedef Ref<WebCore::HistoryItem> ElementType;
+ 
+-    static EncodedValue encodeValue(RefPtr<WebCore::HistoryItem>);
+-    static bool decodeValue(EncodedValue&, RefPtr<WebCore::HistoryItem>&);
++    static EncodedValue encodeValue(Ref<WebCore::HistoryItem>);
++    static bool decodeValue(EncodedValue&, Ref<WebCore::HistoryItem>&);
++};
++
++template<> struct EncodingTraits<WebCore::MimeClassInfo> {
++    typedef const WebCore::MimeClassInfo InputType;
++    typedef WebCore::MimeClassInfo OutputType;
++    typedef WebCore::MimeClassInfo ElementType;
++
++    static EncodedValue encodeValue(const WebCore::MimeClassInfo& value);
++    static bool decodeValue(EncodedValue&, WebCore::MimeClassInfo& value);
+ };
+ 
+ template<> struct EncodingTraits<WebCore::PluginData> {
+-    typedef RefPtr<WebCore::PluginData> DecodedType;
++    typedef RefPtr<WebCore::PluginData> InputType;
++    typedef RefPtr<WebCore::PluginData> OutputType;
+ 
+     static EncodedValue encodeValue(RefPtr<WebCore::PluginData> value);
+     static bool decodeValue(EncodedValue&, RefPtr<WebCore::PluginData>& value);
+ };
+ 
++template<> struct EncodingTraits<WebCore::PluginInfo> {
++    typedef const WebCore::PluginInfo InputType;
++    typedef WebCore::PluginInfo OutputType;
++    typedef WebCore::PluginInfo ElementType;
++
++    static EncodedValue encodeValue(const WebCore::PluginInfo& value);
++    static bool decodeValue(EncodedValue&, WebCore::PluginInfo& value);
++};
++
+ template<> struct EncodingTraits<WebCore::ResourceError> {
+-    typedef WebCore::ResourceError DecodedType;
++    typedef const WebCore::ResourceError InputType;
++    typedef std::unique_ptr<WebCore::ResourceError> OutputType;
+ 
+     static EncodedValue encodeValue(const WebCore::ResourceError& value);
+     static bool decodeValue(EncodedValue&, std::unique_ptr<WebCore::ResourceError>& value);
+ };
+ 
++template<> struct EncodingTraits<WebCore::ResourceLoadTiming> {
++    const typedef WebCore::ResourceLoadTiming InputType;
++    typedef WebCore::ResourceLoadTiming OutputType;
++
++    static EncodedValue encodeValue(const WebCore::ResourceLoadTiming& value);
++    static bool decodeValue(EncodedValue&, WebCore::ResourceLoadTiming& value);
++};
++
+ template<> struct EncodingTraits<WebCore::ResourceRequest> {
+-    typedef WebCore::ResourceRequest DecodedType;
++    typedef const WebCore::ResourceRequest InputType;
++    typedef std::unique_ptr<WebCore::ResourceRequest> OutputType;
+ 
+     static EncodedValue encodeValue(const WebCore::ResourceRequest& value);
+     static bool decodeValue(EncodedValue&, std::unique_ptr<WebCore::ResourceRequest>& value);
+ };
+ 
+ template<> struct EncodingTraits<WebCore::ResourceResponse> {
+-    typedef WebCore::ResourceResponse DecodedType;
++    typedef const WebCore::ResourceResponse InputType;
++    typedef std::unique_ptr<WebCore::ResourceResponse> OutputType;
+ 
+     static EncodedValue encodeValue(const WebCore::ResourceResponse& value);
+     static bool decodeValue(EncodedValue&, std::unique_ptr<WebCore::ResourceResponse>& value);
+ };
+ 
+ template<> struct EncodingTraits<WebCore::SecurityOrigin> {
+-    typedef RefPtr<WebCore::SecurityOrigin> DecodedType;
++    typedef RefPtr<WebCore::SecurityOrigin> InputType;
++    typedef RefPtr<WebCore::SecurityOrigin> OutputType;
+ 
+     static EncodedValue encodeValue(RefPtr<WebCore::SecurityOrigin> value);
+     static bool decodeValue(EncodedValue&, RefPtr<WebCore::SecurityOrigin>& value);
+ };
+ 
+ template<> struct EncodingTraits<WebCore::SharedBuffer> {
+-    typedef RefPtr<WebCore::SharedBuffer> DecodedType;
++    typedef RefPtr<WebCore::SharedBuffer> InputType;
++    typedef RefPtr<WebCore::SharedBuffer> OutputType;
+ 
+     static EncodedValue encodeValue(RefPtr<WebCore::SharedBuffer> value);
+     static bool decodeValue(EncodedValue&, RefPtr<WebCore::SharedBuffer>& value);
+ };
+ 
++template<> struct EncodingTraits<WebCore::SubstituteData> {
++    typedef const WebCore::SubstituteData InputType;
++    typedef WebCore::SubstituteData OutputType;
++    typedef WebCore::SubstituteData ElementType;
++
++    static EncodedValue encodeValue(const WebCore::SubstituteData& value);
++    static bool decodeValue(EncodedValue&, WebCore::SubstituteData& value);
++};
++
+ template<> struct EncodingTraits<WebCore::URL> {
+-    typedef WebCore::URL DecodedType;
++    const typedef WebCore::URL InputType;
++    typedef WebCore::URL OutputType;
+ 
+     static EncodedValue encodeValue(const WebCore::URL& value);
+     static bool decodeValue(EncodedValue&, WebCore::URL& value);
+ };
+ 
+ template<> struct EncodingTraits<WebCore::SerializedScriptValue> {
+-    typedef RefPtr<WebCore::SerializedScriptValue> DecodedType;
++    typedef RefPtr<WebCore::SerializedScriptValue> InputType;
++    typedef RefPtr<WebCore::SerializedScriptValue> OutputType;
+ 
+     static EncodedValue encodeValue(RefPtr<WebCore::SerializedScriptValue>);
+     static bool decodeValue(EncodedValue&, RefPtr<WebCore::SerializedScriptValue>&);
+ };
+ 
+ } // namespace JSC
+ 
+ #endif // ENABLE(WEB_REPLAY)
+ 
+ #endif // WebReplayInputCoders_h
+diff --git a/Source/WebCore/replay/WebReplayInputCreationMethods.cpp b/Source/WebCore/replay/WebReplayInputCreationMethods.cpp
+index bee1923..cb53943 100644
+--- a/Source/WebCore/replay/WebReplayInputCreationMethods.cpp
++++ b/Source/WebCore/replay/WebReplayInputCreationMethods.cpp
+@@ -46,22 +46,22 @@ std::unique_ptr<InitialNavigation> InitialNavigation::createFromPage(const Page&
+     // Make sure that this is in sync with ReplayController::beginCapturing().
+     RefPtr<SecurityOrigin> originCopy = mainFrame.document()->securityOrigin()->isolatedCopy();
+     URL url = mainFrame.document()->url();
+     String referrer = mainFrame.loader().referrer();
+     return std::make_unique<InitialNavigation>(WTF::move(originCopy), url, referrer);
+ }
+ 
+ std::unique_ptr<InitializeHistory> InitializeHistory::createFromPage(const Page& page)
+ {
+     int backCount = page.backForward().backCount();
+-    Vector<RefPtr<HistoryItem>> entries(backCount + 1);
++    Vector<Ref<HistoryItem>> entries(backCount + 1);
+ 
+     // Only save backward entries; the initial navigation will truncate any forward entries.
+     for (int i = -backCount; i <= 0; ++i)
+         entries[i + backCount] = page.backForward().itemAtIndex(i)->copy();
+ 
+-    return std::make_unique<InitializeHistory>(entries);
++    return std::make_unique<InitializeHistory>(WTF::move(entries));
+ }
+ 
+ } // namespace WebCore
+ 
+ #endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp b/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
+index 6aba286..092a595 100644
+--- a/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
++++ b/Source/WebCore/replay/WebReplayInputDispatchMethods.cpp
+@@ -78,24 +78,24 @@ void InitialNavigation::dispatch(Page& page)
+ }
+ 
+ void InitializeHistory::dispatch(Page& page)
+ {
+     return; // HACK
+ 
+     // FIXME: Load the empty document, so that when we prune the back-forward list it
+     // is the single remaining entry. <https://webkit.org/b/131989>
+     page.backForward().clear();
+ 
+-    for (RefPtr<HistoryItem> historyEntry : m_entries)
++    for (Ref<HistoryItem>& historyEntry : m_entries)
+         page.backForward().addItem(historyEntry->copy());
+ 
+-    page.mainFrame().loader().history().setCurrentItem(page.backForward().currentItem());
++    page.mainFrame().loader().history().setCurrentItem(*page.backForward().currentItem());
+ }
+ 
+ // Network inputs.
+ void ResourceLoaderDidFail::dispatch(Page& page)
+ {
+     if (ResourceLoader* loader = resourceLoaderForOrdinal(page, ordinal(), frameIndex()))
+         loader->didFail(m_error->copy());
+     // FIXME: signal error if the callback couldn't be fired.
+ }
+ 
+diff --git a/Source/WebKit2/Shared/WebEvent.h b/Source/WebKit2/Shared/WebEvent.h
+index dd4ea05..7ca8ea8 100644
+--- a/Source/WebKit2/Shared/WebEvent.h
++++ b/Source/WebKit2/Shared/WebEvent.h
+@@ -29,30 +29,29 @@
+ 
+ // FIXME: We should probably move to makeing the WebCore/PlatformFooEvents trivial classes so that
+ // we can use them as the event type.
+ 
+ #include <WebCore/FloatPoint.h>
+ #include <WebCore/FloatSize.h>
+ #include <WebCore/IntPoint.h>
+ #include <WebCore/IntSize.h>
+ #include <wtf/text/WTFString.h>
+ 
++#if USE(APPKIT)
++#include <WebCore/KeypressCommand.h>
++#endif
++
+ namespace IPC {
+     class ArgumentDecoder;
+     class ArgumentEncoder;
+ }
+ 
+-#if USE(APPKIT)
+-namespace WebCore {
+-struct KeypressCommand;
+-}
+-#endif
+ 
+ namespace WebKit {
+ 
+ class WebEvent {
+ public:
+     enum Type : int8_t {
+         NoType = -1,
+         
+         // WebMouseEvent
+         MouseDown,
+diff --git a/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.cpp b/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.cpp
+index 3457a87..b326b94 100644
+--- a/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.cpp
++++ b/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.cpp
+@@ -60,21 +60,21 @@ WK_REPLAY_INPUT_NAMES_FOR_EACH(IMPORT_FROM_WEBKIT_NAMESPACE)
+ 
+ // FIXME: This is copied verbatim from WebReplayInputCoders.cpp
+ #define ENCODE_TYPE_WITH_KEY(_encodedValue, _type, _key, _value) \
+ _encodedValue.put<_type>(ASCIILiteral(#_key), _value)
+ 
+ #define DECODE_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _lvalue) \
+     if (!_encodedValue.get<_type>(ASCIILiteral(#_key), _lvalue)) \
+         return false
+ 
+ #define DECODE_TYPE_WITH_KEY(_encodedValue, _type, _key) \
+-    EncodingTraits<_type>::DecodedType _key; \
++    EncodingTraits<_type>::OutputType _key; \
+     DECODE_TYPE_WITH_KEY_TO_LVALUE(_encodedValue, _type, _key, _key)
+ 
+ 
+ using WebCore::FloatSize;
+ using WebCore::IntPoint;
+ using WebCore::KeypressCommand;
+ using WebCore::MemoizedDOMResultBase;
+ using WebKit::WebEvent;
+ using WebKit::WebMouseEvent;
+ using WebKit::WebKeyboardEvent;
+diff --git a/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.h b/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.h
+index f68c60c..6566a2d 100644
+--- a/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.h
++++ b/Source/WebKit2/WebProcess/Replay/WKReplayInputCoders.h
+@@ -35,42 +35,46 @@
+ namespace WebKit {
+ class WebKeyboardEvent;
+ class WebMouseEvent;
+ class WebWheelEvent;
+ }
+ 
+ // Template specializations must be defined in the same namespace as the template declaration.
+ namespace JSC {
+ 
+ template<> struct EncodingTraits<JSC::NondeterministicInputBase> {
+-    typedef JSC::NondeterministicInputBase DecodedType;
++    typedef JSC::NondeterministicInputBase InputType;
++    typedef std::unique_ptr<JSC::NondeterministicInputBase> OutputType;
+ 
+     static EncodedValue encodeValue(const JSC::NondeterministicInputBase& input);
+     static bool decodeValue(EncodedValue&, std::unique_ptr<JSC::NondeterministicInputBase>& input);
+ };
+ 
+ // Concrete input subclasses.
+ template<> struct EncodingTraits<WebKit::WebKeyboardEvent> {
+-    typedef WebKit::WebKeyboardEvent DecodedType;
++    typedef WebKit::WebKeyboardEvent InputType;
++    typedef std::unique_ptr<WebKit::WebKeyboardEvent> OutputType;
+ 
+     static EncodedValue encodeValue(const WebKit::WebKeyboardEvent& value);
+     static bool decodeValue(EncodedValue&, std::unique_ptr<WebKit::WebKeyboardEvent>& value);
+ };
+ template<> struct EncodingTraits<WebKit::WebMouseEvent> {
+-    typedef WebKit::WebMouseEvent DecodedType;
++    typedef WebKit::WebMouseEvent InputType;
++    typedef std::unique_ptr<WebKit::WebMouseEvent> OutputType;
+ 
+     static EncodedValue encodeValue(const WebKit::WebMouseEvent& value);
+     static bool decodeValue(EncodedValue&, std::unique_ptr<WebKit::WebMouseEvent>& value);
+ };
+ 
+ template<> struct EncodingTraits<WebKit::WebWheelEvent> {
+-    typedef WebKit::WebWheelEvent DecodedType;
++    typedef WebKit::WebWheelEvent InputType;
++    typedef std::unique_ptr<WebKit::WebWheelEvent> OutputType;
+ 
+     static EncodedValue encodeValue(const WebKit::WebWheelEvent& value);
+     static bool decodeValue(EncodedValue&, std::unique_ptr<WebKit::WebWheelEvent>& value);
+ };
+ 
+ } // namespace JSC
+ 
+ #endif // ENABLE(WEB_REPLAY)
+ 
+ #endif // WKReplayInputCoders_h
+-- 
+2.2.2
+

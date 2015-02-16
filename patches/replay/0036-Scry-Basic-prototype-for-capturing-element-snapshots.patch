@@ -1,0 +1,1548 @@
+From 39af1cb2ca75234e5b818ffe21c70a1b57444778 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Fri, 23 Jan 2015 15:03:00 -0800
+Subject: [PATCH] [Scry] Basic prototype for capturing element snapshots.
+
+* Adds "Track Element" context menu item to elements in the DOM tree.
+* Add frontend Manager for DOMTracing and protocol types.
+* Once tracked, a snapshot is created immediately.
+* On subsequent paints, create a new snapshot of the element and archive
+the old one if its bounding box is different (changed size or position).
+* Send snapshot created notifications to the frontend.
+* Convert will/didPaint to use references in the agents.
+---
+ .../inspector/protocol/DOMTracing.json             |  83 ++++++-
+ Source/WTF/wtf/WeakPtr.h                           |   1 +
+ Source/WebCore/inspector/InspectorController.cpp   |   2 +-
+ Source/WebCore/inspector/InspectorDOMAgent.h       |   2 +-
+ .../WebCore/inspector/InspectorDOMTracingAgent.cpp | 264 +++++++++++++++++++--
+ .../WebCore/inspector/InspectorDOMTracingAgent.h   |  66 ++++--
+ .../WebCore/inspector/InspectorInstrumentation.cpp |  13 +-
+ .../WebCore/inspector/InspectorInstrumentation.h   |  20 +-
+ Source/WebCore/inspector/InspectorPageAgent.cpp    |   6 +-
+ Source/WebCore/inspector/InspectorPageAgent.h      |   2 +-
+ .../WebCore/inspector/InspectorTimelineAgent.cpp   |  21 +-
+ Source/WebCore/inspector/InspectorTimelineAgent.h  |   3 +-
+ Source/WebCore/platform/graphics/ImageBuffer.cpp   |  32 +++
+ Source/WebCore/platform/graphics/ImageBuffer.h     |   2 +
+ .../Localizations/en.lproj/localizedStrings.js     | Bin 57004 -> 57110 bytes
+ Source/WebInspectorUI/UserInterface/Base/Main.js   |   3 +
+ .../UserInterface/Controllers/DOMTracingManager.js |  79 ++++++
+ Source/WebInspectorUI/UserInterface/Main.html      |   3 +
+ .../UserInterface/Models/ElementSnapshot.js        |  72 ++++++
+ .../UserInterface/Protocol/DOMTracingObserver.js   |  39 +++
+ .../UserInterface/Views/DOMTreeElement.js          |   5 +
+ 21 files changed, 644 insertions(+), 74 deletions(-)
+ create mode 100644 Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js
+ create mode 100644 Source/WebInspectorUI/UserInterface/Models/ElementSnapshot.js
+ create mode 100644 Source/WebInspectorUI/UserInterface/Protocol/DOMTracingObserver.js
+
+diff --git a/Source/JavaScriptCore/inspector/protocol/DOMTracing.json b/Source/JavaScriptCore/inspector/protocol/DOMTracing.json
+index 9559dc0..b6c9883 100644
+--- a/Source/JavaScriptCore/inspector/protocol/DOMTracing.json
++++ b/Source/JavaScriptCore/inspector/protocol/DOMTracing.json
+@@ -1,24 +1,91 @@
+ {
+     "domain": "DOMTracing",
+     "description": "DOM tracing allows working backwards from visual changes to the DOM operations that caused them.",
+     "types": [
+         {
+-            "id": "DOMBreakpointType",
+-            "type": "string",
+-            "enum": ["subtree-modified", "attribute-modified", "node-removed"],
+-            "description": "DOM breakpoint type."
++            "id": "SnapshotId",
++            "type": "integer",
++            "description": "Identifier for a snapshot, that can be used to fetch additional data."
++        },
++        {
++            "id": "StableNodeId",
++            "type": "integer",
++            "description": "Stable, unique DOM node identifier."
++        },
++        {
++            "id": "ReplayPosition",
++            "type": "object",
++            "description": "(Copied from Replay.json, since that requires ENABLE(WEB_REPLAY) to be true.)",
++            "properties": [
++               { "name": "segmentOffset", "type": "integer", "description": "Offset for a segment within the currently-loaded replay session." },
++               { "name": "inputOffset", "type": "integer", "description": "Offset for an event loop input within the specified session segment." }
++            ]
++        },
++        {
++            "id": "FloatRect",
++            "type": "object",
++            "description": "A rectangle.",
++            "properties": [
++                { "name": "x", "type": "number", "description": "The x position." },
++                { "name": "y", "type": "number", "description": "The y position." },
++                { "name": "width", "type": "number", "description": "The width metric." },
++                { "name": "height", "type": "number", "description": "The height metric." }
++            ]
++        },
++        {
++            "id": "ElementSnapshot",
++            "type": "object",
++            "properties": [
++                { "name": "nodeId", "$ref": "DOM.NodeId", "description": "The transient id for the element that was snapshotted. Can change between runs."},
++                { "name": "snapshotId", "$ref": "SnapshotId" },
++                { "name": "boundingBox", "$ref": "FloatRect", "description": "Bounding box for the element's fragments in root view (global, absolute) coordinates." },
++                { "name": "elapsedTimestamp", "type": "number", "description": "Elapsed time since the start of page execution when the snapshot was created." },
++                { "name": "stableNodeId", "$ref": "StableNodeId", "optional": true, "description": "The stable id for the element that was snapshotted. Is stable across runs."},
++                { "name": "timeIndex", "$ref": "ReplayPosition", "optional": true, "description": "Replay position at which the snapshot was taken." }
++            ]
++        },
++        {
++            "id": "ElementSnapshotPayload",
++            "type": "object",
++            "properties": [
++                { "name": "snapshotId", "$ref": "SnapshotId" },
++                { "name": "imageData", "type": "string", "description": "Base64-encoded image data for the snapshot." }
++            ]
+         }
+     ],
+     "commands": [
+         {
+-            "name": "commandDummy",
+-            "description": "Sets breakpoint on particular operation with DOM."
++            "name": "startTrackingElement",
++            "description": "Sets the element whose changes should be tracked.",
++            "parameters": [
++                 { "name": "nodeId", "$ref": "DOM.NodeId", "description": "Identifier for the element that should be tracked." }
++            ]
++        },
++        {
++            "name": "stopTracking",
++            "description": "Clears the current element being tracked.",
++            "parameters": [
++                 { "name": "nodeId", "$ref": "DOM.NodeId", "description": "Identifier for the element." }
++            ]
++        },
++        {
++            "name": "getSnapshotPayload",
++            "description": "Request a snapshot payload (i.e., potentially large image data or style diff)",
++            "parameters": [
++                 { "name": "snapshotId", "$ref": "SnapshotId", "description": "Identifier for the snapshot." }
++            ],
++            "returns": [
++                 { "name": "payload", "$ref": "ElementSnapshotPayload" }
++            ]
+         }
+      ],
+     "events": [
+         {
+-            "name": "eventDummy",
+-            "description": "Called when shadow root is popped from the element."
++            "name": "snapshotCreated",
++            "description": "Called when an element snapshot is created.",
++            "parameters": [
++                { "name": "snapshot", "$ref": "ElementSnapshot", "description": "Snapshot data for an element." }
++            ]
+         }
+     ]
+ }
+diff --git a/Source/WTF/wtf/WeakPtr.h b/Source/WTF/wtf/WeakPtr.h
+index 45ec180..07f9bec 100644
+--- a/Source/WTF/wtf/WeakPtr.h
++++ b/Source/WTF/wtf/WeakPtr.h
+@@ -92,20 +92,21 @@ public:
+     WeakPtr() : m_ref(WeakReference<T>::create(nullptr)) { }
+     WeakPtr(const WeakPtr& o) : m_ref(o.m_ref.copyRef()) { }
+     template<typename U> WeakPtr(const WeakPtr<U>& o) : m_ref(o.m_ref.copyRef()) { }
+ 
+     T* get() const { return m_ref->get(); }
+     operator bool() const { return m_ref->get(); }
+ 
+     WeakPtr& operator=(const WeakPtr& o) { m_ref = o.m_ref.copyRef(); return *this; }
+     template<typename U> WeakPtr& operator=(const WeakPtr<U>& o) { m_ref = o.m_ref.copyRef(); return *this; }
+ 
++    T& operator*() const { return *m_ref->get(); }
+     T* operator->() const { return m_ref->get(); }
+ 
+ private:
+     friend class WeakPtrFactory<T>;
+     WeakPtr(Ref<WeakReference<T>>&& ref) : m_ref(std::forward<Ref<WeakReference<T>>>(ref)) { }
+ 
+     Ref<WeakReference<T>> m_ref;
+ };
+ 
+ template<typename T>
+diff --git a/Source/WebCore/inspector/InspectorController.cpp b/Source/WebCore/inspector/InspectorController.cpp
+index c678726..c38b679 100644
+--- a/Source/WebCore/inspector/InspectorController.cpp
++++ b/Source/WebCore/inspector/InspectorController.cpp
+@@ -130,21 +130,21 @@ InspectorController::InspectorController(Page& page, InspectorClient* inspectorC
+ #endif
+ 
+ #if ENABLE(WEB_REPLAY)
+     m_agents.append(std::make_unique<InspectorReplayAgent>(m_instrumentingAgents.get(), pageAgent));
+ #endif
+ 
+     auto domStorageAgentPtr = std::make_unique<InspectorDOMStorageAgent>(m_instrumentingAgents.get(), m_pageAgent);
+     InspectorDOMStorageAgent* domStorageAgent = domStorageAgentPtr.get();
+     m_agents.append(WTF::move(domStorageAgentPtr));
+ 
+-    m_agents.append(std::make_unique<InspectorDOMTracingAgent>(m_instrumentingAgents.get()));
++    m_agents.append(std::make_unique<InspectorDOMTracingAgent>(m_instrumentingAgents.get(), m_domAgent));
+ 
+     auto timelineAgentPtr = std::make_unique<InspectorTimelineAgent>(m_instrumentingAgents.get(), pageAgent, InspectorTimelineAgent::PageInspector, inspectorClient);
+     m_timelineAgent = timelineAgentPtr.get();
+     m_agents.append(WTF::move(timelineAgentPtr));
+ 
+     auto resourceAgentPtr = std::make_unique<InspectorResourceAgent>(m_instrumentingAgents.get(), pageAgent, inspectorClient);
+     m_resourceAgent = resourceAgentPtr.get();
+     m_agents.append(WTF::move(resourceAgentPtr));
+ 
+     auto consoleAgentPtr = std::make_unique<PageConsoleAgent>(m_injectedScriptManager.get(), m_domAgent);
+diff --git a/Source/WebCore/inspector/InspectorDOMAgent.h b/Source/WebCore/inspector/InspectorDOMAgent.h
+index f839792..89eb1fc 100644
+--- a/Source/WebCore/inspector/InspectorDOMAgent.h
++++ b/Source/WebCore/inspector/InspectorDOMAgent.h
+@@ -169,20 +169,21 @@ public:
+     void didCommitLoad(Document*);
+     void frameDocumentUpdated(Frame*);
+ 
+     // Callbacks that don't directly correspond to an instrumentation entry point.
+     void setDocument(Document*);
+     void releaseDanglingNodes();
+     void mainFrameDOMContentLoaded();
+ 
+     void styleAttributeInvalidated(const Vector<Element*>& elements);
+ 
++    int pushNodePathToFrontend(Node*);
+     int pushNodeToFrontend(ErrorString&, int documentNodeId, Node*);
+     Node* nodeForId(int nodeId);
+     int boundNodeId(Node*);
+     void setDOMListener(DOMListener*);
+     BackendNodeId backendNodeIdForNode(Node*, const String& nodeGroup);
+ 
+     static String documentURLString(Document*);
+ 
+     RefPtr<Inspector::Protocol::Runtime::RemoteObject> resolveNode(Node*, const String& objectGroup);
+     bool handleMousePress();
+@@ -216,21 +217,20 @@ private:
+     std::unique_ptr<HighlightConfig> highlightConfigFromInspectorObject(ErrorString&, Inspector::InspectorObject* highlightInspectorObject);
+ 
+     // Node-related methods.
+     typedef HashMap<RefPtr<Node>, int> NodeToIdMap;
+     int bind(Node*, NodeToIdMap*);
+     void unbind(Node*, NodeToIdMap*);
+ 
+     Node* assertEditableNode(ErrorString&, int nodeId);
+     Element* assertEditableElement(ErrorString&, int nodeId);
+ 
+-    int pushNodePathToFrontend(Node*);
+     void pushChildNodesToFrontend(int nodeId, int depth = 1);
+ 
+     bool hasBreakpoint(Node*, int type);
+     void updateSubtreeBreakpoints(Node* root, uint32_t rootMask, bool value);
+ 
+     Ref<Inspector::Protocol::DOM::Node> buildObjectForNode(Node*, int depth, NodeToIdMap*);
+     Ref<Inspector::Protocol::Array<String>> buildArrayForElementAttributes(Element*);
+     Ref<Inspector::Protocol::Array<Inspector::Protocol::DOM::Node>> buildArrayForContainerChildren(Node* container, int depth, NodeToIdMap* nodesMap);
+     Ref<Inspector::Protocol::DOM::EventListener> buildObjectForEventListener(const RegisteredEventListener&, const AtomicString& eventType, Node*, const String* objectGroupId);
+     RefPtr<Inspector::Protocol::DOM::AccessibilityProperties> buildObjectForAccessibilityProperties(Node*);
+diff --git a/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp b/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp
+index 7a30419..f5f0acd 100644
+--- a/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp
++++ b/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp
+@@ -3,116 +3,342 @@
+  *
+  * Redistribution and use in source and binary forms, with or without
+  * modification, are permitted provided that the following conditions
+  * are met:
+  *
+  * 1.  Redistributions of source code must retain the above copyright
+  *     notice, this list of conditions and the following disclaimer.
+  * 2.  Redistributions in binary form must reproduce the above copyright
+  *     notice, this list of conditions and the following disclaimer in the
+  *     documentation and/or other materials provided with the distribution.
+- * 3.  Neither the name of Apple Inc. ("Apple") nor the names of
+- *     its contributors may be used to endorse or promote products derived
+- *     from this software without specific prior written permission.
+  *
+  * THIS SOFTWARE IS PROVIDED BY APPLE AND ITS CONTRIBUTORS "AS IS" AND ANY
+  * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+  * DISCLAIMED. IN NO EVENT SHALL APPLE OR ITS CONTRIBUTORS BE LIABLE FOR ANY
+  * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+  * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+  * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+  * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #include "config.h"
+ 
+-#if ENABLE(INSPECTOR)
+-
+ #include "InspectorDOMTracingAgent.h"
+ 
+-#include "InstrumentingAgents.h"
+ #include "Element.h"
++#include "FrameSnapshotting.h"
++#include "FrameView.h"
++#include "ImageBuffer.h"
++#include "InspectorDOMAgent.h"
++#include "InspectorPageAgent.h"
++#include "InstrumentingAgents.h"
++#include "Logging.h"
+ #include "MainFrame.h"
+ #include "Node.h"
++#include "Page.h"
++#include "RenderObject.h"
+ #include <inspector/InspectorFrontendChannel.h>
++#include <wtf/Stopwatch.h>
++#include <wtf/TemporaryChange.h>
+ 
+ #if ENABLE(WEB_REPLAY)
+-#include "ReplaySessionSegment.h"
++#include "ReplayController.h"
+ #endif
+ 
+ using namespace Inspector;
+ 
+ namespace WebCore {
+ 
+-InspectorDOMTracingAgent::InspectorDOMTracingAgent(InstrumentingAgents* instrumentingAgents)
++ElementSnapshot::ElementSnapshot() { }
++ElementSnapshot::~ElementSnapshot() { }
++
++ElementSnapshot::ElementSnapshot(std::unique_ptr<ImageBuffer> data, const LayoutRect& bounds, uint64_t snapshotId)
++    : imageData(std::move(data))
++    , boundingBox(bounds)
++    , snapshotId(snapshotId)
++{
++}
++
++bool operator==(const ElementSnapshot& a, const ElementSnapshot& b)
++{
++    if (a.snapshotId == b.snapshotId)
++        return true;
++
++    // These are root frame view coordinates, so scrolling will not affect equality.
++    if (a.boundingBox != b.boundingBox)
++        return false;
++
++    ASSERT(a.imageData->logicalSize() == b.imageData->logicalSize());
++
++    float diffPercent = ImageBuffer::computeDifference(*a.imageData, *b.imageData);
++    return diffPercent < 0.01f;
++}
++
++InspectorDOMTracingAgent::InspectorDOMTracingAgent(InstrumentingAgents* instrumentingAgents, InspectorDOMAgent* domAgent)
+     : InspectorAgentBase(ASCIILiteral("DOMTracing"), instrumentingAgents)
++    , m_domAgent(domAgent)
+ {
+ }
+ 
+ InspectorDOMTracingAgent::~InspectorDOMTracingAgent()
+ {
+ }
+ 
++std::unique_ptr<ElementSnapshot> InspectorDOMTracingAgent::createSnapshot(Element& element)
++{
++    TemporaryChange<bool> suppressDidPaintCalls(m_isSnapshottingElement, true);
++
++    if (!element.renderer())
++        return std::make_unique<ElementSnapshot>();
++
++    std::unique_ptr<ImageBuffer> imageData = snapshotNode(element.renderer()->frame().mainFrame(), element);
++    IntRect bounds = element.boundsInRootViewSpace();
++    return std::make_unique<ElementSnapshot>(std::move(imageData), bounds, m_nextSnapshotId++);
++}
++
+ void InspectorDOMTracingAgent::didCreateFrontendAndBackend(InspectorFrontendChannel* frontendChannel, InspectorBackendDispatcher* backendDispatcher)
+ {
+     m_frontendDispatcher = std::make_unique<InspectorDOMTracingFrontendDispatcher>(frontendChannel);
+     m_backendDispatcher = InspectorDOMTracingBackendDispatcher::create(backendDispatcher, this);
+ 
+     m_instrumentingAgents->setInspectorDOMTracingAgent(this);
+ }
+ 
+ void InspectorDOMTracingAgent::willDestroyFrontendAndBackend(InspectorDisconnectReason)
+ {
+     m_frontendDispatcher = nullptr;
+     m_backendDispatcher.clear();
+ 
++#if ENABLE(WEB_REPLAY)
++    m_stableNodeIdMap.clear();
++#endif
++    m_savedSnapshotMap.clear();
++
+     m_instrumentingAgents->setInspectorDOMTracingAgent(nullptr);
+ }
+ 
+-void InspectorDOMTracingAgent::didInsertDOMNode(Node& node)
++// Calls from the Inspector frontend.
++void InspectorDOMTracingAgent::startTrackingElement(ErrorString& error, int nodeId)
++{
++    Node* node = m_domAgent->nodeForId(nodeId);
++    if (!node) {
++        error = ASCIILiteral("Could not locate DOM element for id");
++        return;
++    }
++
++    if (!is<Element>(node)) {
++        error = ASCIILiteral("Cannot track DOM nodes which are not elements.");
++        return;
++    }
++
++    if (!setTargetElement(downcast<Element>(node))) {
++        error = ASCIILiteral("Could not track DOM element because it is not being rendered.");
++        return;
++    }
++}
++
++void InspectorDOMTracingAgent::stopTracking(ErrorString& error, int nodeId)
+ {
+-    if (!m_nodeIdMap.contains(&node))
+-        m_nodeIdMap.set(&node, m_nextNodeId++);
++    Node* node = m_domAgent->nodeForId(nodeId);
++    if (!is<Element>(node)) {
++        error = ASCIILiteral("Could not locate DOM element for id");
++        return;
++    }
++    Element* element = downcast<Element>(node);
++    if (element != m_targetElement.get()) {
++        error = ASCIILiteral("Specified DOM element is not currently being tracked.");
++        return;
++    }
++
++    setTargetElement(nullptr);
+ }
+ 
+-void InspectorDOMTracingAgent::didRemoveDOMNode(Node&)
++void InspectorDOMTracingAgent::getSnapshotPayload(ErrorString& error, int snapshotId, RefPtr<Inspector::Protocol::DOMTracing::ElementSnapshotPayload>& out_snapshotPayload)
+ {
++    uint64_t lookupKey = static_cast<uint64_t>(snapshotId);
++    if (snapshotId <= 0 || lookupKey >= m_nextSnapshotId) {
++        error = ASCIILiteral("Invalid snapshot id.");
++        return;
++    }
+ 
++    auto findResult = m_savedSnapshotMap.find(lookupKey);
++
++    ImageBuffer* buffer = nullptr;
++    ASSERT(m_currentSnapshot);
++    if (m_currentSnapshot->snapshotId == lookupKey)
++        buffer = m_currentSnapshot->imageData.get();
++    else if (findResult == m_savedSnapshotMap.end()) {
++        error = ASCIILiteral("Unknown snapshot id.");
++        return;
++    } else
++        buffer = findResult->value->imageData.get();
++
++    ASSERT(buffer);
++
++    out_snapshotPayload = Inspector::Protocol::DOMTracing::ElementSnapshotPayload::create()
++        .setSnapshotId(lookupKey)
++        .setImageData(buffer->toDataURL(ASCIILiteral("image/png")))
++        .release();
+ }
+ 
++// InspectorInstrumentation entry points.
++
+ void InspectorDOMTracingAgent::frameNavigated(Frame& frame)
+ {
++    // If the target node was in this frame, its document will soon be detached.
++    if (!m_targetElement || m_targetElement->document().frame() == &frame)
++        setTargetElement(nullptr);
++
++#if ENABLE(WEB_REPLAY)
+     if (!frame.isMainFrame())
+         return;
+ 
+     resetCounters();
++#endif
++}
++
++void InspectorDOMTracingAgent::didPaint(RenderObject& renderer, const LayoutRect& layerRect)
++{
++    if (!m_targetElement)
++        return;
++
++    if (m_isSnapshottingElement)
++        return;
++
++    LayoutRect absoluteLayerRect = LayoutRect(renderer.localToAbsoluteQuad(FloatRect(layerRect)).boundingBox());
++    FrameView* view = renderer.document().view();
++    ASSERT(view);
++
++    LayoutRect rootLayerRect = absoluteLayerRect;
++    if (!view->frame().isMainFrame())
++        rootLayerRect = LayoutRect(view->contentsToRootView(snappedIntRect(absoluteLayerRect)));
++
++    LayoutRect elementRect = m_targetElement->boundsInRootViewSpace();
++    if (elementRect.intersects(rootLayerRect)) {
++        auto snapshot = createSnapshot(*m_targetElement);
++        if (!m_currentSnapshot || *m_currentSnapshot != *snapshot) {
++            commitSnapshot(WTF::move(snapshot));
++
++            LOG(WebReplay, "DOM Tracing: Detected rendering differences for element %p - x,y (%.1f, %.1f) w,h (%.1f, %.1f)\n",
++                m_targetElement.get(),
++                elementRect.x().toDouble(), elementRect.y().toDouble(),
++                elementRect.width().toDouble(), elementRect.height().toDouble());
++        }
++    }
+ }
+ 
+ #if ENABLE(WEB_REPLAY)
++void InspectorDOMTracingAgent::didInsertDOMNode(Node& node)
++{
++    if (!m_stableNodeIdMap.contains(&node))
++        m_stableNodeIdMap.set(&node, m_nextStableNodeId++);
++}
++
++void InspectorDOMTracingAgent::didRemoveDOMNode(Node&)
++{
++
++}
++
+ void InspectorDOMTracingAgent::replaySegmentCreated(RefPtr<ReplaySessionSegment>&&)
+ {
+     resetCounters();
+ }
+ 
+ void InspectorDOMTracingAgent::replaySegmentLoaded(RefPtr<ReplaySessionSegment>&&)
+ {
+     resetCounters();
+ }
+-#endif // ENABLE(WEB_REPLAY)
++#endif
+ 
+-// Methods called from the frontend.
+-void InspectorDOMTracingAgent::commandDummy(ErrorString&)
++bool InspectorDOMTracingAgent::setTargetElement(Element* targetElement)
+ {
++    if (!targetElement || !targetElement->renderer()) {
++        LOG(WebReplay, "DOM Tracing: Stopped tracking element: %p\n", m_targetElement.get());
++
++        commitSnapshot(std::make_unique<ElementSnapshot>());
++        m_targetElement = WeakPtr<Element>();
++        return false;
++    }
++
++    LOG(WebReplay, "DOM Tracing: Started tracking element: %p\n", targetElement);
++    m_targetElement = targetElement->createWeakPtr();
++    commitSnapshot(createSnapshot(*m_targetElement));
++    return true;
+ }
+ 
++#if ENABLE(WEB_REPLAY)
+ void InspectorDOMTracingAgent::resetCounters()
+ {
+-    m_nodeIdMap.clear();
+-    m_nextNodeId = 1;
++    LOG(WebReplay, "DOM Tracing: Reset stable DOM node id counter.");
++
++    m_stableNodeIdMap.clear();
++    m_nextStableNodeId = 1;
+ }
++#endif
+ 
+-} // namespace WebCore
++static Ref<Inspector::Protocol::DOMTracing::FloatRect> createProtocolObjectForFloatRect(const FloatRect& rect)
++{
++    return Inspector::Protocol::DOMTracing::FloatRect::create()
++        .setX(rect.x())
++        .setY(rect.y())
++        .setWidth(rect.width())
++        .setHeight(rect.height())
++        .release();
++}
++
++#if ENABLE(WEB_REPLAY)
++static Ref<Inspector::Protocol::DOMTracing::ReplayPosition> createProtocolObjectForPosition(const ReplayPosition& position)
++{
++    return Inspector::Protocol::DOMTracing::ReplayPosition::create()
++        .setSegmentOffset(position.segmentOffset)
++        .setInputOffset(position.inputOffset)
++        .release();
++}
++#endif
++
++void InspectorDOMTracingAgent::commitSnapshot(std::unique_ptr<ElementSnapshot> snapshot)
++{
++    ASSERT_ARG(snapshot, snapshot);
++
++    // Empty snapshots are loaded when tracking is stopped. Don't save those.
++    if (m_currentSnapshot && m_currentSnapshot->snapshotId) {
++        uint64_t key = m_currentSnapshot->snapshotId;
++        m_savedSnapshotMap.set(key, WTF::move(m_currentSnapshot));
++    }
++    m_currentSnapshot = WTF::move(snapshot);
++
++    if (!m_currentSnapshot->snapshotId)
++        return;
++
++    // Send the committed non-empty snapshot to the inspector frontend.
++    ASSERT(m_targetElement);
++    int nodeId = m_domAgent->pushNodePathToFrontend(m_targetElement.get());
++    ASSERT(nodeId); // This should get an already assigned id, or bind the node and get a new one.
++
++    double elapsedTime = m_instrumentingAgents->inspectorEnvironment().executionStopwatch()->elapsedTime();
++
++    auto snapshotObject = Inspector::Protocol::DOMTracing::ElementSnapshot::create()
++        .setNodeId(nodeId)
++        .setSnapshotId(m_currentSnapshot->snapshotId)
++        .setBoundingBox(createProtocolObjectForFloatRect(FloatRect(m_currentSnapshot->boundingBox)))
++        .setElapsedTimestamp(elapsedTime)
++        .release();
++
++#if ENABLE(WEB_REPLAY)
++    // Nodes will not be in the map unless they were appended to the document after the Inspector opened.
++    uint64_t stableNodeId = 0;
++    if (m_stableNodeIdMap.contains(m_targetElement.get()))
++        stableNodeId = m_stableNodeIdMap.get(m_targetElement.get());
++    snapshotObject->setStableNodeId(stableNodeId);
+ 
+-#endif // ENABLE(INSPECTOR)
++    Page* page = m_domAgent->pageAgent()->page();
++    if (page && page->replayController().sessionState() == SessionState::Replaying)
++        snapshotObject->setTimeIndex(createProtocolObjectForPosition(page->replayController().currentPosition()));
++#endif
++
++    m_frontendDispatcher->snapshotCreated(WTF::move(snapshotObject));
++}
++
++} // namespace WebCore
+diff --git a/Source/WebCore/inspector/InspectorDOMTracingAgent.h b/Source/WebCore/inspector/InspectorDOMTracingAgent.h
+index 9ec6d9a..8ecd7fc 100644
+--- a/Source/WebCore/inspector/InspectorDOMTracingAgent.h
++++ b/Source/WebCore/inspector/InspectorDOMTracingAgent.h
+@@ -3,88 +3,124 @@
+  *
+  * Redistribution and use in source and binary forms, with or without
+  * modification, are permitted provided that the following conditions
+  * are met:
+  *
+  * 1.  Redistributions of source code must retain the above copyright
+  *     notice, this list of conditions and the following disclaimer.
+  * 2.  Redistributions in binary form must reproduce the above copyright
+  *     notice, this list of conditions and the following disclaimer in the
+  *     documentation and/or other materials provided with the distribution.
+- * 3.  Neither the name of Apple Inc. ("Apple") nor the names of
+- *     its contributors may be used to endorse or promote products derived
+- *     from this software without specific prior written permission.
+  *
+  * THIS SOFTWARE IS PROVIDED BY APPLE AND ITS CONTRIBUTORS "AS IS" AND ANY
+  * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+  * DISCLAIMED. IN NO EVENT SHALL APPLE OR ITS CONTRIBUTORS BE LIABLE FOR ANY
+  * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+  * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+  * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+  * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #ifndef InspectorDOMTracingAgent_h
+ #define InspectorDOMTracingAgent_h
+ 
+ #include "InspectorWebAgentBase.h"
++#include "LayoutRect.h"
+ #include <inspector/InspectorBackendDispatchers.h>
+ #include <inspector/InspectorFrontendDispatchers.h>
+ #include <wtf/Forward.h>
++#include <wtf/WeakPtr.h>
+ 
+ namespace WebCore {
+ 
+-class CharacterData;
+ class Document;
+ class Element;
+ class Frame;
++class ImageBuffer;
++class InspectorDOMAgent;
+ class Node;
++class RenderObject;
+ 
+ #if ENABLE(WEB_REPLAY)
+ class ReplaySessionSegment;
+ #endif
+ 
+-#if ENABLE(INSPECTOR)
++struct ElementSnapshot {
++    std::unique_ptr<ImageBuffer> imageData;
++    LayoutRect boundingBox;
++    uint64_t snapshotId {0};
+ 
+-class InspectorDOMTracingAgent final : public InspectorAgentBase
+-                                     , public Inspector::InspectorDOMTracingBackendDispatcherHandler {
++    bool isEmpty() const { return !imageData || boundingBox.isEmpty(); }
++
++    ElementSnapshot();
++    ~ElementSnapshot();
++    ElementSnapshot(std::unique_ptr<ImageBuffer>, const LayoutRect& bounds, uint64_t snapshotId);
++};
++
++bool operator==(const ElementSnapshot&, const ElementSnapshot&);
++inline bool operator!=(const ElementSnapshot& a, const ElementSnapshot& b) { return !(a == b); }
++    
++class InspectorDOMTracingAgent final : public InspectorAgentBase, public Inspector::InspectorDOMTracingBackendDispatcherHandler {
+ 
+     WTF_MAKE_NONCOPYABLE(InspectorDOMTracingAgent);
+     WTF_MAKE_FAST_ALLOCATED;
+ public:
+-    InspectorDOMTracingAgent(InstrumentingAgents*);
++    InspectorDOMTracingAgent(InstrumentingAgents*, InspectorDOMAgent*);
+     virtual ~InspectorDOMTracingAgent();
+ 
+     virtual void didCreateFrontendAndBackend(Inspector::InspectorFrontendChannel*, Inspector::InspectorBackendDispatcher*) override;
+     virtual void willDestroyFrontendAndBackend(Inspector::InspectorDisconnectReason) override;
+ 
+     // Methods called from the frontend.
+-    virtual void commandDummy(Inspector::ErrorString&) override;
++    virtual void startTrackingElement(Inspector::ErrorString&, int nodeId) override;
++    virtual void stopTracking(Inspector::ErrorString&, int nodeId) override;
++    virtual void getSnapshotPayload(Inspector::ErrorString&, int nodeId, RefPtr<Inspector::Protocol::DOMTracing::ElementSnapshotPayload>&) override;
+ 
+     // InspectorInstrumentation callbacks.
+-    void didInsertDOMNode(Node&);
+-    void didRemoveDOMNode(Node&);
+     void frameNavigated(Frame&);
++    void didPaint(RenderObject&, const LayoutRect&);
+ 
+ #if ENABLE(WEB_REPLAY)
++    void didInsertDOMNode(Node&);
++    void didRemoveDOMNode(Node&);
+     void replaySegmentCreated(RefPtr<ReplaySessionSegment>&&);
+     void replaySegmentLoaded(RefPtr<ReplaySessionSegment>&&);
+ #endif
+ 
++    bool setTargetElement(Element*);
+ private:
++#if ENABLE(WEB_REPLAY)
+     void resetCounters();
++#endif
++    void commitSnapshot(std::unique_ptr<ElementSnapshot>);
++    void elementAppearanceChanged();
++
++    // Use this rather than manually constructing ElementSnapshot to avoid reentrancy issues.
++    std::unique_ptr<ElementSnapshot> createSnapshot(Element&);
+ 
+     std::unique_ptr<Inspector::InspectorDOMTracingFrontendDispatcher> m_frontendDispatcher;
+     RefPtr<Inspector::InspectorDOMTracingBackendDispatcher> m_backendDispatcher;
+ 
+-    HashMap<Node*, uint64_t> m_nodeIdMap;
+-    uint64_t m_nextNodeId {1};
+-};
++#if ENABLE(WEB_REPLAY)
++    HashMap<Node*, uint64_t> m_stableNodeIdMap;
++    uint64_t m_nextStableNodeId {1};
++#endif
++    HashMap<uint64_t, std::unique_ptr<ElementSnapshot>> m_savedSnapshotMap;
++    uint64_t m_nextSnapshotId {1};
++
++    InspectorDOMAgent* m_domAgent {nullptr};
+ 
+-#endif // ENABLE(INSPECTOR)
++    WeakPtr<Element> m_targetElement;
++    // Used to detect rendering differences between paint events.
++    std::unique_ptr<ElementSnapshot> m_currentSnapshot;
+ 
++    // Used to prevent re-entrancy to didPaint(). This could happen because
++    // didPaint() instrumentation fires underneath the node snapshotting code.
++    bool m_isSnapshottingElement {false};
++};
++    
+ } // namespace WebCore
+ 
+ #endif // !defined(InspectorDOMTracingAgent_h)
+diff --git a/Source/WebCore/inspector/InspectorInstrumentation.cpp b/Source/WebCore/inspector/InspectorInstrumentation.cpp
+index 438c360..162750e 100644
+--- a/Source/WebCore/inspector/InspectorInstrumentation.cpp
++++ b/Source/WebCore/inspector/InspectorInstrumentation.cpp
+@@ -473,33 +473,36 @@ InspectorInstrumentationCookie InspectorInstrumentation::willDispatchXHRLoadEven
+     }
+     return InspectorInstrumentationCookie(instrumentingAgents, timelineAgentId);
+ }
+ 
+ void InspectorInstrumentation::didDispatchXHRLoadEventImpl(const InspectorInstrumentationCookie& cookie)
+ {
+     if (InspectorTimelineAgent* timelineAgent = retrieveTimelineAgent(cookie))
+         timelineAgent->didDispatchXHRLoadEvent();
+ }
+ 
+-void InspectorInstrumentation::willPaintImpl(InstrumentingAgents& instrumentingAgents, RenderObject* renderer)
++void InspectorInstrumentation::willPaintImpl(InstrumentingAgents& instrumentingAgents, RenderObject& renderer)
+ {
+     if (InspectorTimelineAgent* timelineAgent = instrumentingAgents.inspectorTimelineAgent())
+-        timelineAgent->willPaint(renderer->frame());
++        timelineAgent->willPaint(renderer.frame());
+ }
+ 
+-void InspectorInstrumentation::didPaintImpl(InstrumentingAgents& instrumentingAgents, RenderObject* renderer, const LayoutRect& rect)
++void InspectorInstrumentation::didPaintImpl(InstrumentingAgents& instrumentingAgents, RenderObject& renderer, const LayoutRect& rect)
+ {
+     if (InspectorTimelineAgent* timelineAgent = instrumentingAgents.inspectorTimelineAgent())
+         timelineAgent->didPaint(renderer, rect);
+ 
+     if (InspectorPageAgent* pageAgent = instrumentingAgents.inspectorPageAgent())
+         pageAgent->didPaint(renderer, rect);
++
++    if (InspectorDOMTracingAgent* domTracingAgent = instrumentingAgents.inspectorDOMTracingAgent())
++        domTracingAgent->didPaint(renderer, rect);
+ }
+ 
+ void InspectorInstrumentation::willScrollLayerImpl(InstrumentingAgents& instrumentingAgents, Frame& frame)
+ {
+     if (InspectorTimelineAgent* timelineAgent = instrumentingAgents.inspectorTimelineAgent())
+         timelineAgent->willScroll(frame);
+ }
+ 
+ void InspectorInstrumentation::didScrollLayerImpl(InstrumentingAgents& instrumentingAgents)
+ {
+@@ -1251,23 +1254,23 @@ InstrumentingAgents* InspectorInstrumentation::instrumentingAgentsForPage(Page*
+ {
+     return page ? instrumentingAgentsForPage(*page) : nullptr;
+ }
+ 
+ InstrumentingAgents* InspectorInstrumentation::instrumentingAgentsForPage(Page& page)
+ {
+     ASSERT(isMainThread());
+     return page.inspectorController().m_instrumentingAgents.get();
+ }
+ 
+-InstrumentingAgents* InspectorInstrumentation::instrumentingAgentsForRenderer(RenderObject* renderer)
++InstrumentingAgents* InspectorInstrumentation::instrumentingAgentsForRenderer(RenderObject& renderer)
+ {
+-    return instrumentingAgentsForFrame(renderer->frame());
++    return instrumentingAgentsForFrame(renderer.frame());
+ }
+ 
+ InstrumentingAgents* InspectorInstrumentation::instrumentingAgentsForWorkerGlobalScope(WorkerGlobalScope* workerGlobalScope)
+ {
+     return workerGlobalScope ? workerGlobalScope->workerInspectorController().m_instrumentingAgents.get() : nullptr;
+ }
+ 
+ InstrumentingAgents* InspectorInstrumentation::instrumentingAgentsForNonDocumentContext(ScriptExecutionContext* context)
+ {
+     ASSERT(context);
+diff --git a/Source/WebCore/inspector/InspectorInstrumentation.h b/Source/WebCore/inspector/InspectorInstrumentation.h
+index 610c4cd..2d71964 100644
+--- a/Source/WebCore/inspector/InspectorInstrumentation.h
++++ b/Source/WebCore/inspector/InspectorInstrumentation.h
+@@ -338,22 +338,22 @@ private:
+     static InspectorInstrumentationCookie willFireTimerImpl(InstrumentingAgents&, int timerId, ScriptExecutionContext*);
+     static void didFireTimerImpl(const InspectorInstrumentationCookie&);
+     static void didInvalidateLayoutImpl(InstrumentingAgents&, Frame&);
+     static InspectorInstrumentationCookie willLayoutImpl(InstrumentingAgents&, Frame&);
+     static void didLayoutImpl(const InspectorInstrumentationCookie&, RenderObject*);
+     static void didScrollImpl(InstrumentingAgents&);
+     static InspectorInstrumentationCookie willDispatchXHRLoadEventImpl(InstrumentingAgents&, XMLHttpRequest&, ScriptExecutionContext*);
+     static void didDispatchXHRLoadEventImpl(const InspectorInstrumentationCookie&);
+     static void willScrollLayerImpl(InstrumentingAgents&, Frame&);
+     static void didScrollLayerImpl(InstrumentingAgents&);
+-    static void willPaintImpl(InstrumentingAgents&, RenderObject*);
+-    static void didPaintImpl(InstrumentingAgents&, RenderObject*, const LayoutRect&);
++    static void willPaintImpl(InstrumentingAgents&, RenderObject&);
++    static void didPaintImpl(InstrumentingAgents&, RenderObject&, const LayoutRect&);
+     static InspectorInstrumentationCookie willRecalculateStyleImpl(InstrumentingAgents&, Document&);
+     static void didRecalculateStyleImpl(const InspectorInstrumentationCookie&);
+     static void didScheduleStyleRecalculationImpl(InstrumentingAgents&, Document&);
+ 
+     static void applyEmulatedMediaImpl(InstrumentingAgents&, String&);
+     static void willSendRequestImpl(InstrumentingAgents&, unsigned long identifier, DocumentLoader*, ResourceRequest&, const ResourceResponse& redirectResponse);
+     static void continueAfterPingLoaderImpl(InstrumentingAgents&, unsigned long identifier, DocumentLoader*, ResourceRequest&, const ResourceResponse&);
+     static void markResourceAsCachedImpl(InstrumentingAgents&, unsigned long identifier);
+     static void didLoadResourceFromMemoryCacheImpl(InstrumentingAgents&, DocumentLoader*, CachedResource*);
+     static InspectorInstrumentationCookie willReceiveResourceResponseImpl(InstrumentingAgents&);
+@@ -450,21 +450,21 @@ private:
+     static void layerTreeDidChangeImpl(InstrumentingAgents&);
+     static void renderLayerDestroyedImpl(InstrumentingAgents&, const RenderLayer&);
+     static void pseudoElementDestroyedImpl(InstrumentingAgents&, PseudoElement&);
+ 
+     static InstrumentingAgents* instrumentingAgentsForPage(Page&);
+     static InstrumentingAgents* instrumentingAgentsForFrame(Frame&);
+     static InstrumentingAgents* instrumentingAgentsForFrame(Frame*);
+     static InstrumentingAgents* instrumentingAgentsForContext(ScriptExecutionContext*);
+     static InstrumentingAgents* instrumentingAgentsForDocument(Document&);
+     static InstrumentingAgents* instrumentingAgentsForDocument(Document*);
+-    static InstrumentingAgents* instrumentingAgentsForRenderer(RenderObject*);
++    static InstrumentingAgents* instrumentingAgentsForRenderer(RenderObject&);
+ 
+     static InstrumentingAgents* instrumentingAgentsForWorkerGlobalScope(WorkerGlobalScope*);
+     static InstrumentingAgents* instrumentingAgentsForNonDocumentContext(ScriptExecutionContext*);
+ 
+     static InspectorTimelineAgent* retrieveTimelineAgent(const InspectorInstrumentationCookie&);
+ 
+     static void pauseOnNativeEventIfNeeded(InstrumentingAgents&, bool isDOMEvent, const String& eventName, bool synchronous);
+     static void cancelPauseOnNativeEvent(InstrumentingAgents&);
+ 
+     WEBCORE_EXPORT static int s_frontendCounter;
+@@ -814,29 +814,35 @@ inline InspectorInstrumentationCookie InspectorInstrumentation::willDispatchXHRL
+ inline void InspectorInstrumentation::didDispatchXHRLoadEvent(const InspectorInstrumentationCookie& cookie)
+ {
+     FAST_RETURN_IF_NO_FRONTENDS(void());
+     if (cookie.isValid())
+         didDispatchXHRLoadEventImpl(cookie);
+ }
+ 
+ inline void InspectorInstrumentation::willPaint(RenderObject* renderer)
+ {
+     FAST_RETURN_IF_NO_FRONTENDS(void());
+-    if (InstrumentingAgents* instrumentingAgents = instrumentingAgentsForRenderer(renderer))
+-        return willPaintImpl(*instrumentingAgents, renderer);
++    if (!renderer)
++        return;
++
++    if (InstrumentingAgents* instrumentingAgents = instrumentingAgentsForRenderer(*renderer))
++        return willPaintImpl(*instrumentingAgents, *renderer);
+ }
+ 
+ inline void InspectorInstrumentation::didPaint(RenderObject* renderer, const LayoutRect& rect)
+ {
+     FAST_RETURN_IF_NO_FRONTENDS(void());
+-    if (InstrumentingAgents* instrumentingAgents = instrumentingAgentsForRenderer(renderer))
+-        didPaintImpl(*instrumentingAgents, renderer, rect);
++    if (!renderer)
++        return;
++
++    if (InstrumentingAgents* instrumentingAgents = instrumentingAgentsForRenderer(*renderer))
++        didPaintImpl(*instrumentingAgents, *renderer, rect);
+ }
+ 
+ inline void InspectorInstrumentation::willScrollLayer(Frame& frame)
+ {
+     FAST_RETURN_IF_NO_FRONTENDS(void());
+     if (InstrumentingAgents* instrumentingAgents = instrumentingAgentsForFrame(frame))
+         willScrollLayerImpl(*instrumentingAgents, frame);
+ }
+ 
+ inline void InspectorInstrumentation::didScrollLayer(Frame& frame)
+diff --git a/Source/WebCore/inspector/InspectorPageAgent.cpp b/Source/WebCore/inspector/InspectorPageAgent.cpp
+index 91c7380..e0f19b4 100644
+--- a/Source/WebCore/inspector/InspectorPageAgent.cpp
++++ b/Source/WebCore/inspector/InspectorPageAgent.cpp
+@@ -835,27 +835,27 @@ void InspectorPageAgent::frameClearedScheduledNavigation(Frame& frame)
+ void InspectorPageAgent::willRunJavaScriptDialog(const String& message)
+ {
+     m_frontendDispatcher->javascriptDialogOpening(message);
+ }
+ 
+ void InspectorPageAgent::didRunJavaScriptDialog()
+ {
+     m_frontendDispatcher->javascriptDialogClosed();
+ }
+ 
+-void InspectorPageAgent::didPaint(RenderObject* renderer, const LayoutRect& rect)
++void InspectorPageAgent::didPaint(RenderObject& renderer, const LayoutRect& rect)
+ {
+     if (!m_enabled || !m_showPaintRects)
+         return;
+ 
+-    LayoutRect absoluteRect = LayoutRect(renderer->localToAbsoluteQuad(FloatRect(rect)).boundingBox());
+-    FrameView* view = renderer->document().view();
++    LayoutRect absoluteRect = LayoutRect(renderer.localToAbsoluteQuad(FloatRect(rect)).boundingBox());
++    FrameView* view = renderer.document().view();
+ 
+     LayoutRect rootRect = absoluteRect;
+     if (!view->frame().isMainFrame()) {
+         IntRect rootViewRect = view->contentsToRootView(snappedIntRect(absoluteRect));
+         rootRect = view->frame().mainFrame().view()->rootViewToContents(rootViewRect);
+     }
+ 
+     if (m_client->overridesShowPaintRects()) {
+         m_client->showPaintRect(rootRect);
+         return;
+diff --git a/Source/WebCore/inspector/InspectorPageAgent.h b/Source/WebCore/inspector/InspectorPageAgent.h
+index bfd5775..6ef7974 100644
+--- a/Source/WebCore/inspector/InspectorPageAgent.h
++++ b/Source/WebCore/inspector/InspectorPageAgent.h
+@@ -125,21 +125,21 @@ public:
+     void frameNavigated(DocumentLoader*);
+     void frameDetached(Frame&);
+     void loaderDetachedFromFrame(DocumentLoader&);
+     void frameStartedLoading(Frame&);
+     void frameStoppedLoading(Frame&);
+     void frameScheduledNavigation(Frame&, double delay);
+     void frameClearedScheduledNavigation(Frame&);
+     void willRunJavaScriptDialog(const String& message);
+     void didRunJavaScriptDialog();
+     void applyEmulatedMedia(String&);
+-    void didPaint(RenderObject*, const LayoutRect&);
++    void didPaint(RenderObject&, const LayoutRect&);
+     void didLayout();
+     void didScroll();
+     void didRecalculateStyle();
+     void scriptsEnabled(bool isEnabled);
+ 
+     // Inspector Controller API
+     virtual void didCreateFrontendAndBackend(Inspector::InspectorFrontendChannel*, Inspector::InspectorBackendDispatcher*) override;
+     virtual void willDestroyFrontendAndBackend(Inspector::InspectorDisconnectReason) override;
+ 
+     // Cross-agents API
+diff --git a/Source/WebCore/inspector/InspectorTimelineAgent.cpp b/Source/WebCore/inspector/InspectorTimelineAgent.cpp
+index f6276cc..24778c0 100644
+--- a/Source/WebCore/inspector/InspectorTimelineAgent.cpp
++++ b/Source/WebCore/inspector/InspectorTimelineAgent.cpp
+@@ -329,27 +329,34 @@ void InspectorTimelineAgent::willRecalculateStyle(Frame* frame)
+ void InspectorTimelineAgent::didRecalculateStyle()
+ {
+     didCompleteCurrentRecord(TimelineRecordType::RecalculateStyles);
+ }
+ 
+ void InspectorTimelineAgent::willPaint(Frame& frame)
+ {
+     pushCurrentRecord(InspectorObject::create(), TimelineRecordType::Paint, true, &frame);
+ }
+ 
+-void InspectorTimelineAgent::didPaint(RenderObject* renderer, const LayoutRect& clipRect)
++void InspectorTimelineAgent::didPaint(RenderObject& renderer, const LayoutRect& clipRect)
+ {
+     TimelineRecordEntry& entry = m_recordStack.last();
+     ASSERT(entry.type == TimelineRecordType::Paint);
++
+     FloatQuad quad;
+-    localToPageQuad(*renderer, clipRect, &quad);
++    const FrameView& frameView = renderer.view().frameView();
++    FloatQuad absolute = renderer.localToAbsoluteQuad(FloatQuad(clipRect));
++    quad.setP1(frameView.contentsToRootView(roundedIntPoint(absolute.p1())));
++    quad.setP2(frameView.contentsToRootView(roundedIntPoint(absolute.p2())));
++    quad.setP3(frameView.contentsToRootView(roundedIntPoint(absolute.p3())));
++    quad.setP4(frameView.contentsToRootView(roundedIntPoint(absolute.p4())));
+     entry.data = TimelineRecordFactory::createPaintData(quad);
++
+     didCompleteCurrentRecord(TimelineRecordType::Paint);
+ }
+ 
+ void InspectorTimelineAgent::willScroll(Frame& frame)
+ {
+     pushCurrentRecord(InspectorObject::create(), TimelineRecordType::ScrollLayer, false, &frame);
+ }
+ 
+ void InspectorTimelineAgent::didScroll()
+ {
+@@ -686,26 +693,16 @@ void InspectorTimelineAgent::pushCurrentRecord(RefPtr<InspectorObject>&& data, T
+ {
+     pushCurrentRecord(createRecordEntry(WTF::move(data), type, captureCallStack, frame));
+ }
+ 
+ void InspectorTimelineAgent::clearRecordStack()
+ {
+     m_recordStack.clear();
+     m_id++;
+ }
+ 
+-void InspectorTimelineAgent::localToPageQuad(const RenderObject& renderer, const LayoutRect& rect, FloatQuad* quad)
+-{
+-    const FrameView& frameView = renderer.view().frameView();
+-    FloatQuad absolute = renderer.localToAbsoluteQuad(FloatQuad(rect));
+-    quad->setP1(frameView.contentsToRootView(roundedIntPoint(absolute.p1())));
+-    quad->setP2(frameView.contentsToRootView(roundedIntPoint(absolute.p2())));
+-    quad->setP3(frameView.contentsToRootView(roundedIntPoint(absolute.p3())));
+-    quad->setP4(frameView.contentsToRootView(roundedIntPoint(absolute.p4())));
+-}
+-
+ Page* InspectorTimelineAgent::page()
+ {
+     return m_pageAgent ? m_pageAgent->page() : nullptr;
+ }
+ 
+ } // namespace WebCore
+diff --git a/Source/WebCore/inspector/InspectorTimelineAgent.h b/Source/WebCore/inspector/InspectorTimelineAgent.h
+index ea4485b..deeaa60 100644
+--- a/Source/WebCore/inspector/InspectorTimelineAgent.h
++++ b/Source/WebCore/inspector/InspectorTimelineAgent.h
+@@ -147,21 +147,21 @@ public:
+     void willEvaluateScript(const String&, int, Frame&);
+     void didEvaluateScript(Frame&);
+     void didInvalidateLayout(Frame&);
+     void willLayout(Frame&);
+     void didLayout(RenderObject*);
+     void willScroll(Frame&);
+     void didScroll();
+     void willDispatchXHRLoadEvent(const String&, Frame*);
+     void didDispatchXHRLoadEvent();
+     void willPaint(Frame&);
+-    void didPaint(RenderObject*, const LayoutRect&);
++    void didPaint(RenderObject&, const LayoutRect&);
+     void willRecalculateStyle(Frame*);
+     void didRecalculateStyle();
+     void didScheduleStyleRecalculation(Frame*);
+     void willWriteHTML(unsigned startLine, Frame*);
+     void didWriteHTML(unsigned endLine);
+     void didTimeStamp(Frame&, const String&);
+     void didMarkDOMContentEvent(Frame&);
+     void didMarkLoadEvent(Frame&);
+     void didRequestAnimationFrame(int callbackId, Frame*);
+     void didCancelAnimationFrame(int callbackId, Frame*);
+@@ -216,21 +216,20 @@ private:
+     TimelineRecordEntry createRecordEntry(RefPtr<Inspector::InspectorObject>&& data, TimelineRecordType, bool captureCallStack, Frame*);
+ 
+     void setFrameIdentifier(Inspector::InspectorObject* record, Frame*);
+ 
+     void didCompleteRecordEntry(const TimelineRecordEntry&);
+     void didCompleteCurrentRecord(TimelineRecordType);
+ 
+     void addRecordToTimeline(RefPtr<Inspector::InspectorObject>&&, TimelineRecordType);
+     void clearRecordStack();
+ 
+-    void localToPageQuad(const RenderObject&, const LayoutRect&, FloatQuad*);
+     Page* page();
+ 
+     InspectorPageAgent* m_pageAgent;
+     PageScriptDebugServer* m_scriptDebugServer;
+ 
+     std::unique_ptr<Inspector::InspectorTimelineFrontendDispatcher> m_frontendDispatcher;
+     RefPtr<Inspector::InspectorTimelineBackendDispatcher> m_backendDispatcher;
+ 
+     Vector<TimelineRecordEntry> m_recordStack;
+ 
+diff --git a/Source/WebCore/platform/graphics/ImageBuffer.cpp b/Source/WebCore/platform/graphics/ImageBuffer.cpp
+index b384372..0d1a34f 100644
+--- a/Source/WebCore/platform/graphics/ImageBuffer.cpp
++++ b/Source/WebCore/platform/graphics/ImageBuffer.cpp
+@@ -92,20 +92,52 @@ inline void ImageBuffer::genericConvertToLuminanceMask()
+     }
+     putByteArray(Unmultiplied, srcPixelArray.get(), luminanceRect.size(), luminanceRect, IntPoint());
+ }
+ 
+ void ImageBuffer::convertToLuminanceMask()
+ {
+     // Add platform specific functions with platformConvertToLuminanceMask here later.
+     genericConvertToLuminanceMask();
+ }
+ 
++float ImageBuffer::computeDifference(const ImageBuffer& aBuffer, const ImageBuffer& bBuffer)
++{
++    ASSERT(aBuffer.logicalSize() == bBuffer.logicalSize());
++
++    IntRect luminanceRectA(IntPoint(), aBuffer.internalSize());
++    RefPtr<Uint8ClampedArray> aPixels = aBuffer.getUnmultipliedImageData(luminanceRectA);
++    ASSERT(aPixels);
++
++    IntRect luminanceRectB(IntPoint(), bBuffer.internalSize());
++    RefPtr<Uint8ClampedArray> bPixels = bBuffer.getUnmultipliedImageData(luminanceRectB);
++    ASSERT(bPixels);
++
++    float difference = 0.0;
++    unsigned pixelCount = aPixels->length() / 4;
++
++    ASSERT(aPixels->length() == bPixels->length());
++    // Actual pixel storage (ARGB, RGBA) is not significant for computing grayscale difference.
++    for (unsigned i = 0; i < aPixels->length(); i += 4) {
++        float r = (aPixels->item(i + 0) - bPixels->item(i + 0)) / std::max<float>(255 - bPixels->item(i + 0), bPixels->item(i + 0));
++        float g = (aPixels->item(i + 1) - bPixels->item(i + 1)) / std::max<float>(255 - bPixels->item(i + 1), bPixels->item(i + 1));
++        float b = (aPixels->item(i + 2) - bPixels->item(i + 2)) / std::max<float>(255 - bPixels->item(i + 2), bPixels->item(i + 2));
++        float a = (aPixels->item(i + 3) - bPixels->item(i + 3)) / std::max<float>(255 - bPixels->item(i + 3), bPixels->item(i + 3));
++        float distance = sqrtf(r * r + g * g + b * b + a * a) / 2.0f;
++        if (distance > 1.0 / 255.0)
++            difference += distance;
++    }
++
++    // Difference is the average distance over the entire image.
++    ASSERT(difference >= 0.0f);
++    return difference / float(pixelCount);
++}
++
+ #if !USE(CAIRO)
+ PlatformLayer* ImageBuffer::platformLayer() const
+ {
+     return 0;
+ }
+ #endif
+ 
+ bool ImageBuffer::copyToPlatformTexture(GraphicsContext3D&, Platform3DObject, GC3Denum, bool, bool)
+ {
+     return false;
+diff --git a/Source/WebCore/platform/graphics/ImageBuffer.h b/Source/WebCore/platform/graphics/ImageBuffer.h
+index 1955712..f305253 100644
+--- a/Source/WebCore/platform/graphics/ImageBuffer.h
++++ b/Source/WebCore/platform/graphics/ImageBuffer.h
+@@ -93,20 +93,22 @@ public:
+     const IntSize& internalSize() const { return m_size; }
+     const IntSize& logicalSize() const { return m_logicalSize; }
+ 
+     WEBCORE_EXPORT GraphicsContext* context() const;
+ 
+     WEBCORE_EXPORT PassRefPtr<Image> copyImage(BackingStoreCopy = CopyBackingStore, ScaleBehavior = Scaled) const;
+     // Give hints on the faster copyImage Mode, return DontCopyBackingStore if it supports the DontCopyBackingStore behavior
+     // or return CopyBackingStore if it doesn't.  
+     static BackingStoreCopy fastCopyImageMode();
+ 
++    static float computeDifference(const ImageBuffer&, const ImageBuffer&);
++
+     enum CoordinateSystem { LogicalCoordinateSystem, BackingStoreCoordinateSystem };
+ 
+     PassRefPtr<Uint8ClampedArray> getUnmultipliedImageData(const IntRect&, CoordinateSystem = LogicalCoordinateSystem) const;
+     PassRefPtr<Uint8ClampedArray> getPremultipliedImageData(const IntRect&, CoordinateSystem = LogicalCoordinateSystem) const;
+ 
+     void putByteArray(Multiply multiplied, Uint8ClampedArray*, const IntSize& sourceSize, const IntRect& sourceRect, const IntPoint& destPoint, CoordinateSystem = LogicalCoordinateSystem);
+     
+     void convertToLuminanceMask();
+     
+     String toDataURL(const String& mimeType, const double* quality = 0, CoordinateSystem = LogicalCoordinateSystem) const;
+diff --git a/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js b/Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js
+index 311f80cfa01ef29d5ca97bb7bca5ecdb37e1d2b0..97cc36479cf6f169b4f141b67de7ea8bbb3341a3 100644
+GIT binary patch
+delta 42
+wcmZ3pmwDPg<_$-#vL`cSGbk{)PJZt!IXU1O3wt61SY+~f56jK_uD;^{0A4!~R{#J2
+
+delta 14
+WcmbQXk9o~r<_$-#Zq~c@f&&0KSO>HK
+
+diff --git a/Source/WebInspectorUI/UserInterface/Base/Main.js b/Source/WebInspectorUI/UserInterface/Base/Main.js
+index 21c57f9..83d5630 100644
+--- a/Source/WebInspectorUI/UserInterface/Base/Main.js
++++ b/Source/WebInspectorUI/UserInterface/Base/Main.js
+@@ -59,20 +59,22 @@ WebInspector.loaded = function()
+     if (InspectorBackend.registerNetworkDispatcher)
+         InspectorBackend.registerNetworkDispatcher(new WebInspector.NetworkObserver);
+     if (InspectorBackend.registerDOMDispatcher)
+         InspectorBackend.registerDOMDispatcher(new WebInspector.DOMObserver);
+     if (InspectorBackend.registerDebuggerDispatcher)
+         InspectorBackend.registerDebuggerDispatcher(new WebInspector.DebuggerObserver);
+     if (InspectorBackend.registerDatabaseDispatcher)
+         InspectorBackend.registerDatabaseDispatcher(new WebInspector.DatabaseObserver);
+     if (InspectorBackend.registerDOMStorageDispatcher)
+         InspectorBackend.registerDOMStorageDispatcher(new WebInspector.DOMStorageObserver);
++    if (InspectorBackend.registerDOMTracingDispatcher)
++        InspectorBackend.registerDOMTracingDispatcher(new WebInspector.DOMTracingObserver);
+     if (InspectorBackend.registerApplicationCacheDispatcher)
+         InspectorBackend.registerApplicationCacheDispatcher(new WebInspector.ApplicationCacheObserver);
+     if (InspectorBackend.registerTimelineDispatcher)
+         InspectorBackend.registerTimelineDispatcher(new WebInspector.TimelineObserver);
+     if (InspectorBackend.registerCSSDispatcher)
+         InspectorBackend.registerCSSDispatcher(new WebInspector.CSSObserver);
+     if (InspectorBackend.registerLayerTreeDispatcher)
+         InspectorBackend.registerLayerTreeDispatcher(new WebInspector.LayerTreeObserver);
+     if (InspectorBackend.registerRuntimeDispatcher)
+         InspectorBackend.registerRuntimeDispatcher(new WebInspector.RuntimeObserver);
+@@ -90,20 +92,21 @@ WebInspector.loaded = function()
+     // Listen for the ProvisionalLoadStarted event before registering for events so our code gets called before any managers or sidebars.
+     // This lets us save a state cookie before any managers or sidebars do any resets that would affect state (namely TimelineManager).
+     WebInspector.Frame.addEventListener(WebInspector.Frame.Event.ProvisionalLoadStarted, this._provisionalLoadStarted, this);
+ 
+     // Create the singleton managers next, before the user interface elements, so the user interface can register
+     // as event listeners on these managers.
+     this.branchManager = new WebInspector.BranchManager;
+     this.frameResourceManager = new WebInspector.FrameResourceManager;
+     this.storageManager = new WebInspector.StorageManager;
+     this.domTreeManager = new WebInspector.DOMTreeManager;
++    this.domTracingManager = new WebInspector.DOMTracingManager;
+     this.cssStyleManager = new WebInspector.CSSStyleManager;
+     this.logManager = new WebInspector.LogManager;
+     this.issueManager = new WebInspector.IssueManager;
+     this.analyzerManager = new WebInspector.AnalyzerManager;
+     this.runtimeManager = new WebInspector.RuntimeManager;
+     this.applicationCacheManager = new WebInspector.ApplicationCacheManager;
+     this.timelineManager = new WebInspector.TimelineManager;
+     this.debuggerManager = new WebInspector.DebuggerManager;
+     this.sourceMapManager = new WebInspector.SourceMapManager;
+     this.layerTreeManager = new WebInspector.LayerTreeManager;
+diff --git a/Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js b/Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js
+new file mode 100644
+index 0000000..49203aa
+--- /dev/null
++++ b/Source/WebInspectorUI/UserInterface/Controllers/DOMTracingManager.js
+@@ -0,0 +1,79 @@
++/*
++ * Copyright (C) 2015 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
++ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
++ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
++ * THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++WebInspector.DOMTracingManager = function()
++{
++    WebInspector.Object.call(this);
++
++    this._snapshots = [];
++    this._targetNode = null;
++};
++
++WebInspector.DOMTracingManager.prototype = {
++    constructor: WebInspector.DOMTracingManager,
++    __proto__: WebInspector.Object.prototype,
++
++    // Public
++
++    startTrackingElement: function(node)
++    {
++        this._targetNode = node;
++        return DOMTracingAgent.startTrackingElement(node.id);
++    },
++
++    stopTracking: function()
++    {
++        console.assert(this._targetNode, "Tried to clear target element, but none was set.");
++        if (!this._targetNode)
++            return;
++
++        return DOMTracingAgent.stopTracking(this._targetNode.id);
++    },
++
++    get targetElement()
++    {
++        return this._targetNode;
++    },
++
++    // Protected - Called by DOMTracingObserver
++
++    snapshotCreated: function(snapshot)
++    {
++        var snapshot = new WebInspector.ElementSnapshot(snapshotPayload);
++        this._snapshotMap.set(snapshot.snapshotId, snapshot);
++
++        var eventType = WebInspector.ElementTrackingTimelineRecord.EventType.OutputChanged;
++        var record = new WebInspector.ElementTrackingTimelineRecord(eventType, snapshot);
++        WebInspector.timelineManager.activeRecording.addRecord(record);
++        console.log("Added snapshot record: ", record, snapshot);
++    },
++
++    // Private
++
++    _clearBindings: function()
++    {
++        this._snapshotMap.clear();
++    }
++};
+diff --git a/Source/WebInspectorUI/UserInterface/Main.html b/Source/WebInspectorUI/UserInterface/Main.html
+index ee55c80..1bf3a9c 100644
+--- a/Source/WebInspectorUI/UserInterface/Main.html
++++ b/Source/WebInspectorUI/UserInterface/Main.html
+@@ -176,20 +176,21 @@
+     <script src="Base/LoadLocalizedStrings.js"></script>
+     <script src="Base/MIMETypeUtilities.js"></script>
+     <script src="Base/URLUtilities.js"></script>
+     <script src="Base/Utilities.js"></script>
+ 
+     <script src="Protocol/ApplicationCacheObserver.js"></script>
+     <script src="Protocol/CSSObserver.js"></script>
+     <script src="Protocol/ConsoleObserver.js"></script>
+     <script src="Protocol/DOMObserver.js"></script>
+     <script src="Protocol/DOMStorageObserver.js"></script>
++    <script src="Protocol/DOMTracingObserver.js"></script>
+     <script src="Protocol/DatabaseObserver.js"></script>
+     <script src="Protocol/DebuggerObserver.js"></script>
+     <script src="Protocol/InspectorBackend.js"></script>
+     <script src="Protocol/InspectorFrontendAPI.js"></script>
+     <script src="Protocol/InspectorObserver.js"></script>
+     <script src="Protocol/LayerTreeObserver.js"></script>
+     <script src="Protocol/LoadInspectorBackendCommands.js"></script>
+     <script src="Protocol/MessageDispatcher.js"></script>
+     <script src="Protocol/NetworkObserver.js"></script>
+     <script src="Protocol/PageObserver.js"></script>
+@@ -224,20 +225,21 @@
+     <script src="Models/CookieStorageObject.js"></script>
+     <script src="Models/DOMNode.js"></script>
+     <script src="Models/DOMNodeStyles.js"></script>
+     <script src="Models/DOMSearchMatchObject.js"></script>
+     <script src="Models/DOMStorageObject.js"></script>
+     <script src="Models/DOMTree.js"></script>
+     <script src="Models/DatabaseObject.js"></script>
+     <script src="Models/DatabaseTableObject.js"></script>
+     <script src="Models/DebuggerDashboard.js"></script>
+     <script src="Models/DefaultDashboard.js"></script>
++    <script src="Models/ElementSnapshot.js"></script>
+     <script src="Models/ExecutionContext.js"></script>
+     <script src="Models/ExecutionContextList.js"></script>
+     <script src="Models/Frame.js"></script>
+     <script src="Models/Geometry.js"></script>
+     <script src="Models/Gradient.js"></script>
+     <script src="Models/IndexedDatabase.js"></script>
+     <script src="Models/IndexedDatabaseObjectStore.js"></script>
+     <script src="Models/IndexedDatabaseObjectStoreIndex.js"></script>
+     <script src="Models/IssueMessage.js"></script>
+     <script src="Models/KeyboardShortcut.js"></script>
+@@ -471,20 +473,21 @@
+     <script src="Controllers/AnalyzerManager.js"></script>
+     <script src="Controllers/ApplicationCacheManager.js"></script>
+     <script src="Controllers/BasicBlockAnnotator.js"></script>
+     <script src="Controllers/BranchManager.js"></script>
+     <script src="Controllers/CSSStyleManager.js"></script>
+     <script src="Controllers/CodeMirrorColorEditingController.js"></script>
+     <script src="Controllers/CodeMirrorCompletionController.js"></script>
+     <script src="Controllers/CodeMirrorDragToAdjustNumberController.js"></script>
+     <script src="Controllers/CodeMirrorGradientEditingController.js"></script>
+     <script src="Controllers/CodeMirrorTokenTrackingController.js"></script>
++    <script src="Controllers/DOMTracingManager.js"></script>
+     <script src="Controllers/DOMTreeManager.js"></script>
+     <script src="Controllers/DashboardManager.js"></script>
+     <script src="Controllers/DebuggerManager.js"></script>
+     <script src="Controllers/DragToAdjustController.js"></script>
+     <script src="Controllers/Formatter.js"></script>
+     <script src="Controllers/FormatterContentBuilder.js"></script>
+     <script src="Controllers/FormatterSourceMap.js"></script>
+     <script src="Controllers/FrameResourceManager.js"></script>
+     <script src="Controllers/IssueManager.js"></script>
+     <script src="Controllers/JavaScriptLogViewController.js"></script>
+diff --git a/Source/WebInspectorUI/UserInterface/Models/ElementSnapshot.js b/Source/WebInspectorUI/UserInterface/Models/ElementSnapshot.js
+new file mode 100644
+index 0000000..71a055d
+--- /dev/null
++++ b/Source/WebInspectorUI/UserInterface/Models/ElementSnapshot.js
+@@ -0,0 +1,72 @@
++/*
++ * Copyright (C) 2015 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
++ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
++ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
++ * THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++WebInspector.ElementSnapshot = function(payload)
++{
++    this.nodeId = payload.nodeId;
++    this.snapshotId = payload.snapshotId;
++    this.elapsedTime = payload.elapsedTimestamp;
++    this.boundingRect = WebInspector.Rect.fromObject(payload.boundingBox);
++    console.log(this.boundingRect);
++
++    if (WebInspector.ReplayManager) {
++        // These are only available if ENABLE(WEB_REPLAY).
++        this.stableNodeId = payload.stableNodeId;
++        this.timeIndex = payload.timeIndex || NaN;
++    }
++
++    this._payloadPromise = null;
++}
++
++WebInspector.ElementSnapshot.prototype = {
++    constructor: WebInspector.ElementSnapshot,
++    __proto__: WebInspector.Object.prototype,
++
++    fetchImageData: function()
++    {
++        if (!this._payloadPromise)
++            this._payloadPromise = DOMTracingAgent.getSnapshotPayload.promise(this.snapshotId);
++
++        return this._payloadPromise.then(function(result) {
++            this._imageDataURL = result.payload.imageData;
++            return this._imageDataURL;
++        }.bind(this));
++    },
++
++    get contentURL()
++    {
++        const maximumDataURLSize = 1024 * 1024; // 1 MiB
++
++        if (!this._imageDataURL)
++            return null;
++
++        if (this._imageDataURL.length > maximumDataURLSize) {
++            console.error("Element snapshot too large " + Number.bytesToString(this._imageDataURL.length) + "for data url.");
++            return null;
++        }
++
++        return this._imageDataURL;
++    },
++}
+diff --git a/Source/WebInspectorUI/UserInterface/Protocol/DOMTracingObserver.js b/Source/WebInspectorUI/UserInterface/Protocol/DOMTracingObserver.js
+new file mode 100644
+index 0000000..00d5a56
+--- /dev/null
++++ b/Source/WebInspectorUI/UserInterface/Protocol/DOMTracingObserver.js
+@@ -0,0 +1,39 @@
++/*
++ * Copyright (C) 2015 University of Washington. All rights reserved.
++  *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
++ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
++ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
++ * THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++WebInspector.DOMTracingObserver = function()
++{
++    WebInspector.Object.call(this);
++};
++
++WebInspector.DOMTracingObserver.prototype = {
++    constructor: WebInspector.DOMTracingObserver,
++    __proto__: WebInspector.Object.prototype,
++
++    snapshotCreated: function(snapshot)
++    {
++        WebInspector.domTracingManager.snapshotCreated(snapshot);
++    }
++};
+diff --git a/Source/WebInspectorUI/UserInterface/Views/DOMTreeElement.js b/Source/WebInspectorUI/UserInterface/Views/DOMTreeElement.js
+index bcabcd4..bec4ab4 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/DOMTreeElement.js
++++ b/Source/WebInspectorUI/UserInterface/Views/DOMTreeElement.js
+@@ -641,20 +641,25 @@ WebInspector.DOMTreeElement.prototype = {
+         contextMenu.appendItem(WebInspector.UIString("Edit Text"), this._startEditingTextNode.bind(this, textNode));
+         this._populateNodeContextMenu(contextMenu);
+     },
+ 
+     _populateNodeContextMenu: function(contextMenu)
+     {
+         // Add free-form node-related actions.
+         contextMenu.appendItem(WebInspector.UIString("Edit as HTML"), this._editAsHTML.bind(this));
+         contextMenu.appendItem(WebInspector.UIString("Copy as HTML"), this._copyHTML.bind(this));
+         contextMenu.appendItem(WebInspector.UIString("Delete Node"), this.remove.bind(this));
++
++        var node = this.representedObject;
++        if (node.nodeType() === Node.ELEMENT_NODE && WebInspector.domTracingManager.targetElement !== node)
++            contextMenu.appendItem(WebInspector.UIString("Track Element"), WebInspector.domTracingManager.startTrackingElement.bind(WebInspector.domTracingManager, node));
++
+     },
+ 
+     _startEditing: function()
+     {
+         if (this.treeOutline.selectedDOMNode() !== this.representedObject)
+             return false;
+ 
+         var listItem = this._listItemNode;
+ 
+         if (this._canAddAttributes) {
+-- 
+2.2.2
+
