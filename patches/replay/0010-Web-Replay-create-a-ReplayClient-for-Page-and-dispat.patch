@@ -1,0 +1,1482 @@
+From ef6d84c26d6995722e6fda6b30e7831c03a051cb Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Tue, 19 Aug 2014 15:05:20 -0700
+Subject: [PATCH] Web Replay: create a ReplayClient for Page and dispatch
+ inputs through it https://bugs.webkit.org/show_bug.cgi?id=140445
+
+Reviewed by NOBODY (OOPS!).
+
+Source/WebCore:
+
+Right now all dispatchable inputs are dispatched from WebCore using Page&, but
+we want to be able to dispatch some WK2-only inputs from WebKit2 using WebPage&.
+As a first step, this patch creates a ReplayClient interface that delegates
+dispatching inputs to a WebPage's WebReplayClient.
+
+Followup patches will introduce the notion of dispatching from different contexts.
+
+No new tests, no behavior changed.
+
+* WebCore.xcodeproj/project.pbxproj:
+* loader/EmptyClients.cpp:
+(WebCore::fillWithEmptyClients):
+* loader/EmptyClients.h:
+(WebCore::EmptyReplayClient::EmptyReplayClient): Added.
+(WebCore::EmptyReplayClient::~EmptyReplayClient): Added.
+* page/Page.cpp:
+(WebCore::Page::Page):
+* page/PageConfiguration.h:
+* replay/EventLoopInput.h:
+* replay/EventLoopInputDispatcher.cpp:
+(WebCore::EventLoopInputDispatcher::dispatchInput): delegate to ReplayClient when
+dispatching inputs during playback.
+* replay/EventLoopInputDispatcher.h:
+* replay/ReplayClient.h: Added.
+(WebCore::ReplayClient::~ReplayClient): Added.
+* replay/ReplayController.cpp:
+(WebCore::ReplayController::ReplayController):
+(WebCore::ReplayController::createSegment): dispatch synthetic inputs through ReplayClient.
+* replay/ReplayController.h:
+* replay/ReplayingInputCursor.h: Move EventLoopInputData to EventLoopInput.h
+
+Source/WebKit2:
+
+Add a WebReplayClient implementation and provide it to WebPage. For now, it
+dispatches all inputs the same way as before (with WebCore context).
+
+* CMakeLists.txt:
+* WebKit2.xcodeproj/project.pbxproj:
+* WebProcess/WebCoreSupport/WebReplayClient.cpp: Added.
+(WebKit::WebReplayClient::dispatchInput): Added.
+* WebProcess/WebCoreSupport/WebReplayClient.h: Added.
+(WebKit::WebReplayClient::WebReplayClient): Added.
+* WebProcess/WebPage/WebPage.cpp:
+(WebKit::WebPage::WebPage):
+---
+ .../replay/scripts/CodeGeneratorReplayInputs.py    |  2 +-
+ ...enerate-enum-with-guard.json-TestReplayInputs.h |  2 +-
+ Source/WebCore/ChangeLog                           | 38 +++++++++
+ Source/WebCore/WebCore.xcodeproj/project.pbxproj   | 12 ++-
+ Source/WebCore/loader/EmptyClients.cpp             |  5 ++
+ Source/WebCore/loader/EmptyClients.h               | 11 +++
+ Source/WebCore/page/Page.cpp                       |  3 +-
+ Source/WebCore/page/PageConfiguration.h            |  6 ++
+ Source/WebCore/replay/EventLoopInput.h             |  9 ++-
+ Source/WebCore/replay/EventLoopInputDispatcher.cpp |  4 +-
+ Source/WebCore/replay/EventLoopInputDispatcher.h   |  4 +-
+ Source/WebCore/replay/ReplayClient.h               | 46 +++++++++++
+ Source/WebCore/replay/ReplayController.cpp         | 10 ++-
+ Source/WebCore/replay/ReplayController.h           |  5 +-
+ .../WebCore/replay/ReplayInputDispatchMethods.cpp  | 94 +++++++++++-----------
+ Source/WebCore/replay/ReplayingInputCursor.h       |  6 +-
+ Source/WebKit2/CMakeLists.txt                      | 10 +++
+ Source/WebKit2/ChangeLog                           | 19 +++++
+ Source/WebKit2/WebKit2.xcodeproj/project.pbxproj   |  8 ++
+ .../WebProcess/WebCoreSupport/WebReplayClient.cpp  | 44 ++++++++++
+ .../WebProcess/WebCoreSupport/WebReplayClient.h    | 54 +++++++++++++
+ Source/WebKit2/WebProcess/WebPage/WebPage.cpp      |  7 ++
+ 22 files changed, 332 insertions(+), 67 deletions(-)
+ create mode 100644 Source/WebCore/replay/ReplayClient.h
+ create mode 100644 Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.cpp
+ create mode 100644 Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.h
+
+diff --git a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
+index d838ae5..d8294b7 100644
+--- a/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
++++ b/Source/JavaScriptCore/replay/scripts/CodeGeneratorReplayInputs.py
+@@ -711,21 +711,21 @@ class Generator:
+             lines.append("")
+ 
+         return "\n".join(lines)
+ 
+     def generate_class_declaration(self, _input):
+         extra_declarations = []
+         if _input.queue == InputQueues.EVENT_LOOP:
+             extra_declarations.extend([
+                 "",
+                 "    // EventLoopInput API",
+-                "    virtual void dispatch(ReplayController&) override final;",
++                "    virtual void dispatch(Page&) override final;",
+             ])
+ 
+             if _input.setting('CREATE_FROM_PAGE'):
+                 extra_declarations.extend([
+                     "    static std::unique_ptr<%s> createFromPage(const Page&);" % _input.name
+                 ])
+ 
+         member_getters = [self.generate_input_member_getter(_member) for _member in _input.members]
+ 
+         member_declarations = [self.generate_input_member_declaration(_member) for _member in _input.members]
+diff --git a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h
+index 3302f58..9af0827 100644
+--- a/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h
++++ b/Source/JavaScriptCore/replay/scripts/tests/expected/generate-enum-with-guard.json-TestReplayInputs.h
+@@ -65,21 +65,21 @@ template<> struct TEST_EXPORT_MACRO EncodingTraits<Test::PlatformWheelPhase> {
+ #endif // ENABLE(DUMMY_FEATURE)
+ } // namespace JSC
+ 
+ namespace Test {
+ class HandleWheelEvent : public EventLoopInput<HandleWheelEvent> {
+ public:
+     TEST_EXPORT_MACRO HandleWheelEvent(std::unique_ptr<PlatformWheelEvent> platformEvent, PlatformWheelPhase phase);
+     virtual ~HandleWheelEvent();
+ 
+     // EventLoopInput API
+-    virtual void dispatch(ReplayController&) override final;
++    virtual void dispatch(Page&) override final;
+     const PlatformWheelEvent& platformEvent() const { return *m_platformEvent; }
+     PlatformWheelPhase phase() const { return m_phase; }
+ private:
+     std::unique_ptr<PlatformWheelEvent> m_platformEvent;
+     PlatformWheelPhase m_phase;
+ };
+ } // namespace Test
+ 
+ SPECIALIZE_TYPE_TRAITS_BEGIN(Test::HandleWheelEvent)
+     static bool isType(const NondeterministicInputBase& input) { return input.type() == InputTraits<Test::HandleWheelEvent>::type(); }
+diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
+index b69e324..3d79874 100644
+--- a/Source/WebCore/ChangeLog
++++ b/Source/WebCore/ChangeLog
+@@ -1,10 +1,48 @@
++2015-01-09  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Replay: create a ReplayClient for Page and dispatch inputs through it
++        https://bugs.webkit.org/show_bug.cgi?id=140445
++
++        Reviewed by NOBODY (OOPS!).
++
++        Right now all dispatchable inputs are dispatched from WebCore using Page&, but
++        we want to be able to dispatch some WK2-only inputs from WebKit2 using WebPage&.
++        As a first step, this patch creates a ReplayClient interface that delegates
++        dispatching inputs to a WebPage's WebReplayClient.
++
++        Followup patches will introduce the notion of dispatching from different contexts.
++
++        No new tests, no behavior changed.
++
++        * WebCore.xcodeproj/project.pbxproj:
++        * loader/EmptyClients.cpp:
++        (WebCore::fillWithEmptyClients):
++        * loader/EmptyClients.h:
++        (WebCore::EmptyReplayClient::EmptyReplayClient): Added.
++        (WebCore::EmptyReplayClient::~EmptyReplayClient): Added.
++        * page/Page.cpp:
++        (WebCore::Page::Page):
++        * page/PageConfiguration.h:
++        * replay/EventLoopInput.h:
++        * replay/EventLoopInputDispatcher.cpp:
++        (WebCore::EventLoopInputDispatcher::dispatchInput): delegate to ReplayClient when
++        dispatching inputs during playback.
++        * replay/EventLoopInputDispatcher.h:
++        * replay/ReplayClient.h: Added.
++        (WebCore::ReplayClient::~ReplayClient): Added.
++        * replay/ReplayController.cpp:
++        (WebCore::ReplayController::ReplayController):
++        (WebCore::ReplayController::createSegment): dispatch synthetic inputs through ReplayClient.
++        * replay/ReplayController.h:
++        * replay/ReplayingInputCursor.h: Move EventLoopInputData to EventLoopInput.h
++
+ 2014-07-16  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         [WIP] Web Replay: DOM Timers should be created and fired deterministically
+         Need the bug URL (OOPS!).
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Async mechanisms such as window.setTimeout are nondeterministic because the
+         interleaving of callbacks and other event loop items (which run JS) is also
+         nondeterministic.
+diff --git a/Source/WebCore/WebCore.xcodeproj/project.pbxproj b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
+index 2413d91..fd49bd6 100644
+--- a/Source/WebCore/WebCore.xcodeproj/project.pbxproj
++++ b/Source/WebCore/WebCore.xcodeproj/project.pbxproj
+@@ -3672,41 +3672,41 @@
+ 		98CE432A129E00E5005821DC /* LinkLoader.h in Headers */ = {isa = PBXBuildFile; fileRef = 98CE4329129E00E5005821DC /* LinkLoader.h */; };
+ 		98EB1F951313FE0500D0E1EA /* NotImplemented.h in Headers */ = {isa = PBXBuildFile; fileRef = 98EB1F941313FE0500D0E1EA /* NotImplemented.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		9920398218B95BC600B39AF9 /* UserInputBridge.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9920398018B95BC600B39AF9 /* UserInputBridge.cpp */; };
+ 		9920398318B95BC600B39AF9 /* UserInputBridge.h in Headers */ = {isa = PBXBuildFile; fileRef = 9920398118B95BC600B39AF9 /* UserInputBridge.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		99C7CCB318C663E40032E413 /* MemoizedDOMResult.h in Headers */ = {isa = PBXBuildFile; fileRef = 99C7CCB218C663E40032E413 /* MemoizedDOMResult.h */; };
+ 		99C7CCB518C6B8990032E413 /* MemoizedDOMResult.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99C7CCB418C6B8990032E413 /* MemoizedDOMResult.cpp */; };
+ 		99CC0B4D18BE9849006CEBCC /* AllReplayInputs.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B3818BE9849006CEBCC /* AllReplayInputs.h */; };
+ 		99CC0B4E18BE9849006CEBCC /* CapturingInputCursor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B3918BE9849006CEBCC /* CapturingInputCursor.cpp */; };
+ 		99CC0B4F18BE9849006CEBCC /* CapturingInputCursor.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B3A18BE9849006CEBCC /* CapturingInputCursor.h */; };
+ 		99CC0B5018BE9849006CEBCC /* EventLoopInputDispatcher.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B3B18BE9849006CEBCC /* EventLoopInputDispatcher.cpp */; };
+-		99CC0B5118BE9849006CEBCC /* EventLoopInputDispatcher.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B3C18BE9849006CEBCC /* EventLoopInputDispatcher.h */; };
++		99CC0B5118BE9849006CEBCC /* EventLoopInputDispatcher.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B3C18BE9849006CEBCC /* EventLoopInputDispatcher.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		99CC0B5218BE9849006CEBCC /* FunctorInputCursor.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B3D18BE9849006CEBCC /* FunctorInputCursor.h */; };
+ 		99CC0B5318BE9849006CEBCC /* ReplayController.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B3E18BE9849006CEBCC /* ReplayController.cpp */; };
+-		99CC0B5418BE9849006CEBCC /* ReplayController.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B3F18BE9849006CEBCC /* ReplayController.h */; };
++		99CC0B5418BE9849006CEBCC /* ReplayController.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B3F18BE9849006CEBCC /* ReplayController.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		99CC0B5518BE9849006CEBCC /* ReplayingInputCursor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4018BE9849006CEBCC /* ReplayingInputCursor.cpp */; };
+ 		99CC0B5618BE984A006CEBCC /* ReplayingInputCursor.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4118BE9849006CEBCC /* ReplayingInputCursor.h */; };
+ 		99CC0B5718BE984A006CEBCC /* ReplayInputCreationMethods.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4218BE9849006CEBCC /* ReplayInputCreationMethods.cpp */; };
+ 		99CC0B5818BE984A006CEBCC /* ReplayInputDispatchMethods.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4318BE9849006CEBCC /* ReplayInputDispatchMethods.cpp */; };
+ 		99CC0B5918BE984A006CEBCC /* ReplaySession.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4418BE9849006CEBCC /* ReplaySession.cpp */; };
+ 		99CC0B5A18BE984A006CEBCC /* ReplaySession.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4518BE9849006CEBCC /* ReplaySession.h */; };
+ 		99CC0B5B18BE984A006CEBCC /* ReplaySessionSegment.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4618BE9849006CEBCC /* ReplaySessionSegment.cpp */; };
+ 		99CC0B5C18BE984A006CEBCC /* ReplaySessionSegment.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4718BE9849006CEBCC /* ReplaySessionSegment.h */; };
+ 		99CC0B5D18BE984A006CEBCC /* SegmentedInputStorage.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4818BE9849006CEBCC /* SegmentedInputStorage.cpp */; };
+ 		99CC0B5E18BE984A006CEBCC /* SegmentedInputStorage.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4918BE9849006CEBCC /* SegmentedInputStorage.h */; };
+ 		99CC0B5F18BE984A006CEBCC /* SerializationMethods.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B4A18BE9849006CEBCC /* SerializationMethods.cpp */; };
+ 		99CC0B6018BE984A006CEBCC /* SerializationMethods.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B4B18BE9849006CEBCC /* SerializationMethods.h */; };
+ 		99CC0B6618BE9F15006CEBCC /* InspectorReplayAgent.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B6418BE9F15006CEBCC /* InspectorReplayAgent.cpp */; };
+ 		99CC0B6718BE9F15006CEBCC /* InspectorReplayAgent.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B6518BE9F15006CEBCC /* InspectorReplayAgent.h */; };
+ 		99CC0B6A18BEA1FF006CEBCC /* WebReplayInputs.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 99CC0B6818BEA1FF006CEBCC /* WebReplayInputs.cpp */; };
+ 		99CC0B6B18BEA1FF006CEBCC /* WebReplayInputs.h in Headers */ = {isa = PBXBuildFile; fileRef = 99CC0B6918BEA1FF006CEBCC /* WebReplayInputs.h */; };
+-		99E45A1718A063BE0026D88F /* EventLoopInput.h in Headers */ = {isa = PBXBuildFile; fileRef = 99E45A1618A063BE0026D88F /* EventLoopInput.h */; };
++		99E45A1718A063BE0026D88F /* EventLoopInput.h in Headers */ = {isa = PBXBuildFile; fileRef = 99E45A1618A063BE0026D88F /* EventLoopInput.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		9A1142041832D135000BB8AD /* ValueToString.h in Headers */ = {isa = PBXBuildFile; fileRef = 9A1142031832D134000BB8AD /* ValueToString.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		9A1B6F97158869C80011A8C4 /* JSDOMStringListCustom.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B6F96158869C80011A8C4 /* JSDOMStringListCustom.cpp */; };
+ 		9A528E8317D7F52F00AA9518 /* FloatingObjects.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9A528E8117D7F52F00AA9518 /* FloatingObjects.cpp */; };
+ 		9A528E8417D7F52F00AA9518 /* FloatingObjects.h in Headers */ = {isa = PBXBuildFile; fileRef = 9A528E8217D7F52F00AA9518 /* FloatingObjects.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		9AB1F38018E2489A00534743 /* CSSToLengthConversionData.h in Headers */ = {isa = PBXBuildFile; fileRef = 9AB1F37E18E2489A00534743 /* CSSToLengthConversionData.h */; };
+ 		9AB1F38118E2489A00534743 /* CSSToLengthConversionData.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9AB1F37F18E2489A00534743 /* CSSToLengthConversionData.cpp */; };
+ 		9B1AB07C1648C7C40051F3F2 /* JSHTMLFormControlsCollectionCustom.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9B1AB07B1648C7C40051F3F2 /* JSHTMLFormControlsCollectionCustom.cpp */; };
+ 		9B24DE8E15194B9500C59C27 /* HTMLBDIElement.h in Headers */ = {isa = PBXBuildFile; fileRef = 9B24DE8C15194B9500C59C27 /* HTMLBDIElement.h */; };
+ 		9B2D8A7914997CCF00ECEF3E /* UndoStep.h in Headers */ = {isa = PBXBuildFile; fileRef = 9B2D8A7814997CCF00ECEF3E /* UndoStep.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		9B32CDA913DF7FA900F34D13 /* RenderedPosition.h in Headers */ = {isa = PBXBuildFile; fileRef = 9B32CDA713DF7FA900F34D13 /* RenderedPosition.h */; };
+@@ -5556,20 +5556,21 @@
+ 		C375D7FE16639519006184AB /* TypeAhead.h in Headers */ = {isa = PBXBuildFile; fileRef = C375D7FC16639519006184AB /* TypeAhead.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C37CDEBD149EF2030042090D /* ColorChooserClient.h in Headers */ = {isa = PBXBuildFile; fileRef = C37CDEBC149EF2030042090D /* ColorChooserClient.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C3CF17A415B0063F00276D39 /* IdTargetObserver.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C3CF17A015B0063F00276D39 /* IdTargetObserver.cpp */; };
+ 		C3CF17A515B0063F00276D39 /* IdTargetObserver.h in Headers */ = {isa = PBXBuildFile; fileRef = C3CF17A115B0063F00276D39 /* IdTargetObserver.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C3CF17A615B0063F00276D39 /* IdTargetObserverRegistry.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C3CF17A215B0063F00276D39 /* IdTargetObserverRegistry.cpp */; };
+ 		C3CF17A715B0063F00276D39 /* IdTargetObserverRegistry.h in Headers */ = {isa = PBXBuildFile; fileRef = C3CF17A315B0063F00276D39 /* IdTargetObserverRegistry.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C400D10918F1C8F60090D863 /* EventLoopInput.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C400D10818F1C8F60090D863 /* EventLoopInput.cpp */; };
+ 		C49474A119A2847C009B3DE8 /* SharedEventSenders.h in Headers */ = {isa = PBXBuildFile; fileRef = C49474A019A2847C009B3DE8 /* SharedEventSenders.h */; };
+ 		C49474A819A2D612009B3DE8 /* EventSender.h in Headers */ = {isa = PBXBuildFile; fileRef = CE5CB1B314EDAB6F00BB2795 /* EventSender.h */; };
+ 		C49474AA19A2E2E5009B3DE8 /* SharedEventSenders.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C49474A919A2E2E5009B3DE8 /* SharedEventSenders.cpp */; };
++		C49474AC19A3F7A2009B3DE8 /* ReplayClient.h in Headers */ = {isa = PBXBuildFile; fileRef = C49474AB19A3F7A2009B3DE8 /* ReplayClient.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C4CD629A18383766007EBAF1 /* FrameSnapshotting.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4CD629818383766007EBAF1 /* FrameSnapshotting.cpp */; };
+ 		C4CD629B18383766007EBAF1 /* FrameSnapshotting.h in Headers */ = {isa = PBXBuildFile; fileRef = C4CD629918383766007EBAF1 /* FrameSnapshotting.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C4D4F52B1975C88B003EF5BC /* ReplayableTimer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4D4F5271975C88B003EF5BC /* ReplayableTimer.cpp */; };
+ 		C4D4F52C1975C88B003EF5BC /* ReplayableTimer.h in Headers */ = {isa = PBXBuildFile; fileRef = C4D4F5281975C88B003EF5BC /* ReplayableTimer.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C4D4F52D1975C88B003EF5BC /* ReplayableTimers.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C4D4F5291975C88B003EF5BC /* ReplayableTimers.cpp */; };
+ 		C4D4F52E1975C88B003EF5BC /* ReplayableTimers.h in Headers */ = {isa = PBXBuildFile; fileRef = C4D4F52A1975C88B003EF5BC /* ReplayableTimers.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C50D0E830FF4272900AC2644 /* StorageNamespace.h in Headers */ = {isa = PBXBuildFile; fileRef = C50D0E810FF4272900AC2644 /* StorageNamespace.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C5137CF211A58378004ADB99 /* JSDOMStringList.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */; };
+ 		C5137CF311A58378004ADB99 /* JSDOMStringList.h in Headers */ = {isa = PBXBuildFile; fileRef = C5137CF111A58378004ADB99 /* JSDOMStringList.h */; };
+ 		C5278B0C17F212EA003A2998 /* PlatformPasteboardIOS.mm in Sources */ = {isa = PBXBuildFile; fileRef = C5278B0B17F212EA003A2998 /* PlatformPasteboardIOS.mm */; };
+@@ -13019,20 +13020,21 @@
+ 		C375D7FC16639519006184AB /* TypeAhead.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TypeAhead.h; sourceTree = "<group>"; };
+ 		C37CDEBC149EF2030042090D /* ColorChooserClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ColorChooserClient.h; sourceTree = "<group>"; };
+ 		C3CF17A015B0063F00276D39 /* IdTargetObserver.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = IdTargetObserver.cpp; sourceTree = "<group>"; };
+ 		C3CF17A115B0063F00276D39 /* IdTargetObserver.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = IdTargetObserver.h; sourceTree = "<group>"; };
+ 		C3CF17A215B0063F00276D39 /* IdTargetObserverRegistry.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = IdTargetObserverRegistry.cpp; sourceTree = "<group>"; };
+ 		C3CF17A315B0063F00276D39 /* IdTargetObserverRegistry.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = IdTargetObserverRegistry.h; sourceTree = "<group>"; };
+ 		C3E61C653A64807A83E76FB8 /* MathMLMencloseElement.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MathMLMencloseElement.cpp; sourceTree = "<group>"; };
+ 		C400D10818F1C8F60090D863 /* EventLoopInput.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = EventLoopInput.cpp; sourceTree = "<group>"; };
+ 		C49474A019A2847C009B3DE8 /* SharedEventSenders.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SharedEventSenders.h; sourceTree = "<group>"; };
+ 		C49474A919A2E2E5009B3DE8 /* SharedEventSenders.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SharedEventSenders.cpp; sourceTree = "<group>"; };
++		C49474AB19A3F7A2009B3DE8 /* ReplayClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ReplayClient.h; sourceTree = "<group>"; };
+ 		C4CD629818383766007EBAF1 /* FrameSnapshotting.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = FrameSnapshotting.cpp; sourceTree = "<group>"; };
+ 		C4CD629918383766007EBAF1 /* FrameSnapshotting.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FrameSnapshotting.h; sourceTree = "<group>"; };
+ 		C4D4F5271975C88B003EF5BC /* ReplayableTimer.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReplayableTimer.cpp; sourceTree = "<group>"; };
+ 		C4D4F5281975C88B003EF5BC /* ReplayableTimer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ReplayableTimer.h; sourceTree = "<group>"; };
+ 		C4D4F5291975C88B003EF5BC /* ReplayableTimers.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReplayableTimers.cpp; sourceTree = "<group>"; };
+ 		C4D4F52A1975C88B003EF5BC /* ReplayableTimers.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ReplayableTimers.h; sourceTree = "<group>"; };
+ 		C50D0E810FF4272900AC2644 /* StorageNamespace.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = StorageNamespace.h; sourceTree = "<group>"; };
+ 		C5137CF011A58378004ADB99 /* JSDOMStringList.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = JSDOMStringList.cpp; sourceTree = "<group>"; };
+ 		C5137CF111A58378004ADB99 /* JSDOMStringList.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSDOMStringList.h; sourceTree = "<group>"; };
+ 		C5278B0B17F212EA003A2998 /* PlatformPasteboardIOS.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = PlatformPasteboardIOS.mm; path = ios/PlatformPasteboardIOS.mm; sourceTree = "<group>"; };
+@@ -18528,20 +18530,23 @@
+ 				C4D4F5271975C88B003EF5BC /* ReplayableTimer.cpp */,
+ 				C4D4F5281975C88B003EF5BC /* ReplayableTimer.h */,
+ 				C4D4F5291975C88B003EF5BC /* ReplayableTimers.cpp */,
+ 				C4D4F52A1975C88B003EF5BC /* ReplayableTimers.h */,
+ 				99CC0B3E18BE9849006CEBCC /* ReplayController.cpp */,
+ 				99CC0B3F18BE9849006CEBCC /* ReplayController.h */,
+ 				99CC0B4018BE9849006CEBCC /* ReplayingInputCursor.cpp */,
+ 				99CC0B4118BE9849006CEBCC /* ReplayingInputCursor.h */,
+ 				99CC0B4218BE9849006CEBCC /* ReplayInputCreationMethods.cpp */,
+ 				99CC0B4318BE9849006CEBCC /* ReplayInputDispatchMethods.cpp */,
++				990A19F418ADA48400183FD1 /* ReplayInputTypes.cpp */,
++				990A19F518ADA48400183FD1 /* ReplayInputTypes.h */,
++				C49474AB19A3F7A2009B3DE8 /* ReplayClient.h */,
+ 				99CC0B4418BE9849006CEBCC /* ReplaySession.cpp */,
+ 				99CC0B4518BE9849006CEBCC /* ReplaySession.h */,
+ 				99CC0B4618BE9849006CEBCC /* ReplaySessionSegment.cpp */,
+ 				99CC0B4718BE9849006CEBCC /* ReplaySessionSegment.h */,
+ 				99CC0B4818BE9849006CEBCC /* SegmentedInputStorage.cpp */,
+ 				99CC0B4918BE9849006CEBCC /* SegmentedInputStorage.h */,
+ 				99CC0B4A18BE9849006CEBCC /* SerializationMethods.cpp */,
+ 				99CC0B4B18BE9849006CEBCC /* SerializationMethods.h */,
+ 				9920398018B95BC600B39AF9 /* UserInputBridge.cpp */,
+ 				9920398118B95BC600B39AF9 /* UserInputBridge.h */,
+@@ -25052,20 +25057,21 @@
+ 				C572EE1F1201C9BC007D8F82 /* JSIDBIndex.h in Headers */,
+ 				C585A68D11D4FB08004C3E4B /* JSIDBKeyRange.h in Headers */,
+ 				C585A68F11D4FB08004C3E4B /* JSIDBObjectStore.h in Headers */,
+ 				C585A69111D4FB08004C3E4B /* JSIDBRequest.h in Headers */,
+ 				B6566270120B1227006EA85C /* JSIDBTransaction.h in Headers */,
+ 				269239961505E1AA009E57FC /* JSIDBVersionChangeEvent.h in Headers */,
+ 				BC6C49F40D7DBA0500FFA558 /* JSImageConstructor.h in Headers */,
+ 				A77979290D6B9E64003851B9 /* JSImageData.h in Headers */,
+ 				7A0E771F10C00DB100A0276E /* JSInspectorFrontendHost.h in Headers */,
+ 				A86629D309DA2B48009633A5 /* JSKeyboardEvent.h in Headers */,
++				C49474AC19A3F7A2009B3DE8 /* ReplayClient.h in Headers */,
+ 				935F45430F7C3B5F00D7C1FB /* JSLazyEventListener.h in Headers */,
+ 				BCE1C43C0D9830D3003B02F2 /* JSLocation.h in Headers */,
+ 				CDAB6D2E17C814EE00C60B34 /* JSMediaControlsHost.h in Headers */,
+ 				FD23A12613F5FA5900F67001 /* JSMediaElementAudioSourceNode.h in Headers */,
+ 				E44614190CD6826900FADA75 /* JSMediaError.h in Headers */,
+ 				BC3C39B70C0D3D8D005F4D7A /* JSMediaList.h in Headers */,
+ 				D3A94A47122DC40F00A37BBC /* JSMediaQueryList.h in Headers */,
+ 				6F995A381A70833700A735F4 /* JSWebGLTransformFeedback.h in Headers */,
+ 				7C5343FD17B74B63004232F0 /* JSMediaQueryListListener.h in Headers */,
+ 				CD9DE17517AAC74C00EA386D /* JSMediaSource.h in Headers */,
+diff --git a/Source/WebCore/loader/EmptyClients.cpp b/Source/WebCore/loader/EmptyClients.cpp
+index 89d5486..f2af3f7 100644
+--- a/Source/WebCore/loader/EmptyClients.cpp
++++ b/Source/WebCore/loader/EmptyClients.cpp
+@@ -106,20 +106,25 @@ void fillWithEmptyClients(PageConfiguration& pageConfiguration)
+     static NeverDestroyed<EmptyDragClient> dummyDragClient;
+     pageConfiguration.dragClient = &dummyDragClient.get();
+ #endif
+ 
+     static NeverDestroyed<EmptyEditorClient> dummyEditorClient;
+     pageConfiguration.editorClient = &dummyEditorClient.get();
+ 
+     static NeverDestroyed<EmptyInspectorClient> dummyInspectorClient;
+     pageConfiguration.inspectorClient = &dummyInspectorClient.get();
+ 
++#if ENABLE(WEB_REPLAY)
++    static NeverDestroyed<EmptyReplayClient> dummyReplayClient;
++    pageConfiguration.replayClient = &dummyReplayClient.get();
++#endif
++
+     static NeverDestroyed<EmptyFrameLoaderClient> dummyFrameLoaderClient;
+     pageConfiguration.loaderClientForMainFrame = &dummyFrameLoaderClient.get();
+ 
+     static NeverDestroyed<EmptyProgressTrackerClient> dummyProgressTrackerClient;
+     pageConfiguration.progressTrackerClient = &dummyProgressTrackerClient.get();
+ 
+     static NeverDestroyed<EmptyDiagnosticLoggingClient> dummyDiagnosticLoggingClient;
+     pageConfiguration.diagnosticLoggingClient = &dummyDiagnosticLoggingClient.get();
+ 
+     pageConfiguration.databaseProvider = adoptRef(new EmptyDatabaseProvider);
+diff --git a/Source/WebCore/loader/EmptyClients.h b/Source/WebCore/loader/EmptyClients.h
+index 14ec62e..58f52a5 100644
+--- a/Source/WebCore/loader/EmptyClients.h
++++ b/Source/WebCore/loader/EmptyClients.h
+@@ -36,20 +36,21 @@
+ #include "DiagnosticLoggingClient.h"
+ #include "DragClient.h"
+ #include "EditorClient.h"
+ #include "TextCheckerClient.h"
+ #include "FloatRect.h"
+ #include "FocusDirection.h"
+ #include "FrameLoaderClient.h"
+ #include "InspectorClient.h"
+ #include "Page.h"
+ #include "ProgressTrackerClient.h"
++#include "ReplayClient.h"
+ #include "ResourceError.h"
+ #include "VisitedLinkStore.h"
+ #include <wtf/text/StringView.h>
+ 
+ /*
+  This file holds empty Client stubs for use by WebCore.
+  Viewless element needs to create a dummy Page->Frame->FrameView tree for use in parsing or executing JavaScript.
+  This tree depends heavily on Clients (usually provided by WebKit classes).
+ 
+  This file was first created for SVGImage as it had no way to access the current Page (nor should it,
+@@ -595,20 +596,30 @@ public:
+     virtual void inspectorDestroyed() override { }
+     
+     virtual Inspector::FrontendChannel* openInspectorFrontend(InspectorController*) override { return 0; }
+     virtual void closeInspectorFrontend() override { }
+     virtual void bringFrontendToFront() override { }
+ 
+     virtual void highlight() override { }
+     virtual void hideHighlight() override { }
+ };
+ 
++#if ENABLE(WEB_REPLAY)
++class EmptyReplayClient : public ReplayClient {
++public:
++    EmptyReplayClient() { }
++    virtual ~EmptyReplayClient() { }
++
++    virtual void dispatchInput(EventLoopInputBase&) override { }
++};
++#endif // ENABLE(WEB_REPLAY)
++
+ class EmptyDeviceClient : public DeviceClient {
+ public:
+     virtual void startUpdating() override { }
+     virtual void stopUpdating() override { }
+ };
+ 
+ class EmptyDeviceMotionClient : public DeviceMotionClient {
+ public:
+     virtual void setController(DeviceMotionController*) override { }
+     virtual DeviceMotionData* lastMotion() const override { return 0; }
+diff --git a/Source/WebCore/page/Page.cpp b/Source/WebCore/page/Page.cpp
+index 4e12ca0..9535751 100644
+--- a/Source/WebCore/page/Page.cpp
++++ b/Source/WebCore/page/Page.cpp
+@@ -92,20 +92,21 @@
+ #include "VisitedLinkStore.h"
+ #include "VoidCallback.h"
+ #include "Widget.h"
+ #include <wtf/HashMap.h>
+ #include <wtf/RefCountedLeakCounter.h>
+ #include <wtf/StdLibExtras.h>
+ #include <wtf/text/Base64.h>
+ #include <wtf/text/StringHash.h>
+ 
+ #if ENABLE(WEB_REPLAY)
++#include "ReplayClient.h"
+ #include "ReplayController.h"
+ #include <replay/InputCursor.h>
+ #endif
+ 
+ namespace WebCore {
+ 
+ static HashSet<Page*>* allPages;
+ 
+ DEFINE_DEBUG_ONLY_GLOBAL(WTF::RefCountedLeakCounter, pageCounter, ("Page"));
+ 
+@@ -132,21 +133,21 @@ Page::Page(PageConfiguration& pageConfiguration)
+     , m_dragCaretController(std::make_unique<DragCaretController>())
+ #if ENABLE(DRAG_SUPPORT)
+     , m_dragController(std::make_unique<DragController>(*this, *pageConfiguration.dragClient))
+ #endif
+     , m_focusController(std::make_unique<FocusController>(*this, PageInitialViewState))
+ #if ENABLE(CONTEXT_MENUS)
+     , m_contextMenuController(std::make_unique<ContextMenuController>(*this, *pageConfiguration.contextMenuClient))
+ #endif
+     , m_userInputBridge(std::make_unique<UserInputBridge>(*this))
+ #if ENABLE(WEB_REPLAY)
+-    , m_replayController(std::make_unique<ReplayController>(*this))
++    , m_replayController(std::make_unique<ReplayController>(*this, *pageConfiguration.replayClient))
+ #endif
+     , m_inspectorController(std::make_unique<InspectorController>(*this, pageConfiguration.inspectorClient))
+ #if ENABLE(POINTER_LOCK)
+     , m_pointerLockController(std::make_unique<PointerLockController>(*this))
+ #endif
+     , m_settings(Settings::create(this))
+     , m_progress(std::make_unique<ProgressTracker>(*pageConfiguration.progressTrackerClient))
+     , m_backForwardController(std::make_unique<BackForwardController>(*this, pageConfiguration.backForwardClient))
+     , m_mainFrame(MainFrame::create(*this, pageConfiguration))
+     , m_theme(RenderTheme::themeForPage(this))
+diff --git a/Source/WebCore/page/PageConfiguration.h b/Source/WebCore/page/PageConfiguration.h
+index eb54321..a2041af 100644
+--- a/Source/WebCore/page/PageConfiguration.h
++++ b/Source/WebCore/page/PageConfiguration.h
+@@ -38,39 +38,45 @@ class ChromeClient;
+ class ContextMenuClient;
+ #endif
+ class DatabaseProvider;
+ class DiagnosticLoggingClient;
+ class DragClient;
+ class EditorClient;
+ class FrameLoaderClient;
+ class InspectorClient;
+ class PlugInClient;
+ class ProgressTrackerClient;
++#if ENABLE(WEB_REPLAY)
++class ReplayClient;
++#endif
+ class StorageNamespaceProvider;
+ class UserContentController;
+ class ValidationMessageClient;
+ class VisitedLinkStore;
+ 
+ class PageConfiguration {
+     WTF_MAKE_NONCOPYABLE(PageConfiguration); WTF_MAKE_FAST_ALLOCATED;
+ public:
+     WEBCORE_EXPORT PageConfiguration();
+     WEBCORE_EXPORT ~PageConfiguration();
+ 
+     AlternativeTextClient* alternativeTextClient;
+     ChromeClient* chromeClient;
+ #if ENABLE(CONTEXT_MENUS)
+     ContextMenuClient* contextMenuClient;
+ #endif
+     EditorClient* editorClient;
+     DragClient* dragClient;
+     InspectorClient* inspectorClient;
++#if ENABLE(WEB_REPLAY)
++    ReplayClient* replayClient = {nullptr};
++#endif
+     PlugInClient* plugInClient;
+     ProgressTrackerClient* progressTrackerClient;
+     RefPtr<BackForwardClient> backForwardClient;
+     ValidationMessageClient* validationMessageClient;
+     FrameLoaderClient* loaderClientForMainFrame;
+     DiagnosticLoggingClient* diagnosticLoggingClient;
+ 
+     RefPtr<DatabaseProvider> databaseProvider;
+     RefPtr<StorageNamespaceProvider> storageNamespaceProvider;
+     RefPtr<UserContentController> userContentController;
+diff --git a/Source/WebCore/replay/EventLoopInput.h b/Source/WebCore/replay/EventLoopInput.h
+index 40d51c9..65510e0 100644
+--- a/Source/WebCore/replay/EventLoopInput.h
++++ b/Source/WebCore/replay/EventLoopInput.h
+@@ -32,41 +32,48 @@
+ 
+ #include <replay/NondeterministicInput.h>
+ #include <wtf/CurrentTime.h>
+ 
+ namespace JSC {
+ class InputCursor;
+ };
+ 
+ namespace WebCore {
+ 
++class EventLoopInputBase;
++class Page;
+ class ReplayController;
+ 
+ // This is an RAII helper used during capturing which sets a flag on the input cursor
+ // to track the dynamic extent of a captured event loop input. This extent approximates
+ // the interval in which EventLoopInputDispatcher::dispatching() is true.
+ class EventLoopInputExtent {
+     WTF_MAKE_NONCOPYABLE(EventLoopInputExtent);
+ public:
+     EventLoopInputExtent(JSC::InputCursor&);
+     EventLoopInputExtent(JSC::InputCursor*);
+     ~EventLoopInputExtent();
+ private:
+     JSC::InputCursor* m_cursor;
+ };
+ 
++struct EventLoopInputData {
++    EventLoopInputBase* input;
++    double timestamp;
++};
++
+ class EventLoopInputBase : public NondeterministicInputBase {
+ public:
+     virtual ~EventLoopInputBase() { }
+     virtual InputQueue queue() const override final { return InputQueue::EventLoopInput; }
+ 
+-    virtual void dispatch(ReplayController&) = 0;
++    virtual void dispatch(Page&) = 0;
+ };
+ 
+ template <typename InputType>
+ class EventLoopInput : public EventLoopInputBase {
+ public:
+     virtual const String& type() const override final
+     {
+         return InputTraits<InputType>::type();
+     }
+ };
+diff --git a/Source/WebCore/replay/EventLoopInputDispatcher.cpp b/Source/WebCore/replay/EventLoopInputDispatcher.cpp
+index cd8b93c..b678d9c 100644
+--- a/Source/WebCore/replay/EventLoopInputDispatcher.cpp
++++ b/Source/WebCore/replay/EventLoopInputDispatcher.cpp
+@@ -24,20 +24,22 @@
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #include "config.h"
+ #include "EventLoopInputDispatcher.h"
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include "Page.h"
++#include "ReplayClient.h"
++#include "ReplayController.h"
+ #include "ReplayingInputCursor.h"
+ #include "WebReplayInputs.h"
+ #include <wtf/TemporaryChange.h>
+ 
+ #if !LOG_DISABLED
+ #include "Logging.h"
+ #include "SerializationMethods.h"
+ #include <replay/EncodedValue.h>
+ #include <wtf/text/CString.h>
+ #endif
+@@ -139,21 +141,21 @@ void EventLoopInputDispatcher::dispatchInput()
+     LOG(WebReplay, "%-20s >DISPATCH: %s %s\n", "ReplayEvents", m_currentWork.input->type().utf8().data(), jsonString.utf8().data());
+ #endif
+ 
+     m_client->willDispatchInput(*m_currentWork.input);
+     // Client could stop replay in the previous callback, so check again.
+     if (!m_running)
+         return;
+ 
+     {
+         TemporaryChange<bool> change(m_dispatching, true);
+-        m_currentWork.input->dispatch(m_page.replayController());
++        m_page.replayController().client().dispatchInput(*m_currentWork.input);
+     }
+ 
+     EventLoopInputBase* dispatchedInput = m_currentWork.input;
+     m_currentWork.input = nullptr;
+ 
+     // Notify clients that the event was dispatched.
+     m_client->didDispatchInput(*dispatchedInput);
+     if (dispatchedInput->type() == InputTraits<EndSegmentSentinel>::type()) {
+         m_running = false;
+         m_dispatching = false;
+diff --git a/Source/WebCore/replay/EventLoopInputDispatcher.h b/Source/WebCore/replay/EventLoopInputDispatcher.h
+index 41656d2..d32bcce 100644
+--- a/Source/WebCore/replay/EventLoopInputDispatcher.h
++++ b/Source/WebCore/replay/EventLoopInputDispatcher.h
+@@ -24,30 +24,30 @@
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #ifndef EventLoopInputDispatcher_h
+ #define EventLoopInputDispatcher_h
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
+ #include "EventLoopInput.h"
+-#include "ReplayingInputCursor.h"
+ #include "Timer.h"
+ #include <wtf/Noncopyable.h>
+ #include <wtf/Vector.h>
+ #include <wtf/text/WTFString.h>
+ 
+ namespace WebCore {
+ 
+ class Page;
+-
++class ReplayingInputCursor;
++    
+ enum class DispatchSpeed {
+     RealTime,
+     FastForward,
+ };
+ 
+ class EventLoopInputDispatcherClient {
+ public:
+     EventLoopInputDispatcherClient() { }
+     virtual ~EventLoopInputDispatcherClient() { }
+ 
+diff --git a/Source/WebCore/replay/ReplayClient.h b/Source/WebCore/replay/ReplayClient.h
+new file mode 100644
+index 0000000..56bb2c0
+--- /dev/null
++++ b/Source/WebCore/replay/ReplayClient.h
+@@ -0,0 +1,46 @@
++/*
++ * Copyright (C) 2015 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
++ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
++ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
++ * THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#ifndef ReplayClient_h
++#define ReplayClient_h
++
++#if ENABLE(WEB_REPLAY)
++
++namespace WebCore {
++
++class EventLoopInputBase;
++
++class ReplayClient {
++public:
++    virtual ~ReplayClient() { }
++
++    virtual void dispatchInput(EventLoopInputBase&) = 0;
++};
++
++} // namespace WebCore
++
++#endif // ENABLE(WEB_REPLAY)
++
++#endif // !defined(ReplayClient_h)
+diff --git a/Source/WebCore/replay/ReplayController.cpp b/Source/WebCore/replay/ReplayController.cpp
+index aa2fb2c..5f5a94e 100644
+--- a/Source/WebCore/replay/ReplayController.cpp
++++ b/Source/WebCore/replay/ReplayController.cpp
+@@ -34,20 +34,21 @@
+ #include "CapturingInputCursor.h"
+ #include "DOMWindow.h"
+ #include "DocumentLoader.h"
+ #include "Frame.h"
+ #include "FrameTree.h"
+ #include "InspectorInstrumentation.h"
+ #include "Location.h"
+ #include "Logging.h"
+ #include "MainFrame.h"
+ #include "Page.h"
++#include "ReplayClient.h"
+ #include "ReplaySession.h"
+ #include "ReplaySessionSegment.h"
+ #include "ReplayingInputCursor.h"
+ #include "ScriptController.h"
+ #include "SerializationMethods.h"
+ #include "Settings.h"
+ #include "UserInputBridge.h"
+ #include "WebReplayInputs.h"
+ #include <replay/EmptyInputCursor.h>
+ #include <wtf/text/CString.h>
+@@ -104,22 +105,23 @@ static const char* segmentStateToString(SegmentState state)
+         return "Unloaded";
+     case SegmentState::Loaded:
+         return "Loaded";
+     case SegmentState::Dispatching:
+         return "Dispatching";
+     }
+ }
+ 
+ #endif // !LOG_DISABLED
+ 
+-ReplayController::ReplayController(Page& page)
++ReplayController::ReplayController(Page& page, ReplayClient& client)
+     : m_page(page)
++    , m_client(client)
+     , m_loadedSession(ReplaySession::create())
+     , m_emptyCursor(EmptyInputCursor::create())
+     , m_targetPosition(ReplayPosition(0, 0))
+     , m_currentPosition(ReplayPosition(0, 0))
+     , m_segmentState(SegmentState::Unloaded)
+     , m_sessionState(SessionState::Inactive)
+     , m_dispatchSpeed(DispatchSpeed::FastForward)
+ {
+ }
+ 
+@@ -226,26 +228,26 @@ void ReplayController::createSegment()
+ 
+     LOG(WebReplay, "%-20s Created segment: %p.\n", "ReplayController", m_loadedSegment.get());
+     InspectorInstrumentation::segmentCreated(m_page, m_loadedSegment.copyRef());
+ 
+     m_activeCursor = CapturingInputCursor::create(m_loadedSegment.copyRef());
+     m_activeCursor->appendInput<BeginSegmentSentinel>();
+ 
+     // Dispatching this input saves history, clears all but the current item, appends saved
+     // history item to the back/forward list, then moves the current item cursor to the last entry.
+     std::unique_ptr<InitializeHistory> historyInput = InitializeHistory::createFromPage(m_page);
+-    historyInput->dispatch(*this);
+-    m_activeCursor->storeInput(std::move(historyInput));
++    m_client.dispatchInput(*historyInput);
++    m_activeCursor->storeInput(WTF::move(historyInput));
+ 
+     // Dispatching this input schedules navigation of the main frame, causing a refresh.
+     std::unique_ptr<InitialNavigation> navigationInput = InitialNavigation::createFromPage(m_page);
+-    navigationInput->dispatch(*this);
++    m_client.dispatchInput(*navigationInput);
+     m_activeCursor->storeInput(WTF::move(navigationInput));
+ }
+ 
+ void ReplayController::completeSegment()
+ {
+     ASSERT(m_sessionState == SessionState::Capturing);
+     ASSERT(m_segmentState == SegmentState::Appending);
+ 
+     m_activeCursor->appendInput<EndSegmentSentinel>();
+ 
+diff --git a/Source/WebCore/replay/ReplayController.h b/Source/WebCore/replay/ReplayController.h
+index 41ab99d..84778f6 100644
+--- a/Source/WebCore/replay/ReplayController.h
++++ b/Source/WebCore/replay/ReplayController.h
+@@ -46,20 +46,21 @@ namespace WebCore {
+ 
+ class DOMWindow;
+ class Document;
+ class DocumentLoader;
+ class Element;
+ class Event;
+ class EventLoopInputBase;
+ class Frame;
+ class Node;
+ class Page;
++class ReplayClient;
+ class ReplaySession;
+ class ReplaySessionSegment;
+ 
+ // Each state may transition to the state immediately above or below it.
+ // SessionState transitions are only allowed when SegmentState is Unloaded.
+ enum class SessionState {
+     Capturing,
+     // Neither capturing or replaying. m_currentPosition is not valid in this state.
+     Inactive,
+     Replaying,
+@@ -105,21 +106,21 @@ struct ReplayPosition {
+         return segmentOffset == other.segmentOffset && inputOffset == other.inputOffset;
+     }
+ 
+     unsigned segmentOffset;
+     unsigned inputOffset;
+ };
+ 
+ class ReplayController final : public EventLoopInputDispatcherClient {
+     WTF_MAKE_NONCOPYABLE(ReplayController);
+ public:
+-    ReplayController(Page&);
++    ReplayController(Page&, ReplayClient&);
+ 
+     void startCapturing();
+     void stopCapturing();
+ 
+     // Start or resume playback with default speed and target replay position.
+     void startPlayback();
+     void pausePlayback();
+     void cancelPlayback();
+ 
+     void replayToPosition(const ReplayPosition&, DispatchSpeed = DispatchSpeed::FastForward);
+@@ -129,20 +130,21 @@ public:
+     }
+ 
+     void switchSession(RefPtr<ReplaySession>&&);
+ 
+     // InspectorReplayAgent notifications.
+     void frameNavigated(DocumentLoader*);
+     void frameDetached(Frame&);
+     void willDispatchEvent(const Event&, Frame*);
+ 
+     Page& page() const { return m_page; }
++    ReplayClient& client() const { return m_client; }
+ 
+     SessionState sessionState() const { return m_sessionState; }
+     SegmentState segmentState() const { return m_segmentState; }
+ 
+     RefPtr<ReplaySession> loadedSession() const;
+     RefPtr<ReplaySessionSegment> loadedSegment() const;
+ 
+     JSC::InputCursor& activeInputCursor();
+     ReplayPosition currentPosition() const { return m_currentPosition; }
+ 
+@@ -168,20 +170,21 @@ private:
+         bool usesMemoryCache;
+         bool usesPageCache;
+ 
+         SavedSettings()
+             : usesMemoryCache(false)
+             , usesPageCache(false)
+         { }
+     };
+ 
+     Page& m_page;
++    ReplayClient& m_client;
+ 
+     RefPtr<ReplaySessionSegment> m_loadedSegment;
+     RefPtr<ReplaySession> m_loadedSession;
+     Ref<JSC::InputCursor> m_emptyCursor;
+     // The active cursor is set to nullptr when invalid.
+     RefPtr<JSC::InputCursor> m_activeCursor;
+ 
+     // This position is valid when SessionState == Replaying.
+     ReplayPosition m_targetPosition;
+     // This position is valid when SessionState != Inactive.
+diff --git a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
+index 4c8d8ae..29508c8 100644
+--- a/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
++++ b/Source/WebCore/replay/ReplayInputDispatchMethods.cpp
+@@ -57,160 +57,160 @@ static ResourceLoader* resourceLoaderForOrdinal(Page& page, unsigned long ordina
+     ASSERT(frame);
+ 
+     const Vector<unsigned long>& usedIdentifiers = frame->mainFrame().loader().activeDocumentLoader()->usedIdentifiers();
+     ASSERT(ordinal < usedIdentifiers.size());
+ 
+     RefPtr<ResourceLoader> loader = frame->loader().activeDocumentLoader()->loaderForIdentifier(usedIdentifiers.at(ordinal));
+     return loader ? loader.get() : nullptr;
+ }
+ 
+ // Sentinel inputs.
+-void BeginSegmentSentinel::dispatch(ReplayController&)
++void BeginSegmentSentinel::dispatch(Page&)
+ {
+ }
+ 
+-void EndSegmentSentinel::dispatch(ReplayController&)
++void EndSegmentSentinel::dispatch(Page&)
+ {
+ }
+ 
+ // Navigation inputs.
+-void InitialNavigation::dispatch(ReplayController& controller)
++void InitialNavigation::dispatch(Page& page)
+ {
+-    controller.page().mainFrame().navigationScheduler().scheduleLocationChange(m_securityOrigin.get(), m_url, m_referrer);
++    page.mainFrame().navigationScheduler().scheduleLocationChange(m_securityOrigin.get(), m_url, m_referrer);
+ }
+ 
+-void LoadURLRequest::dispatch(ReplayController& controller)
++void LoadURLRequest::dispatch(Page& page)
+ {
+-    controller.page().userInputBridge().loadRequest(*m_loadRequest);
++    page.userInputBridge().loadRequest(*m_loadRequest);
+ }
+ 
+-void ReloadFrame::dispatch(ReplayController& controller)
++void ReloadFrame::dispatch(Page& page)
+ {
+-    Frame* frame = frameFromFrameIndex(&controller.page(), m_frameIndex);
++    Frame* frame = frameFromFrameIndex(&page, m_frameIndex);
+     ASSERT(frame);
+ 
+-    controller.page().userInputBridge().reloadFrame(frame, m_endToEndReload, InputSource::Synthetic);
++    page.userInputBridge().reloadFrame(frame, m_endToEndReload, InputSource::Synthetic);
+ }
+ 
+-void StopLoadingFrame::dispatch(ReplayController& controller)
++void StopLoadingFrame::dispatch(Page& page)
+ {
+-    Frame* frame = frameFromFrameIndex(&controller.page(), m_frameIndex);
++    Frame* frame = frameFromFrameIndex(&page, m_frameIndex);
+     ASSERT(frame);
+ 
+-    controller.page().userInputBridge().stopLoadingFrame(frame, InputSource::Synthetic);
++    page.userInputBridge().stopLoadingFrame(frame, InputSource::Synthetic);
+ }
+ 
+-void TryClosePage::dispatch(ReplayController& controller)
++void TryClosePage::dispatch(Page& page)
+ {
+-    controller.page().userInputBridge().tryClosePage(InputSource::Synthetic);
++    page.userInputBridge().tryClosePage(InputSource::Synthetic);
+ }
+ 
+-void InitializeHistory::dispatch(ReplayController& controller)
++void InitializeHistory::dispatch(Page& page)
+ {
+     return; // HACK
+ 
+     // FIXME: Load the empty document, so that when we prune the back-forward list it
+     // is the single remaining entry. <https://webkit.org/b/131989>
+-    controller.page().backForward().clear();
++    page.backForward().clear();
+ 
+     for (RefPtr<HistoryItem> historyEntry : m_entries)
+-        controller.page().backForward().addItem(historyEntry->copy());
++        page.backForward().addItem(historyEntry->copy());
+ 
+-    controller.page().mainFrame().loader().history().setCurrentItem(controller.page().backForward().currentItem());
++    page.mainFrame().loader().history().setCurrentItem(page.backForward().currentItem());
+ }
+ 
+-void HandleKeyPress::dispatch(ReplayController& controller)
++void HandleKeyPress::dispatch(Page& page)
+ {
+-    controller.page().userInputBridge().handleKeyEvent(platformEvent(), InputSource::Synthetic);
++    page.userInputBridge().handleKeyEvent(platformEvent(), InputSource::Synthetic);
+ }
+ 
+ // User interaction inputs.
+-void HandleMouseMove::dispatch(ReplayController& controller)
++void HandleMouseMove::dispatch(Page& page)
+ {
+     if (m_scrollbarTargeted)
+-        controller.page().userInputBridge().handleMouseMoveOnScrollbarEvent(platformEvent(), InputSource::Synthetic);
++        page.userInputBridge().handleMouseMoveOnScrollbarEvent(platformEvent(), InputSource::Synthetic);
+     else
+-        controller.page().userInputBridge().handleMouseMoveEvent(platformEvent(), InputSource::Synthetic);
++        page.userInputBridge().handleMouseMoveEvent(platformEvent(), InputSource::Synthetic);
+ }
+ 
+-void HandleMousePress::dispatch(ReplayController& controller)
++void HandleMousePress::dispatch(Page& page)
+ {
+-    controller.page().userInputBridge().handleMousePressEvent(platformEvent(), InputSource::Synthetic);
++    page.userInputBridge().handleMousePressEvent(platformEvent(), InputSource::Synthetic);
+ }
+ 
+-void HandleMouseRelease::dispatch(ReplayController& controller)
++void HandleMouseRelease::dispatch(Page& page)
+ {
+-    controller.page().userInputBridge().handleMouseReleaseEvent(platformEvent(), InputSource::Synthetic);
++    page.userInputBridge().handleMouseReleaseEvent(platformEvent(), InputSource::Synthetic);
+ }
+ 
+-void HandleWheelEvent::dispatch(ReplayController& controller)
++void HandleWheelEvent::dispatch(Page& page)
+ {
+-    controller.page().userInputBridge().handleWheelEvent(platformEvent(), InputSource::Synthetic);
++    page.userInputBridge().handleWheelEvent(platformEvent(), InputSource::Synthetic);
+ }
+ 
+-void LogicalScrollPage::dispatch(ReplayController& controller)
++void LogicalScrollPage::dispatch(Page& page)
+ {
+-    controller.page().userInputBridge().logicalScrollRecursively(direction(), granularity(), InputSource::Synthetic);
++    page.userInputBridge().logicalScrollRecursively(direction(), granularity(), InputSource::Synthetic);
+ }
+ 
+-void ScrollPage::dispatch(ReplayController& controller)
++void ScrollPage::dispatch(Page& page)
+ {
+-    controller.page().userInputBridge().scrollRecursively(direction(), granularity(), InputSource::Synthetic);
++    page.userInputBridge().scrollRecursively(direction(), granularity(), InputSource::Synthetic);
+ }
+ 
+ // Network inputs.
+-void ResourceLoaderDidFail::dispatch(ReplayController& controller)
++void ResourceLoaderDidFail::dispatch(Page& page)
+ {
+-    if (ResourceLoader* loader = resourceLoaderForOrdinal(controller.page(), ordinal(), frameIndex()))
++    if (ResourceLoader* loader = resourceLoaderForOrdinal(page, ordinal(), frameIndex()))
+         loader->didFail(m_error->copy());
+     // FIXME: signal error if the callback couldn't be fired.
+ }
+ 
+-void ResourceLoaderDidFinishLoading::dispatch(ReplayController& controller)
++void ResourceLoaderDidFinishLoading::dispatch(Page& page)
+ {
+-    if (ResourceLoader* loader = resourceLoaderForOrdinal(controller.page(), ordinal(), frameIndex()))
++    if (ResourceLoader* loader = resourceLoaderForOrdinal(page, ordinal(), frameIndex()))
+         loader->didFinishLoading(m_finishTime);
+     // FIXME: signal error if the callback couldn't be fired.
+ }
+ 
+-void ResourceLoaderDidReceiveData::dispatch(ReplayController& controller)
++void ResourceLoaderDidReceiveData::dispatch(Page& page)
+ {
+-    if (ResourceLoader* loader = resourceLoaderForOrdinal(controller.page(), ordinal(), frameIndex()))
++    if (ResourceLoader* loader = resourceLoaderForOrdinal(page, ordinal(), frameIndex()))
+         loader->didReceiveData(buffer()->data(), buffer()->size(), encodedLength(), DataPayloadBytes);
+     // FIXME: signal error if the callback couldn't be fired.
+ }
+ 
+-void ResourceLoaderDidReceiveResponse::dispatch(ReplayController& controller)
++void ResourceLoaderDidReceiveResponse::dispatch(Page& page)
+ {
+-    if (ResourceLoader* loader = resourceLoaderForOrdinal(controller.page(), ordinal(), frameIndex()))
++    if (ResourceLoader* loader = resourceLoaderForOrdinal(page, ordinal(), frameIndex()))
+         loader->didReceiveResponse(*m_response);
+     // FIXME: signal error if the callback couldn't be fired.
+ }
+ 
+-void ResourceLoaderDidSendData::dispatch(ReplayController& controller)
++void ResourceLoaderDidSendData::dispatch(Page& page)
+ {
+-    if (ResourceLoader* loader = resourceLoaderForOrdinal(controller.page(), ordinal(), frameIndex()))
++    if (ResourceLoader* loader = resourceLoaderForOrdinal(page, ordinal(), frameIndex()))
+         loader->didSendData(m_bytesSent, m_totalBytesToBeSent);
+     // FIXME: signal error if the callback couldn't be fired.
+ }
+ 
+ // Other event loop inputs.
+-void AsyncTimerFired::dispatch(ReplayController& controller)
++void AsyncTimerFired::dispatch(Page& page)
+ {
+-    Document* document = documentFromFrameIndex(&controller.page(), m_frameIndex);
++    Document* document = documentFromFrameIndex(&page, m_frameIndex);
+     if (!document || !document->replayableTimers().fireTimer(m_ordinal))
+         LOG_ERROR("%-30s REPLAY DIVERGENCE! Couldn't find async timer %d/%" PRIu64 ".\n", "[ReplayController]", m_frameIndex, m_ordinal);
+ }
+ 
+-void DOMTimerFired::dispatch(ReplayController& controller)
++void DOMTimerFired::dispatch(Page& page)
+ {
+-    Document* document = documentFromFrameIndex(&controller.page(), m_frameIndex);
++    Document* document = documentFromFrameIndex(&page, m_frameIndex);
+     DOMTimer* timer = document->findTimeout(m_timerIdentifier);
+     if (timer)
+         timer->fired();
+     else
+        LOG_ERROR("REPLAY DIVERGENCE! Couldn't find and fire DOM timer %" PRIu32 "/%" PRIu32 ".\n", m_frameIndex, m_timerIdentifier);
+ }
+ 
+ } // namespace WebCore
+ 
+ #endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/WebCore/replay/ReplayingInputCursor.h b/Source/WebCore/replay/ReplayingInputCursor.h
+index e0a6aad..7a47503 100644
+--- a/Source/WebCore/replay/ReplayingInputCursor.h
++++ b/Source/WebCore/replay/ReplayingInputCursor.h
+@@ -23,36 +23,32 @@
+  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #ifndef ReplayingInputCursor_h
+ #define ReplayingInputCursor_h
+ 
+ #if ENABLE(WEB_REPLAY)
+ 
++#include "EventLoopInput.h"
+ #include <replay/InputCursor.h>
+ #include <wtf/Vector.h>
+ 
+ namespace WebCore {
+ 
+ class EventLoopInputBase;
+ class EventLoopInputDispatcher;
+ class EventLoopInputDispatcherClient;
+ class Page;
+ class ReplaySessionSegment;
+ 
+-struct EventLoopInputData {
+-    EventLoopInputBase* input;
+-    double timestamp;
+-};
+-
+ class ReplayingInputCursor final : public InputCursor {
+     WTF_MAKE_NONCOPYABLE(ReplayingInputCursor);
+ public:
+     static Ref<ReplayingInputCursor> create(RefPtr<ReplaySessionSegment>&&, Page&, EventLoopInputDispatcherClient*);
+     virtual ~ReplayingInputCursor();
+ 
+     virtual bool isCapturing() const override { return false; }
+     virtual bool isReplaying() const override { return true; }
+ 
+     EventLoopInputDispatcher& dispatcher() const { return *m_dispatcher; }
+diff --git a/Source/WebKit2/CMakeLists.txt b/Source/WebKit2/CMakeLists.txt
+index 4751d4f..d5399b1 100644
+--- a/Source/WebKit2/CMakeLists.txt
++++ b/Source/WebKit2/CMakeLists.txt
+@@ -816,15 +816,25 @@ if (ENABLE_DATABASE_PROCESS)
+     add_webkit2_prefix_header(DatabaseProcess)
+     target_link_libraries(DatabaseProcess ${DatabaseProcess_LIBRARIES})
+     set_target_properties(DatabaseProcess PROPERTIES FOLDER "WebKit")
+     install(TARGETS DatabaseProcess DESTINATION "${LIBEXEC_INSTALL_DIR}")
+ 
+     if (WebKit2_DatabaseProcess_OUTPUT_NAME)
+         set_target_properties(DatabaseProcess PROPERTIES OUTPUT_NAME ${WebKit2_DatabaseProcess_OUTPUT_NAME})
+     endif ()
+ endif ()
+ 
++if (ENABLE_WEB_REPLAY)
++    list(APPEND WebKit2_INCLUDE_DIRECTORIES
++        "${WEBKIT2_DIR}/WebProcess/Replay"
++    )
++
++    list(APPEND WebKit2_SOURCES
++        WebProcess/Replay/WebReplayClient.cpp
++    )
++endif ()
++
+ POPULATE_LIBRARY_VERSION(WEBKIT2)
+ set_target_properties(WebKit2 PROPERTIES VERSION ${WEBKIT2_VERSION} SOVERSION ${WEBKIT2_VERSION_MAJOR})
+ 
+ install(TARGETS WebKit2 DESTINATION "${LIB_INSTALL_DIR}")
+ install(TARGETS WebProcess DESTINATION "${LIBEXEC_INSTALL_DIR}")
+diff --git a/Source/WebKit2/ChangeLog b/Source/WebKit2/ChangeLog
+index 73eb0ca..f1e07b3 100644
+--- a/Source/WebKit2/ChangeLog
++++ b/Source/WebKit2/ChangeLog
+@@ -1,10 +1,29 @@
++2015-01-09  Brian J. Burg  <burg@cs.washington.edu>
++
++        Web Replay: create a ReplayClient for Page and dispatch inputs through it
++        https://bugs.webkit.org/show_bug.cgi?id=140445
++
++        Reviewed by NOBODY (OOPS!).
++
++        Add a WebReplayClient implementation and provide it to WebPage. For now, it
++        dispatches all inputs the same way as before (with WebCore context).
++
++        * CMakeLists.txt:
++        * WebKit2.xcodeproj/project.pbxproj:
++        * WebProcess/WebCoreSupport/WebReplayClient.cpp: Added.
++        (WebKit::WebReplayClient::dispatchInput): Added.
++        * WebProcess/WebCoreSupport/WebReplayClient.h: Added.
++        (WebKit::WebReplayClient::WebReplayClient): Added.
++        * WebProcess/WebPage/WebPage.cpp:
++        (WebKit::WebPage::WebPage):
++
+ 2014-07-15  Brian J. Burg  <burg@cs.washington.edu>
+ 
+         Web Replay: save and restore page history state at main frame navigations
+         https://bugs.webkit.org/show_bug.cgi?id=131043
+ 
+         Reviewed by NOBODY (OOPS!).
+ 
+         Promote clear() to be part of the BackForwardClient interface.
+ 
+         * WebProcess/WebPage/WebBackForwardListProxy.h:
+diff --git a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
+index 35efbfb..ef9c753 100644
+--- a/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
++++ b/Source/WebKit2/WebKit2.xcodeproj/project.pbxproj
+@@ -1617,20 +1617,22 @@
+ 		C0337DD8127A51B6008FF4F4 /* WebTouchEvent.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0337DD7127A51B6008FF4F4 /* WebTouchEvent.cpp */; };
+ 		C0337DDD127A521C008FF4F4 /* WebPlatformTouchPoint.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0337DDC127A521C008FF4F4 /* WebPlatformTouchPoint.cpp */; };
+ 		C06C6095124C144B0001682F /* WebPageCreationParameters.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C06C6093124C14430001682F /* WebPageCreationParameters.cpp */; };
+ 		C09AE5E9125257C20025825D /* WKNativeEvent.h in Headers */ = {isa = PBXBuildFile; fileRef = C09AE5E8125257C20025825D /* WKNativeEvent.h */; settings = {ATTRIBUTES = (Private, ); }; };
+ 		C0CE72A01247E71D00BC0EC4 /* WebPageMessageReceiver.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0CE729E1247E71D00BC0EC4 /* WebPageMessageReceiver.cpp */; };
+ 		C0CE72A11247E71D00BC0EC4 /* WebPageMessages.h in Headers */ = {isa = PBXBuildFile; fileRef = C0CE729F1247E71D00BC0EC4 /* WebPageMessages.h */; };
+ 		C0CE72AD1247E78D00BC0EC4 /* HandleMessage.h in Headers */ = {isa = PBXBuildFile; fileRef = C0CE72AC1247E78D00BC0EC4 /* HandleMessage.h */; };
+ 		C0E3AA7A1209E83000A49D01 /* ModuleCF.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0E3AA481209E45000A49D01 /* ModuleCF.cpp */; };
+ 		C0E3AA7B1209E83500A49D01 /* Module.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0E3AA451209E2BA00A49D01 /* Module.cpp */; };
+ 		C0E3AA7C1209E83C00A49D01 /* Module.h in Headers */ = {isa = PBXBuildFile; fileRef = C0E3AA441209E2BA00A49D01 /* Module.h */; };
++		C49474B019A3F93F009B3DE8 /* WebReplayClient.h in Headers */ = {isa = PBXBuildFile; fileRef = C49474AE19A3F924009B3DE8 /* WebReplayClient.h */; };
++		C49474B119A3F947009B3DE8 /* WebReplayClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C49474AD19A3F924009B3DE8 /* WebReplayClient.cpp */; };
+ 		C517388112DF8F4F00EE3F47 /* DragControllerAction.h in Headers */ = {isa = PBXBuildFile; fileRef = C517388012DF8F4F00EE3F47 /* DragControllerAction.h */; };
+ 		C5237F6012441CA300780472 /* WebEditorClientMac.mm in Sources */ = {isa = PBXBuildFile; fileRef = C5237F5F12441CA300780472 /* WebEditorClientMac.mm */; };
+ 		C54256B518BEC18C00DE4179 /* WKFormInputControl.h in Headers */ = {isa = PBXBuildFile; fileRef = C54256AF18BEC18B00DE4179 /* WKFormInputControl.h */; };
+ 		C54256B618BEC18C00DE4179 /* WKFormInputControl.mm in Sources */ = {isa = PBXBuildFile; fileRef = C54256B018BEC18B00DE4179 /* WKFormInputControl.mm */; };
+ 		C54256B718BEC18C00DE4179 /* WKFormPeripheral.h in Headers */ = {isa = PBXBuildFile; fileRef = C54256B118BEC18B00DE4179 /* WKFormPeripheral.h */; };
+ 		C54256B818BEC18C00DE4179 /* WKFormPopover.h in Headers */ = {isa = PBXBuildFile; fileRef = C54256B218BEC18B00DE4179 /* WKFormPopover.h */; };
+ 		C54256B918BEC18C00DE4179 /* WKFormPopover.mm in Sources */ = {isa = PBXBuildFile; fileRef = C54256B318BEC18B00DE4179 /* WKFormPopover.mm */; };
+ 		C54256BA18BEC18C00DE4179 /* WKFormSelectControl.h in Headers */ = {isa = PBXBuildFile; fileRef = C54256B418BEC18C00DE4179 /* WKFormSelectControl.h */; };
+ 		C55CB5B718C269CF00CA81E1 /* WKFormSelectPopover.mm in Sources */ = {isa = PBXBuildFile; fileRef = C57193BA18C149D0002D0F12 /* WKFormSelectPopover.mm */; };
+ 		C55CB5B818C2A5D600CA81E1 /* WKFormSelectPicker.mm in Sources */ = {isa = PBXBuildFile; fileRef = C57193B918C149D0002D0F12 /* WKFormSelectPicker.mm */; };
+@@ -3834,20 +3836,22 @@
+ 		C0CE72581247E4DA00BC0EC4 /* WebPage.messages.in */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = WebPage.messages.in; sourceTree = "<group>"; };
+ 		C0CE729E1247E71D00BC0EC4 /* WebPageMessageReceiver.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WebPageMessageReceiver.cpp; sourceTree = "<group>"; };
+ 		C0CE729F1247E71D00BC0EC4 /* WebPageMessages.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WebPageMessages.h; sourceTree = "<group>"; };
+ 		C0CE72AC1247E78D00BC0EC4 /* HandleMessage.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = HandleMessage.h; sourceTree = "<group>"; };
+ 		C0CE72DB1247E8F700BC0EC4 /* DerivedSources.make */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = DerivedSources.make; sourceTree = "<group>"; };
+ 		C0CE73361247F70E00BC0EC4 /* generate-message-receiver.py */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.python; path = "generate-message-receiver.py"; sourceTree = "<group>"; };
+ 		C0CE73371247F70E00BC0EC4 /* generate-messages-header.py */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.python; path = "generate-messages-header.py"; sourceTree = "<group>"; };
+ 		C0E3AA441209E2BA00A49D01 /* Module.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Module.h; sourceTree = "<group>"; };
+ 		C0E3AA451209E2BA00A49D01 /* Module.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Module.cpp; sourceTree = "<group>"; };
+ 		C0E3AA481209E45000A49D01 /* ModuleCF.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ModuleCF.cpp; sourceTree = "<group>"; };
++		C49474AD19A3F924009B3DE8 /* WebReplayClient.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WebReplayClient.cpp; sourceTree = "<group>"; };
++		C49474AE19A3F924009B3DE8 /* WebReplayClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WebReplayClient.h; sourceTree = "<group>"; };
+ 		C517388012DF8F4F00EE3F47 /* DragControllerAction.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DragControllerAction.h; sourceTree = "<group>"; };
+ 		C5237F5F12441CA300780472 /* WebEditorClientMac.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = WebEditorClientMac.mm; sourceTree = "<group>"; };
+ 		C54256AF18BEC18B00DE4179 /* WKFormInputControl.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WKFormInputControl.h; path = ios/forms/WKFormInputControl.h; sourceTree = "<group>"; };
+ 		C54256B018BEC18B00DE4179 /* WKFormInputControl.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WKFormInputControl.mm; path = ios/forms/WKFormInputControl.mm; sourceTree = "<group>"; };
+ 		C54256B118BEC18B00DE4179 /* WKFormPeripheral.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WKFormPeripheral.h; path = ios/forms/WKFormPeripheral.h; sourceTree = "<group>"; };
+ 		C54256B218BEC18B00DE4179 /* WKFormPopover.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WKFormPopover.h; path = ios/forms/WKFormPopover.h; sourceTree = "<group>"; };
+ 		C54256B318BEC18B00DE4179 /* WKFormPopover.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WKFormPopover.mm; path = ios/forms/WKFormPopover.mm; sourceTree = "<group>"; };
+ 		C54256B418BEC18C00DE4179 /* WKFormSelectControl.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WKFormSelectControl.h; path = ios/forms/WKFormSelectControl.h; sourceTree = "<group>"; };
+ 		C554FFA212E4E8EA002F22C0 /* WebDragClientMac.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = WebDragClientMac.mm; sourceTree = "<group>"; };
+ 		C57193B918C149D0002D0F12 /* WKFormSelectPicker.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WKFormSelectPicker.mm; path = ios/forms/WKFormSelectPicker.mm; sourceTree = "<group>"; };
+@@ -5952,20 +5956,22 @@
+ 				512127C11908239A00DAF35C /* WebPasteboardOverrides.cpp */,
+ 				512127C21908239A00DAF35C /* WebPasteboardOverrides.h */,
+ 				1A3E736011CC2659007BD539 /* WebPlatformStrategies.cpp */,
+ 				1A3E735F11CC2659007BD539 /* WebPlatformStrategies.h */,
+ 				31D5929C166E05FF00E6BF02 /* WebPlugInClient.cpp */,
+ 				31D5929D166E060000E6BF02 /* WebPlugInClient.h */,
+ 				D3B9484211FF4B6500032B39 /* WebPopupMenu.cpp */,
+ 				D3B9484311FF4B6500032B39 /* WebPopupMenu.h */,
+ 				1A1E093118861D3800D2DC49 /* WebProgressTrackerClient.cpp */,
+ 				1A1E093218861D3800D2DC49 /* WebProgressTrackerClient.h */,
++				C49474AD19A3F924009B3DE8 /* WebReplayClient.cpp */,
++				C49474AE19A3F924009B3DE8 /* WebReplayClient.h */,
+ 				D3B9484411FF4B6500032B39 /* WebSearchPopupMenu.cpp */,
+ 				D3B9484511FF4B6500032B39 /* WebSearchPopupMenu.h */,
+ 				CEDBA84519FDA00A006866A5 /* WebSQLiteDatabaseTracker.cpp */,
+ 				CEDBA84619FDA00A006866A5 /* WebSQLiteDatabaseTracker.h */,
+ 				4A410F4819AF7B80002EBAB5 /* WebUserMediaClient.cpp */,
+ 				4A410F4919AF7B80002EBAB5 /* WebUserMediaClient.h */,
+ 			);
+ 			path = WebCoreSupport;
+ 			sourceTree = "<group>";
+ 		};
+@@ -7979,20 +7985,21 @@
+ 				7CE4D21B1A4914A300C7F152 /* WebProcessPool.h in Headers */,
+ 				7CE4D2281A4916C200C7F152 /* WebProcessPoolMessages.h in Headers */,
+ 				BC032DD510F4389F0058C15A /* WebProcessProxy.h in Headers */,
+ 				BCEE7AD112817988009827DA /* WebProcessProxyMessages.h in Headers */,
+ 				BCE0E425168B7A280057E66A /* WebProcessSupplement.h in Headers */,
+ 				1A1E093418861D3800D2DC49 /* WebProgressTrackerClient.h in Headers */,
+ 				512F589D12A8838800629530 /* WebProtectionSpace.h in Headers */,
+ 				A1C512C9190656E500448914 /* WebQuickLookHandleClient.h in Headers */,
+ 				37948404150C350600E52CE9 /* WebRenderLayer.h in Headers */,
+ 				3760881F150413E900FC82C7 /* WebRenderObject.h in Headers */,
++				C49474B019A3F93F009B3DE8 /* WebReplayClient.h in Headers */,
+ 				33367630130C9998006C9DE2 /* WebResourceCacheManager.h in Headers */,
+ 				33367656130C9ECA006C9DE2 /* WebResourceCacheManagerMessages.h in Headers */,
+ 				33367636130C99B2006C9DE2 /* WebResourceCacheManagerProxy.h in Headers */,
+ 				33367658130C9ECB006C9DE2 /* WebResourceCacheManagerProxyMessages.h in Headers */,
+ 				510AFFBA16542048001BA05E /* WebResourceLoader.h in Headers */,
+ 				51F060E01654317F00F3281B /* WebResourceLoaderMessages.h in Headers */,
+ 				7C361D731927FA360036A59D /* WebScriptMessageHandler.h in Headers */,
+ 				D3B9484911FF4B6500032B39 /* WebSearchPopupMenu.h in Headers */,
+ 				1A53C2AA1A325730004E8C70 /* WebsiteDataStore.h in Headers */,
+ 				CEDBA84819FDA00A006866A5 /* WebSQLiteDatabaseTracker.h in Headers */,
+@@ -9770,20 +9777,21 @@
+ 				BC111B11112F5E4F00337BAB /* WebProcessProxy.cpp in Sources */,
+ 				1A04F6191A4A3A7A00A21B6E /* WebProcessProxyCocoa.mm in Sources */,
+ 				2DA944B01884E9BA00ED86DB /* WebProcessProxyIOS.mm in Sources */,
+ 				51D130581382F10500351EDD /* WebProcessProxyMac.mm in Sources */,
+ 				BCEE7AD012817988009827DA /* WebProcessProxyMessageReceiver.cpp in Sources */,
+ 				1A1E093318861D3800D2DC49 /* WebProgressTrackerClient.cpp in Sources */,
+ 				512F589C12A8838800629530 /* WebProtectionSpace.cpp in Sources */,
+ 				A1C512C8190656E500448914 /* WebQuickLookHandleClient.cpp in Sources */,
+ 				37948403150C350600E52CE9 /* WebRenderLayer.cpp in Sources */,
+ 				3760881E150413E900FC82C7 /* WebRenderObject.cpp in Sources */,
++				C49474B119A3F947009B3DE8 /* WebReplayClient.cpp in Sources */,
+ 				3336762F130C9998006C9DE2 /* WebResourceCacheManager.cpp in Sources */,
+ 				33F9D5B91312F1EE000D683F /* WebResourceCacheManagerCFNet.cpp in Sources */,
+ 				33367655130C9ECA006C9DE2 /* WebResourceCacheManagerMessageReceiver.cpp in Sources */,
+ 				33367635130C99B2006C9DE2 /* WebResourceCacheManagerProxy.cpp in Sources */,
+ 				33367657130C9ECA006C9DE2 /* WebResourceCacheManagerProxyMessageReceiver.cpp in Sources */,
+ 				510AFFB916542048001BA05E /* WebResourceLoader.cpp in Sources */,
+ 				51F060E11654318500F3281B /* WebResourceLoaderMessageReceiver.cpp in Sources */,
+ 				51FB08FF1639DE1A00EC324A /* WebResourceLoadScheduler.cpp in Sources */,
+ 				7C361D721927FA360036A59D /* WebScriptMessageHandler.cpp in Sources */,
+ 				D3B9484811FF4B6500032B39 /* WebSearchPopupMenu.cpp in Sources */,
+diff --git a/Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.cpp b/Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.cpp
+new file mode 100644
+index 0000000..87c6a2b
+--- /dev/null
++++ b/Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.cpp
+@@ -0,0 +1,44 @@
++/*
++ * Copyright (C) 2014 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. ``AS IS'' AND ANY
++ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE INC. OR
++ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#include "config.h"
++#include "WebReplayClient.h"
++
++#if ENABLE(WEB_REPLAY)
++
++#include "WebPage.h"
++#include <WebCore/EventLoopInput.h>
++#include <WebCore/ReplayController.h>
++
++namespace WebKit {
++
++void WebReplayClient::dispatchInput(WebCore::EventLoopInputBase& input)
++{
++    input.dispatch(*m_page->corePage());
++}
++
++} // namespace WebKit
++
++#endif // ENABLE(WEB_REPLAY)
+diff --git a/Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.h b/Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.h
+new file mode 100644
+index 0000000..cee44c3
+--- /dev/null
++++ b/Source/WebKit2/WebProcess/WebCoreSupport/WebReplayClient.h
+@@ -0,0 +1,54 @@
++/*
++ * Copyright (C) 2014 University of Washington. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. ``AS IS'' AND ANY
++ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE INC. OR
++ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#ifndef WebReplayClient_h
++#define WebReplayClient_h
++
++#if ENABLE(WEB_REPLAY)
++
++#include <WebCore/ReplayClient.h>
++
++namespace WebKit {
++
++class WebPage;
++
++class WebReplayClient : public WebCore::ReplayClient {
++public:
++    WebReplayClient(WebPage* page)
++        : m_page(page)
++    {
++    }
++
++private:
++    virtual void dispatchInput(WebCore::EventLoopInputBase&) override;
++
++    WebPage* m_page;
++};
++
++} // namespace WebKit
++
++#endif // ENABLE(WEB_REPLAY)
++
++#endif // WebReplayClient_h
+diff --git a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
+index 02739f7..2abd350 100644
+--- a/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
++++ b/Source/WebKit2/WebProcess/WebPage/WebPage.cpp
+@@ -177,20 +177,24 @@
+ #endif
+ 
+ #if ENABLE(VIBRATION)
+ #include "WebVibrationClient.h"
+ #endif
+ 
+ #if ENABLE(PROXIMITY_EVENTS)
+ #include "WebDeviceProximityClient.h"
+ #endif
+ 
++#if ENABLE(WEB_REPLAY)
++#include "WebReplayClient.h"
++#endif
++
+ #if PLATFORM(COCOA)
+ #include "PDFPlugin.h"
+ #include "RemoteLayerTreeTransaction.h"
+ #include "WKStringCF.h"
+ #include <WebCore/LegacyWebArchive.h>
+ #endif
+ 
+ #if PLATFORM(GTK)
+ #include <gtk/gtk.h>
+ #include "DataObjectGtk.h"
+@@ -358,20 +362,23 @@ WebPage::WebPage(uint64_t pageID, const WebPageCreationParameters& parameters)
+ #if ENABLE(CONTEXT_MENUS)
+     pageConfiguration.contextMenuClient = new WebContextMenuClient(this);
+ #endif
+     pageConfiguration.editorClient = new WebEditorClient(this);
+ #if ENABLE(DRAG_SUPPORT)
+     pageConfiguration.dragClient = new WebDragClient(this);
+ #endif
+     pageConfiguration.backForwardClient = WebBackForwardListProxy::create(this);
+     m_inspectorClient = new WebInspectorClient(this);
+     pageConfiguration.inspectorClient = m_inspectorClient;
++#if ENABLE(WEB_REPLAY)
++    pageConfiguration.replayClient = new WebReplayClient(this);
++#endif
+ #if USE(AUTOCORRECTION_PANEL)
+     pageConfiguration.alternativeTextClient = new WebAlternativeTextClient(this);
+ #endif
+     pageConfiguration.plugInClient = new WebPlugInClient(*this);
+     pageConfiguration.loaderClientForMainFrame = new WebFrameLoaderClient;
+     pageConfiguration.progressTrackerClient = new WebProgressTrackerClient(*this);
+     pageConfiguration.diagnosticLoggingClient = new WebDiagnosticLoggingClient(*this);
+ 
+     pageConfiguration.databaseProvider = WebDatabaseProvider::getOrCreate(m_pageGroup->pageGroupID());
+     pageConfiguration.storageNamespaceProvider = WebStorageNamespaceProvider::getOrCreate(m_pageGroup->pageGroupID());
+-- 
+2.2.2
+

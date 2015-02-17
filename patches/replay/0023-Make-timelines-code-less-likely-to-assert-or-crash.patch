@@ -1,0 +1,67 @@
+From bbfab7d757af73f5772239c8034bb19f9ac89074 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Thu, 18 Sep 2014 14:34:55 -0700
+Subject: [PATCH] Make timelines code less likely to assert or crash.
+
+---
+ Source/WebCore/inspector/InspectorTimelineAgent.cpp            | 3 +++
+ Source/WebInspectorUI/UserInterface/Views/TimelineRecordBar.js | 1 +
+ 2 files changed, 4 insertions(+)
+
+diff --git a/Source/WebCore/inspector/InspectorTimelineAgent.cpp b/Source/WebCore/inspector/InspectorTimelineAgent.cpp
+index 1a4d6e7..b4886de 100644
+--- a/Source/WebCore/inspector/InspectorTimelineAgent.cpp
++++ b/Source/WebCore/inspector/InspectorTimelineAgent.cpp
+@@ -98,20 +98,23 @@ void InspectorTimelineAgent::start(ErrorString&, const int* maxCallStackDepth)
+ 
+ void InspectorTimelineAgent::stop(ErrorString&)
+ {
+     internalStop();
+ 
+     m_enabledFromFrontend = false;
+ }
+ 
+ void InspectorTimelineAgent::internalStart(const int* maxCallStackDepth)
+ {
++    if (m_enabled)
++        return;
++
+     if (maxCallStackDepth && *maxCallStackDepth > 0)
+         m_maxCallStackDepth = *maxCallStackDepth;
+     else
+         m_maxCallStackDepth = 5;
+ 
+     m_instrumentingAgents->inspectorEnvironment().executionStopwatch()->start();
+ 
+     m_instrumentingAgents->setInspectorTimelineAgent(this);
+ 
+     if (m_scriptDebugServer)
+diff --git a/Source/WebInspectorUI/UserInterface/Views/TimelineRecordBar.js b/Source/WebInspectorUI/UserInterface/Views/TimelineRecordBar.js
+index e04c1ca..8b0c0b0 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/TimelineRecordBar.js
++++ b/Source/WebInspectorUI/UserInterface/Views/TimelineRecordBar.js
+@@ -45,20 +45,21 @@ WebInspector.TimelineRecordBar.MinimumWidthPixels = 4;
+ WebInspector.TimelineRecordBar.MinimumMarginPixels = 1;
+ 
+ WebInspector.TimelineRecordBar.RenderMode = {
+     Normal: "timeline-record-bar-normal-render-mode",
+     InactiveOnly: "timeline-record-bar-inactive-only-render-mode",
+     ActiveOnly: "timeline-record-bar-active-only-render-mode"
+ };
+ 
+ WebInspector.TimelineRecordBar.createCombinedBars = function(records, secondsPerPixel, graphDataSource, createBarCallback)
+ {
++    console.assert(records instanceof Array, "Invalid records argument passed createCombinedBars: ", records);
+     if (!records.length)
+         return;
+ 
+     var startTime = graphDataSource.startTime;
+     var currentTime = graphDataSource.currentTime;
+     var endTime = graphDataSource.endTime;
+ 
+     var visibleRecords = [];
+     var usesActiveStartTime = false;
+     var lastRecordType = null;
+-- 
+2.2.2
+

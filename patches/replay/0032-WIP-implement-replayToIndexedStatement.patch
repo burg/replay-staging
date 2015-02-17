@@ -1,0 +1,257 @@
+From 840d1e0ddf8f41dd3e06a4d8df31855e352a515d Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Sun, 21 Sep 2014 16:52:07 -0700
+Subject: [PATCH] WIP: implement replayToIndexedStatement
+
+---
+ .../UserInterface/Base/EventListener.js            |   5 +
+ .../UserInterface/Controllers/ReplayManager.js     | 127 +++++++++++++++++++++
+ .../UserInterface/Views/ProbeSetDataGrid.js        |  15 +++
+ 3 files changed, 147 insertions(+)
+
+diff --git a/Source/WebInspectorUI/UserInterface/Base/EventListener.js b/Source/WebInspectorUI/UserInterface/Base/EventListener.js
+index 10f1754..17e1206 100644
+--- a/Source/WebInspectorUI/UserInterface/Base/EventListener.js
++++ b/Source/WebInspectorUI/UserInterface/Base/EventListener.js
+@@ -26,20 +26,25 @@
+ 
+ WebInspector.EventListener = function(thisObject, fireOnce)
+ {
+     this._thisObject = thisObject;
+     this._emitter = null;
+     this._callback = null;
+     this._fireOnce = fireOnce;
+ };
+ 
+ WebInspector.EventListener.prototype = {
++    isActive: function()
++    {
++        return this._emitter && this._callback;
++    },
++
+     connect: function(emitter, type, callback, usesCapture)
+     {
+         console.assert(!this._emitter && !this._callback, "EventListener already bound to a callback.", this);
+         console.assert(callback, "Missing callback for event: " + type);
+         console.assert(emitter, "Missing event emitter for event: " + type);
+         var emitterIsValid = emitter && (emitter instanceof WebInspector.Object || emitter instanceof Node || (typeof emitter.addEventListener === "function"));
+         console.assert(emitterIsValid,  "Event emitter ", emitter, " (type:" + type + ") is null or does not implement Node or WebInspector.Object!");
+ 
+         if (!emitterIsValid || !type || !callback)
+             return;
+diff --git a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
+index 884df35..b6db7d2 100644
+--- a/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
++++ b/Source/WebInspectorUI/UserInterface/Controllers/ReplayManager.js
+@@ -427,20 +427,147 @@ WebInspector.ReplayManager.prototype = {
+                 console.error("Failed to start playback to completion: ", error);
+                 throw error;
+             });
+ 
+         if (!suppressBreakpoints)
+             result = result.then(this._unsuppressBreakpointsIfNeeded.bind(this));
+ 
+         return result;
+     },
+ 
++    replayToIndexedStatement: function(replayPosition, url, filePosition, counterValue)
++    {
++        // Don't use a SourceCodeLocation because the referenced statement may not yet be parsed.
++        console.assert(replayPosition instanceof WebInspector.ReplayPosition, replayPosition);
++        console.assert(filePosition instanceof WebInspector.SourceCodePosition, filePosition);
++
++        // We expect playback to pause just once, but the debugger should pause counterValue-1 times.
++        var playbackPauseListener = new WebInspector.EventListener(this, true);
++        var breakpointResolvedListener = new WebInspector.EventListener(this, true);
++        var debuggerPauseListener = new WebInspector.EventListener(this, false);
++
++        var manager = this;
++        var result = this.waitUntilInitialized();
++
++        var temporaryBreakpoint = null;
++        var breakpointStateMap = new Map;
++
++        console.log("Starting replayToIndexedStatement:", replayPosition, url, filePosition, counterValue);
++
++        result = result.then(function() {
++            manager.playbackSpeed = WebInspector.ReplayManager.PlaybackSpeed.FastForward;
++            var shouldSuppressBreakpoints = true;
++
++            console.log("replayToIndexedStatement: replaying to position ", replayPosition);
++
++            return manager.replayToPosition(replayPosition, shouldSuppressBreakpoints);
++        });
++        result = result.then(function waitForPlaybackPause() {
++            console.log("replayToIndexedStatement: waiting for pause at ", replayPosition);
++
++            return new WebInspector.Promise(function (resolve, reject) {
++                playbackPauseListener.connect(manager, WebInspector.ReplayManager.Event.PlaybackPaused, resolve);
++            });
++        });
++        result = result.then(function setBreakpointForStatement() {
++
++            console.log("paused at ", manager.playbackPosition, "expected: ", replayPosition);
++            if (WebInspector.ReplayPosition.comparator(manager.playbackPosition, replayPosition) !== 0)
++                throw new Error("Playback paused at the wrong replay position!");
++
++            WebInspector.debuggerManager.breakpointsEnabled = true;
++            // Disable the breakpoints that are unrelated to this command.
++            for (var breakpoint of WebInspector.debuggerManager.breakpoints) {
++                breakpointStateMap.set(breakpoint, breakpoint.disabled);
++                breakpoint.disabled = true;
++            }
++
++            // Make a breakpoint for the specified url and position.
++            var sourceCode = WebInspector.frameResourceManager.resourceForURL(url);
++            if (!sourceCode) {
++                sourceCode = WebInspector.debuggerManager.scriptsForURL(url)[0];
++                if (sourceCode)
++                    sourceCode = sourceCode.resource || sourceCode;
++            }
++            if (!sourceCode)
++                throw new Error("Couldn't resolve indexed statement with URL: " + url);
++
++            var sourceCodeLocation = sourceCode.createSourceCodeLocation(filePosition.lineNumber, filePosition.columnNumber);
++            temporaryBreakpoint = new WebInspector.Breakpoint(sourceCodeLocation);
++
++            var shouldSkipEventDispatch = false;
++            var shouldSpeculativelyResolve = false;
++            WebInspector.debuggerManager.addBreakpoint(temporaryBreakpoint, shouldSkipEventDispatch, shouldSpeculativelyResolve);
++
++            console.log("replayToIndexedStatement: waiting to resolve breakpoint ", breakpoint);
++
++            return new WebInspector.Promise(function(resolve, reject) {
++                breakpointResolvedListener.connect(temporaryBreakpoint, WebInspector.Breakpoint.Event.ResolvedStateDidChange, resolve);
++            });
++        });
++
++        result = result.then(function() {
++            console.log("replayToIndexedStatement: waiting for pause #", counterValue);
++            var shouldSuppressBreakpoints = false;
++            manager.replayToCompletion(shouldSuppressBreakpoints);
++
++            return new WebInspector.Promise(function(resolve, reject) {
++                var pauseCounter = NaN;
++                function handleDebuggerPause(finishedCallback) {
++                    pauseCounter = isNaN(pauseCounter) ? 0 : pauseCounter + 1;
++                    console.log("replayToIndexedStatement: saw pause #", pauseCounter, "of", counterValue);
++
++                    if (pauseCounter === counterValue) {
++                        console.log("replayToIndexedStatement: resolving");
++                        finishedCallback();
++                    } else {
++                        console.log("replayToIndexedStatement: resuming");
++                        WebInspector.debuggerManager.resume();
++                    }
++                }
++                debuggerPauseListener.connect(WebInspector.debuggerManager, WebInspector.DebuggerManager.Event.Paused, handleDebuggerPause.bind(null, resolve));
++            });
++        });
++
++        result = result.then(function restoreOriginalState() {
++            console.log("replayToIndexedStatement: restoring original state");
++
++            WebInspector.debuggerManager.removeBreakpoint(temporaryBreakpoint);
++
++            manager.playbackSpeed = WebInspector.ReplayManager.PlaybackSpeed.RealTime;
++            for (var [breakpoint, wasDisabled] of breakpointStateMap)
++                breakpoint.disabled = wasDisabled;
++
++            // FIXME: we didn't properly save and restore the replay speed or debugger enabled state.
++
++            debuggerPauseListener.disconnect();
++        });
++
++        result = result.catch(function(error) {
++            console.log("replayToIndexedStatement: hit the catch clause");
++
++            if (playbackPauseListener.isActive())
++                playbackPauseListener.disconnect();
++
++            if (breakpointResolvedListener.isActive())
++                breakpointResolvedListener.disconnect();
++
++            if (debuggerPauseListener.isActive())
++                debuggerPauseListener.disconnect();
++
++            console.error("Failed to replay to indexed statement: ", error);
++            throw error;
++        });
++
++        return result;
++    },
++
+     // Protected (called by ReplayObserver)
+ 
+     // Since these methods update session and segment state, they depend on the manager
+     // being properly initialized. So, each function body is prepended with a retry guard.
+     // This makes call sites simpler and avoids an extra event loop turn in the common case.
+ 
+     captureStarted: function()
+     {
+         if (!this._initialized)
+             return this.waitUntilInitialized().then(this.captureStarted.bind(this));
+diff --git a/Source/WebInspectorUI/UserInterface/Views/ProbeSetDataGrid.js b/Source/WebInspectorUI/UserInterface/Views/ProbeSetDataGrid.js
+index 3505478..6dc0899 100644
+--- a/Source/WebInspectorUI/UserInterface/Views/ProbeSetDataGrid.js
++++ b/Source/WebInspectorUI/UserInterface/Views/ProbeSetDataGrid.js
+@@ -41,20 +41,21 @@ WebInspector.ProbeSetDataGrid = function(probeSet)
+ 
+     this._frameKeyToNodesMap = new Map;
+     this._nodesSinceLastNavigation = [];
+ 
+     this._listeners = new WebInspector.EventListenerSet(this, "ProbeSetDataGrid instance listeners");
+     this._listeners.register(probeSet, WebInspector.ProbeSet.Event.ProbeAdded, this._setupProbe);
+     this._listeners.register(probeSet, WebInspector.ProbeSet.Event.ProbeRemoved, this._teardownProbe);
+     this._listeners.register(probeSet, WebInspector.ProbeSet.Event.SamplesCleared, this._setupData);
+     this._listeners.register(WebInspector.Probe, WebInspector.Probe.Event.ExpressionChanged, this._probeExpressionChanged);
+     this._listeners.register(WebInspector.replayManager, WebInspector.ReplayManager.Event.ActiveSegmentChanged, this._activeSegmentChanged);
++    this._listeners.register(this.element, "dblclick", this._gridDoubleClicked);
+     this._listeners.install();
+ 
+     this._setupData();
+ }
+ 
+ WebInspector.ProbeSetDataGrid.DataUpdatedStyleClassName = "data-updated";
+ WebInspector.ProbeSetDataGrid.PastFrameStyleClassName = "past-value";
+ WebInspector.ProbeSetDataGrid.FutureFrameStyleClassName = "future-value";
+ WebInspector.ProbeSetDataGrid.HighlightedFrameStyleClassName = "highlighted";
+ 
+@@ -163,20 +164,34 @@ WebInspector.ProbeSetDataGrid.prototype = {
+     {
+         console.assert(this._frameKeyToNodesMap.has(frame.key), "Tried to add separator for unknown data frame: ", frame);
+         this._frameKeyToNodesMap.get(frame.key).updateCellsForSeparator(frame, this.probeSet);
+ 
+         for (var node of this._nodesSinceLastNavigation)
+             node.element.classList.add(WebInspector.ProbeSetDataGrid.PastFrameStyleClassName);
+ 
+         this._nodesSinceLastNavigation = [];
+     },
+ 
++    _gridDoubleClicked: function(event)
++    {
++        var gridNode = this.dataGridNodeFromNode(event.target);
++        if (!gridNode || !gridNode.selectable)
++            return;
++
++        var frame = gridNode.frame;
++        if (!(frame instanceof WebInspector.ProbeSetReplayDataFrame))
++            return;
++
++        var breakpoint = this.probeSet.breakpoint;
++        WebInspector.replayManager.replayToIndexedStatement(frame.position, breakpoint.url, breakpoint.sourceCodeLocation.position(), frame.counterValue);
++    },
++
+     _dataFrameInserted: function(event)
+     {
+         var frame = event.data;
+         this._lastUpdatedFrame = frame;
+         this._updateNodeForFrame(frame);
+     },
+ 
+     _dataFrameReplaced: function(event)
+     {
+         var frame = event.data;
+-- 
+2.2.2
+
