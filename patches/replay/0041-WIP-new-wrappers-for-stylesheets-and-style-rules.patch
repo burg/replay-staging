@@ -1,0 +1,32 @@
+From 63c89526843b42d8f17dd68e8c8c244f0a8e9ce4 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Tue, 17 Feb 2015 07:06:13 -0800
+Subject: [PATCH] WIP: new wrappers for stylesheets and style rules.
+
+---
+ Source/WebCore/inspector/InspectorDOMTracingAgent.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Source/WebCore/inspector/InspectorDOMTracingAgent.h b/Source/WebCore/inspector/InspectorDOMTracingAgent.h
+index 2da5620..d921d98 100644
+--- a/Source/WebCore/inspector/InspectorDOMTracingAgent.h
++++ b/Source/WebCore/inspector/InspectorDOMTracingAgent.h
+@@ -120,14 +120,14 @@ private:
+     WebCore::InspectorDOMAgent* m_domAgent {nullptr};
+ 
+     WeakPtr<WebCore::Element> m_targetElement;
+     // Used to detect rendering differences between paint events.
+     std::unique_ptr<ElementSnapshot> m_currentSnapshot;
+ 
+     // Used to prevent re-entrancy to didPaint(). This could happen because
+     // didPaint() instrumentation fires underneath the node snapshotting code.
+     bool m_isSnapshottingElement {false};
+ };
+-    
++
+ } // namespace Inspector
+ 
+ #endif // !defined(InspectorDOMTracingAgent_h)
+-- 
+2.3.5
+

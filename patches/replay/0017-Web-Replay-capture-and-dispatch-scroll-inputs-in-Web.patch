@@ -717,5 +717,5 @@ index e2f6675..11b22fc 100644
  {
      static NeverDestroyed<String> string("ReplaceSelectionPasteboard");
 -- 
-2.2.2
+2.3.5
 

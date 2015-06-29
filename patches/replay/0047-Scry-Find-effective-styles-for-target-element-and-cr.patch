@@ -1,0 +1,1645 @@
+From 0f48ee22712f718d1a7addb68b3379f26f1199f5 Mon Sep 17 00:00:00 2001
+From: "Brian J. Burg" <burg@cs.washington.edu>
+Date: Thu, 26 Feb 2015 16:53:56 -0800
+Subject: [PATCH] [Scry] Find effective styles for target element and create
+ style snapshot when element snapshot is committed.
+
+---
+ Source/JavaScriptCore/inspector/protocol/CSS.json  |  10 +-
+ .../inspector/protocol/DOMTracing.json             |  32 +++-
+ Source/WebCore/inspector/InspectorCSSAgent.cpp     | 152 ++++++++-------
+ Source/WebCore/inspector/InspectorCSSAgent.h       |  20 +-
+ Source/WebCore/inspector/InspectorController.cpp   |   6 +-
+ .../WebCore/inspector/InspectorDOMTracingAgent.cpp | 208 ++++++++++++++++++++-
+ .../WebCore/inspector/InspectorDOMTracingAgent.h   |  15 +-
+ .../inspector/InspectorInlineStyleRuleSet.h        |  14 +-
+ .../inspector/InspectorStyleDeclaration.cpp        |  24 +++
+ .../WebCore/inspector/InspectorStyleDeclaration.h  |   5 +
+ .../WebCore/inspector/InspectorStyleProperty.cpp   |   6 +
+ Source/WebCore/inspector/InspectorStyleProperty.h  |   2 +
+ Source/WebCore/inspector/InspectorStyleRule.h      |   8 +-
+ .../inspector/InspectorStylesheetRuleSet.cpp       |  22 +++
+ .../WebCore/inspector/InspectorStylesheetRuleSet.h |  28 +--
+ 15 files changed, 419 insertions(+), 133 deletions(-)
+
+diff --git a/Source/JavaScriptCore/inspector/protocol/CSS.json b/Source/JavaScriptCore/inspector/protocol/CSS.json
+index 913206c..c91b04d 100644
+--- a/Source/JavaScriptCore/inspector/protocol/CSS.json
++++ b/Source/JavaScriptCore/inspector/protocol/CSS.json
+@@ -1,25 +1,26 @@
+ {
+     "domain": "CSS",
+     "description": "This domain exposes CSS read/write operations. All CSS objects, like stylesheets, rules, and styles, have an associated <code>id</code> used in subsequent operations on the related object. Each object type has a specific <code>id</code> structure, and those are not interchangeable between objects of different kinds. CSS objects can be loaded using the <code>get*ForNode()</code> calls (which accept a DOM node id). Alternatively, a client can discover all the existing stylesheets with the <code>getAllStyleSheets()</code> method and subsequently load the required stylesheet contents using the <code>getStyleSheet[Text]()</code> methods.",
+     "availability": "web",
+     "types": [
+         {
+             "id": "StyleSheetId",
+-            "type": "integer"
++            "type": "integer",
++            "description": "Unique identifier for a stylesheet or element inline style."
+         },
+         {
+             "id": "CSSStyleId",
+             "type": "object",
+             "properties": [
+                 { "name": "styleSheetId", "$ref": "StyleSheetId", "description": "Enclosing stylesheet identifier." },
+-                { "name": "ordinal", "type": "integer", "description": "The style ordinal within the stylesheet." }
++                { "name": "ordinal", "type": "integer", "description": "The style ordinal within the stylesheet (if inline style, ordinal is 0)." }
+             ],
+             "description": "This object identifies a CSS style in a unique way."
+         },
+         {
+             "id": "StyleSheetOrigin",
+             "type": "string",
+             "enum": ["user", "user-agent", "inspector", "regular"],
+             "description": "Stylesheet type: \"user\" for user stylesheets, \"user-agent\" for user-agent stylesheets, \"inspector\" for stylesheets created by the inspector (i.e. those holding the \"via inspector\" rules), \"regular\" for regular stylesheets."
+         },
+         {
+@@ -37,24 +38,25 @@
+             "properties": [
+                 { "name": "pseudoId", "type": "integer", "description": "Pseudo style identifier (see <code>enum PseudoId</code> in <code>RenderStyleConstants.h</code>)."},
+                 { "name": "matches", "type": "array", "items": { "$ref": "RuleMatch" }, "description": "Matches of CSS rules applicable to the pseudo style."}
+             ],
+             "description": "CSS rule collection for a single pseudo style."
+         },
+         {
+             "id": "InheritedStyleEntry",
+             "type": "object",
+             "properties": [
+-                { "name": "inlineStyle", "$ref": "CSSStyle", "optional": true, "description": "The ancestor node's inline style, if any, in the style inheritance chain." },
++                { "name": "nodeId", "$ref": "DOM.NodeId", "description": "Id for the ancestor element that contributed inherited styles."},
++                { "name": "inlineStyle", "$ref": "CSSStyle", "optional": true, "description": "The ancestor element's inline style, if any, in the style inheritance chain." },
+                 { "name": "matchedCSSRules", "type": "array", "items": { "$ref": "RuleMatch" }, "description": "Matches of CSS rules matching the ancestor node in the style inheritance chain." }
+             ],
+-            "description": "CSS rule collection for a single pseudo style."
++            "description": "Inline styles and matched rules for an ancestor element that contributes inherited style properties."
+         },
+         {
+             "id": "RuleMatch",
+             "type": "object",
+             "properties": [
+                 { "name": "rule", "$ref": "CSSRule", "description": "CSS rule in the match." },
+                 { "name": "matchingSelectors", "type": "array", "items": { "type": "integer" }, "description": "Matching selector indices in the rule's selectorList selectors (0-based)." }
+             ],
+             "description": "Match data for a CSS rule."
+         },
+diff --git a/Source/JavaScriptCore/inspector/protocol/DOMTracing.json b/Source/JavaScriptCore/inspector/protocol/DOMTracing.json
+index 215d95d..b660ca1 100644
+--- a/Source/JavaScriptCore/inspector/protocol/DOMTracing.json
++++ b/Source/JavaScriptCore/inspector/protocol/DOMTracing.json
+@@ -42,24 +42,54 @@
+                 { "name": "elapsedTimestamp", "type": "number", "description": "Elapsed time since the start of page execution when the snapshot was created." },
+                 { "name": "stableNodeId", "$ref": "StableNodeId", "optional": true, "description": "The stable id for the element that was snapshotted. Is stable across runs."},
+                 { "name": "timeIndex", "$ref": "ReplayPosition", "optional": true, "description": "Replay position at which the snapshot was taken." }
+             ]
+         },
+         {
+             "id": "ElementSnapshotPayload",
+             "type": "object",
+             "properties": [
+                 { "name": "snapshotId", "$ref": "SnapshotId" },
+-                { "name": "imageData", "type": "string", "description": "Base64-encoded image data for the snapshot." }
++                { "name": "imageData", "type": "string", "description": "Base64-encoded image data for the snapshot." },
++                { "name": "styleData", "$ref": "EffectiveStyle", "description": "Effective style for element based on properties contributed from inline styles and rules." }
+             ]
+         },
+         {
++            "id": "EffectiveStyle",
++            "type": "object",
++            "properties": [
++                { "name": "elements", "type": "array", "items": { "$ref": "ElementEntry" }, "description": "Elements that contributed styles from rules and inline styles, ordered from target element to root." },
++                { "name": "properties", "type": "array", "items": { "$ref": "PropertyEntry"}, "description": "Effective properties for the target element." }
++            ],
++            "description": "Describes the effective styles for the target element and where the style properties came from."
++        },
++        {
++            "id": "PropertyEntry",
++            "type": "object",
++            "properties": [
++                { "name": "property", "$ref": "CSS.CSSProperty", "description": "A property that forms part of the effective element style." },
++                { "name": "sourceRule", "$ref": "CSS.CSSRuleId", "optional": true, "description": "If property was contributed by a rule, the rule's identifier at time of snapshot."},
++                { "name": "sourceElement", "$ref": "DOM.NodeId", "optional": true, "description": "If property was contributed by an element's inline style, the element's identifier at time of snapshot."}
++            ],
++            "description": "An effective style property contributed by a rule or inline style."
++         },
++        {
++            "id": "ElementEntry",
++            "type": "object",
++            "properties": [
++                { "name": "nodeId", "$ref": "DOM.NodeId", "description": "Id for the ancestor element that contributed inherited styles."},
++                { "name": "inlineStyle", "$ref": "CSS.CSSStyle", "optional": true, "description": "The ancestor element's inline style, if any, in the style inheritance chain." },
++                { "name": "matchedRules", "type": "array", "items": { "$ref": "CSS.RuleMatch" }, "description": "Matches of CSS rules matching the ancestor node in the style inheritance chain." }
++            ],
++            "description": "Inline styles and matched rules for an element that contributes style properties."
++        },
++        {
+             "id": "TraceOperationType",
+             "type": "string",
+             "enum": [
+                 "ElementInserted",
+                 "ElementRemoved",
+                 "AttributeModified",
+                 "AttributeRemoved"
+             ]
+         },
+         {
+diff --git a/Source/WebCore/inspector/InspectorCSSAgent.cpp b/Source/WebCore/inspector/InspectorCSSAgent.cpp
+index 84cea2a..75a03bc 100644
+--- a/Source/WebCore/inspector/InspectorCSSAgent.cpp
++++ b/Source/WebCore/inspector/InspectorCSSAgent.cpp
+@@ -109,23 +109,21 @@ static unsigned computePseudoClassMask(InspectorArray* pseudoClassArray)
+ 
+     return result;
+ }
+ 
+ static Inspector::Protocol::CSS::StyleSheetOrigin stylesheetOriginToProtocolEnum(Inspector::StyleSheetOrigin origin);
+ static Inspector::Protocol::CSS::CSSMedia::Source mediaListSourceToProtocolEnum(Inspector::MediaListSource source);
+ 
+ static RefPtr<Inspector::Protocol::CSS::CSSStyleSheetBody> buildObjectForStyleSheet(Inspector::StylesheetRuleSet&);
+ static RefPtr<Inspector::Protocol::CSS::CSSRule> buildObjectForStyleRule(Inspector::StyleRule& rule, Element* element);
+ static Ref<Inspector::Protocol::CSS::SelectorList> buildObjectForSelectorList(Inspector::StyleRule&, WebCore::Element*);
+-static RefPtr<Inspector::Protocol::CSS::CSSStyle> buildObjectForStyle(Inspector::StyleDeclaration&);
+ static RefPtr<Inspector::Protocol::CSS::CSSStyle> buildObjectForStyleWithProperties(Inspector::StyleDeclaration&);
+-static RefPtr<Inspector::Protocol::CSS::SourceRange> buildSourceRangeObject(TextPosition& start, TextPosition& end);
+ static Ref<Inspector::Protocol::CSS::CSSMedia> buildMediaObject(const MediaList& media, Inspector::MediaListSource mediaListSource, const String& sourceURL);
+ static void fillMediaListChain(CSSRule& rule, Inspector::Protocol::Array<Inspector::Protocol::CSS::CSSMedia>& mediaArray);
+ 
+ 
+ class ChangeRegionOversetTask {
+ public:
+     ChangeRegionOversetTask(InspectorCSSAgent*);
+     void scheduleFor(WebKitNamedFlow*, int documentNodeId);
+     void unschedule(WebKitNamedFlow*);
+     void reset();
+@@ -546,80 +544,80 @@ bool InspectorCSSAgent::forcePseudoState(Element& element, CSSSelector::PseudoCl
+ 
+ void InspectorCSSAgent::getMatchedStylesForNode(ErrorString& errorString, int nodeId, const bool* includePseudo, const bool* includeInherited, RefPtr<Inspector::Protocol::Array<Inspector::Protocol::CSS::RuleMatch>>& matchedCSSRules, RefPtr<Inspector::Protocol::Array<Inspector::Protocol::CSS::PseudoIdMatches>>& pseudoIdMatches, RefPtr<Inspector::Protocol::Array<Inspector::Protocol::CSS::InheritedStyleEntry>>& inheritedEntries)
+ {
+     Element* element = elementForId(errorString, nodeId);
+     if (!element)
+         return;
+ 
+     // Matched rules.
+     StyleResolver& styleResolver = element->document().ensureStyleResolver();
+     auto matchedRules = styleResolver.styleRulesForElement(element, StyleResolver::AllCSSRules);
+-    matchedCSSRules = buildArrayForMatchedRuleList(matchedRules, styleResolver, element);
++    matchedCSSRules = buildArrayForMatchedRuleList(matchedRules, *element);
+ 
+     // Pseudo elements.
+     if (!includePseudo || *includePseudo) {
+         auto pseudoElements = Inspector::Protocol::Array<Inspector::Protocol::CSS::PseudoIdMatches>::create();
+         for (PseudoId pseudoId = FIRST_PUBLIC_PSEUDOID; pseudoId < AFTER_LAST_INTERNAL_PSEUDOID; pseudoId = static_cast<PseudoId>(pseudoId + 1)) {
+             auto matchedRules = styleResolver.pseudoStyleRulesForElement(element, pseudoId, StyleResolver::AllCSSRules);
+             if (!matchedRules.isEmpty()) {
+                 auto matches = Inspector::Protocol::CSS::PseudoIdMatches::create()
+                     .setPseudoId(static_cast<int>(pseudoId))
+-                    .setMatches(buildArrayForMatchedRuleList(matchedRules, styleResolver, element))
++                    .setMatches(buildArrayForMatchedRuleList(matchedRules, *element))
+                     .release();
+                 pseudoElements->addItem(WTF::move(matches));
+             }
+         }
+ 
+         pseudoIdMatches = WTF::move(pseudoElements);
+     }
+ 
+     // Inherited styles.
+     if (!includeInherited || *includeInherited) {
+         auto entries = Inspector::Protocol::Array<Inspector::Protocol::CSS::InheritedStyleEntry>::create();
+         Element* parentElement = element->parentElement();
+         while (parentElement) {
+             StyleResolver& parentStyleResolver = parentElement->document().ensureStyleResolver();
+             auto parentMatchedRules = parentStyleResolver.styleRulesForElement(parentElement, StyleResolver::AllCSSRules);
+             auto entry = Inspector::Protocol::CSS::InheritedStyleEntry::create()
+-                .setMatchedCSSRules(buildArrayForMatchedRuleList(parentMatchedRules, styleResolver, parentElement))
++                .setNodeId(m_domAgent->pushNodePathToFrontend(parentElement))
++                .setMatchedCSSRules(buildArrayForMatchedRuleList(parentMatchedRules, *parentElement))
+                 .release();
+-            if (parentElement->style() && parentElement->style()->length()) {
+-                if (InlineStyleRuleSet* ruleSet = asInlineRuleSet(*parentElement)) {
+-                    ruleSet->withInlineStyle([&] (Inspector::StyleDeclaration& style) {
+-                        entry->setInlineStyle(buildObjectForStyle(style));
+-                    });
+-                }
++
++            if (is<StyledElement>(parentElement)) {
++                InlineStyleRuleSet& ruleSet = ruleSetForInlineStyle(downcast<StyledElement>(*parentElement));
++                ruleSet.withInlineStyle([&] (Inspector::StyleDeclaration& style) {
++                    entry->setInlineStyle(buildObjectForStyle(style));
++                });
+             }
+ 
+             entries->addItem(WTF::move(entry));
+             parentElement = parentElement->parentElement();
+         }
+ 
+         inheritedEntries = WTF::move(entries);
+     }
+ }
+ 
+ void InspectorCSSAgent::getInlineStylesForNode(ErrorString& errorString, int nodeId, RefPtr<Inspector::Protocol::CSS::CSSStyle>& inlineStyleObject, RefPtr<Inspector::Protocol::CSS::CSSStyle>& attributesStyleObject)
+ {
+     Element* element = elementForId(errorString, nodeId);
+-    if (!element)
++    if (!is<StyledElement>(element))
+         return;
+ 
+-    if (InlineStyleRuleSet* ruleSet = asInlineRuleSet(*element)) {
+-        ruleSet->withInlineStyle([&] (Inspector::StyleDeclaration& style) {
+-            inlineStyleObject = buildObjectForStyle(style);
+-        });
++    InlineStyleRuleSet& ruleSet = ruleSetForInlineStyle(downcast<StyledElement>(*element));
++    ruleSet.withInlineStyle([&] (Inspector::StyleDeclaration& style) {
++        inlineStyleObject = buildObjectForStyle(style);
++    });
+ 
+-        ruleSet->withAttributeStyle([&] (Inspector::StyleDeclaration& style) {
+-            attributesStyleObject = buildObjectForStyle(style);
+-        });
+-    }
++    ruleSet.withAttributeStyle([&] (Inspector::StyleDeclaration& style) {
++        attributesStyleObject = buildObjectForStyle(style);
++    });
+ }
+ 
+ struct CollectComputedStylePropertiesFunctor {
+     typedef RefPtr<Inspector::Protocol::Array<Inspector::Protocol::CSS::CSSComputedStyleProperty>> ReturnType;
+ 
+     CollectComputedStylePropertiesFunctor()
+     : m_propertiesArray(Inspector::Protocol::Array<Inspector::Protocol::CSS::CSSComputedStyleProperty>::create())
+     {
+     }
+ 
+@@ -826,33 +824,30 @@ void InspectorCSSAgent::getNamedFlowCollection(ErrorString& errorString, int doc
+ 
+     Vector<RefPtr<WebKitNamedFlow>> namedFlowsVector = document->namedFlows().namedFlows();
+     auto namedFlows = Inspector::Protocol::Array<Inspector::Protocol::CSS::NamedFlow>::create();
+ 
+     for (Vector<RefPtr<WebKitNamedFlow>>::iterator it = namedFlowsVector.begin(); it != namedFlowsVector.end(); ++it)
+         namedFlows->addItem(buildObjectForNamedFlow(errorString, it->get(), documentNodeId));
+ 
+     result = WTF::move(namedFlows);
+ }
+ 
+-InlineStyleRuleSet* InspectorCSSAgent::asInlineRuleSet(Element& element)
++InlineStyleRuleSet& InspectorCSSAgent::ruleSetForInlineStyle(Element& element)
+ {
+     auto findResult = m_nodeToInlineRuleSetMap.find(&element);
+     if (findResult != m_nodeToInlineRuleSetMap.end())
+-        return findResult->value.get();
+-
+-    if (!element.isStyledElement())
+-        return nullptr;
++        return *findResult->value;
+ 
+     RefPtr<InlineStyleRuleSet> inlineStyle = InlineStyleRuleSet::create(element);
+     m_identifierToRuleSetMap.set(inlineStyle->identifier(), inlineStyle);
+     m_nodeToInlineRuleSetMap.set(&element, inlineStyle);
+-    return inlineStyle.get();
++    return *inlineStyle;
+ }
+ 
+ Element* InspectorCSSAgent::elementForId(ErrorString& errorString, int nodeId)
+ {
+     Node* node = m_domAgent->nodeForId(nodeId);
+     if (!node) {
+         errorString = ASCIILiteral("No node with given id found");
+         return nullptr;
+     }
+     if (!is<Element>(*node)) {
+@@ -885,34 +880,34 @@ static Ref<Inspector::Protocol::CSS::CSSStyleSheetHeader> buildObjectForStyleShe
+         .setOrigin(stylesheetOriginToProtocolEnum(stylesheet.origin()))
+         .setDisabled(!stylesheet.isEnabled())
+         .setSourceURL(stylesheet.finalURL())
+         .setTitle(stylesheet.title())
+         .setFrameId(frameId)
+         .release();
+ }
+ 
+ void InspectorCSSAgent::collectStyleSheets(CSSStyleSheet& stylesheet, Inspector::Protocol::Array<Inspector::Protocol::CSS::CSSStyleSheetHeader>& result)
+ {
+-    StylesheetRuleSet& ruleSet = bindStyleSheet(stylesheet);
++    StylesheetRuleSet& ruleSet = ruleSetForStyleSheet(stylesheet);
+     result.addItem(buildObjectForStyleSheetInfo(ruleSet));
+ 
+     for (unsigned i = 0, size = stylesheet.length(); i < size; ++i) {
+         CSSRule* rule = stylesheet.item(i);
+         if (!is<CSSImportRule>(rule))
+             continue;
+ 
+         if (CSSStyleSheet* importedStylesheet = downcast<CSSImportRule>(*rule).styleSheet())
+             collectStyleSheets(*importedStylesheet, result);
+     }
+ }
+ 
+-StylesheetRuleSet& InspectorCSSAgent::bindStyleSheet(CSSStyleSheet& stylesheet)
++StylesheetRuleSet& InspectorCSSAgent::ruleSetForStyleSheet(CSSStyleSheet& stylesheet)
+ {
+     auto findResult = m_cssStyleSheetToRuleSetMap.find(&stylesheet);
+     if (findResult != m_cssStyleSheetToRuleSetMap.end())
+         return *findResult->value;
+ 
+     StyleSheetOrigin origin = StyleSheetOrigin::Author;
+     Node* ownerNode = stylesheet.ownerNode();
+     if (!ownerNode && stylesheet.href().isEmpty())
+         origin = StyleSheetOrigin::UserAgent;
+ 
+@@ -967,33 +962,63 @@ StylesheetRuleSet* InspectorCSSAgent::inspectorRuleSetForDocument(Document& docu
+     RefPtr<StylesheetRuleSet> newRuleSet = StylesheetRuleSet::create(*stylesheet, StyleSheetOrigin::Inspector, InspectorDOMAgent::documentURLString(&document), this);
+     m_identifierToRuleSetMap.set(newRuleSet->identifier(), newRuleSet);
+     m_cssStyleSheetToRuleSetMap.set(stylesheet, newRuleSet);
+     m_documentToInspectorRuleSetMap.set(&document, newRuleSet);
+     return newRuleSet.get();
+ }
+ 
+ StyleRuleSet* InspectorCSSAgent::ruleSetForStylesheetId(ErrorString& errorString, Inspector::Protocol::CSS::StyleSheetId stylesheetId)
+ {
+     if (stylesheetId <= 0) {
+-        errorString = ASCIILiteral("Invalid idenifier for stylesheet.");
++        errorString = ASCIILiteral("Invalid identifier for stylesheet.");
+         return nullptr;
+     }
+ 
+     uint64_t key = static_cast<uint64_t>(stylesheetId);
+     auto findResult = m_identifierToRuleSetMap.find(key);
+     if (findResult == m_identifierToRuleSetMap.end()) {
+         errorString = ASCIILiteral("No stylesheet with given id found");
+         return nullptr;
+     }
+     return findResult->value.get();
+ }
+ 
++void InspectorCSSAgent::withWrappedRule(WebCore::StyleRule& styleRule, Document& ownerDocument, const std::function<void(Inspector::StyleRule&)>& callback)
++{
++    // Webcore::StyleRules (i.e., returned from StyleResolver::styleRulesForElement) lack parent pointers.
++    // The inspector wants to walk up the rule tree and use CSSOM, so construct the full wrappers here.
++    // NOTE: it is expensive for the style system to maintain these wrappers, so it's done lazily.
++    StyleResolver& styleResolver = ownerDocument.ensureStyleResolver();
++    CSSStyleRule* cssomWrapper = styleResolver.inspectorCSSOMWrappers().getWrapperForRuleInSheets(&styleRule, styleResolver.document().styleSheetCollection());
++    if (!cssomWrapper || !cssomWrapper->parentStyleSheet())
++        return;
++
++    // Force the stylesheet to bind so that the rule is assigned a CSSId.
++    StylesheetRuleSet& stylesheet = ruleSetForStyleSheet(*cssomWrapper->parentStyleSheet());
++    CSSId identifier = stylesheet.idForStyle(cssomWrapper->style());
++    stylesheet.withRuleForId(identifier, callback);
++}
++
++void InspectorCSSAgent::withWrappedStyle(CSSStyleDeclaration& style, const std::function<void(Inspector::StyleDeclaration&)>& callback)
++{
++    if (style.parentElement()) {
++        // Force the parent element to bind so we can use its wrapper.
++        InlineStyleRuleSet& ruleSet = ruleSetForInlineStyle(*style.parentElement());
++        ruleSet.withInlineStyle(callback);
++    } else if (style.parentStyleSheet()) {
++        // Force the parent stylesheet to bind so that the style is assigned a CSSId.
++        StylesheetRuleSet& stylesheet = ruleSetForStyleSheet(*style.parentStyleSheet());
++        CSSId identifier = stylesheet.idForStyle(style);
++        stylesheet.withStyleForId(identifier, callback);
++    }
++}
++
+ void InspectorCSSAgent::didRemoveDocument(Document* document)
+ {
+     if (document)
+         m_documentToInspectorRuleSetMap.remove(document);
+ }
+ 
+ void InspectorCSSAgent::didRemoveDOMNode(Node* node)
+ {
+     if (!node)
+         return;
+@@ -1100,21 +1125,21 @@ struct CollectRuleSelectorsFunctor {
+         if (m_element)
+             specificity = selector.dynamicSpecificity(*m_element);
+         else
+             specificity = selector.staticSpecificity();
+ 
+         auto tuple = Inspector::Protocol::Array<int>::create();
+         tuple->addItem(static_cast<int>((specificity & CSSSelector::idMask) >> 16));
+         tuple->addItem(static_cast<int>((specificity & CSSSelector::classMask) >> 8));
+         tuple->addItem(static_cast<int>(specificity & CSSSelector::elementMask));
+         selectorObject->setSpecificity(WTF::move(tuple));
+-        
++
+         m_selectorsArray->addItem(WTF::move(selectorObject));
+     }
+ 
+     ReturnType returnValue() { return WTF::move(m_selectorsArray); }
+ 
+ private:
+     RefPtr<Inspector::Protocol::Array<Inspector::Protocol::CSS::CSSSelector>> m_selectorsArray;
+     Element* m_element;
+ };
+ 
+@@ -1125,21 +1150,21 @@ Ref<Inspector::Protocol::CSS::SelectorList> buildObjectForSelectorList(Inspector
+     CollectRuleSelectorsFunctor collectSelector(element);
+     auto result = Inspector::Protocol::CSS::SelectorList::create()
+         .setSelectors(rule.forEachSelector(collectSelector))
+         .setText(rule.selectorListText())
+         .release();
+ 
+     if (rule.isFromSource()) {
+         TextPosition start, end;
+         bool success = rule.getSelectorListTextRange(start, end);
+         ASSERT_UNUSED(success, success);
+-        result->setRange(buildSourceRangeObject(start, end));
++        result->setRange(buildObjectForSourceRange(start, end));
+     }
+     return WTF::move(result);
+ }
+ 
+ struct CollectStylesheetRulesFunctor {
+     typedef RefPtr<Inspector::Protocol::Array<Inspector::Protocol::CSS::CSSRule>> ReturnType;
+ 
+     CollectStylesheetRulesFunctor()
+         : m_rulesArray(Inspector::Protocol::Array<Inspector::Protocol::CSS::CSSRule>::create())
+     {
+@@ -1164,21 +1189,21 @@ RefPtr<Inspector::Protocol::CSS::CSSStyleSheetBody> buildObjectForStyleSheet(Sty
+     auto result = Inspector::Protocol::CSS::CSSStyleSheetBody::create()
+         .setStyleSheetId(stylesheet.identifier())
+         .setRules(stylesheet.forEachRule(collectRules))
+         .release();
+ 
+     result->setText(stylesheet.getText());
+ 
+     return WTF::move(result);
+ }
+ 
+-RefPtr<Inspector::Protocol::CSS::SourceRange> buildSourceRangeObject(TextPosition& start, TextPosition& end)
++RefPtr<Inspector::Protocol::CSS::SourceRange> buildObjectForSourceRange(TextPosition& start, TextPosition& end)
+ {
+     return Inspector::Protocol::CSS::SourceRange::create()
+         .setStartLine(start.m_line.zeroBasedInt())
+         .setStartColumn(start.m_column.zeroBasedInt())
+         .setEndLine(end.m_line.zeroBasedInt())
+         .setEndColumn(end.m_column.zeroBasedInt())
+         .release();
+ }
+ 
+ Ref<Inspector::Protocol::CSS::CSSMedia> buildMediaObject(const MediaList& media, MediaListSource mediaListSource, const String& sourceURL)
+@@ -1279,70 +1304,55 @@ RefPtr<Inspector::Protocol::CSS::CSSRule> buildObjectForStyleRule(Inspector::Sty
+ 
+     auto mediaArray = Inspector::Protocol::Array<Inspector::Protocol::CSS::CSSMedia>::create();
+ 
+     fillMediaListChain(rule.rule(), mediaArray.get());
+     if (mediaArray->length())
+         result->setMedia(WTF::move(mediaArray));
+ 
+     return WTF::move(result);
+ }
+ 
+-RefPtr<Inspector::Protocol::CSS::CSSRule> InspectorCSSAgent::buildObjectForMatchedRule(WebCore::StyleRule& styleRule, StyleResolver& styleResolver, Element* element)
++RefPtr<Inspector::Protocol::CSS::RuleMatch> InspectorCSSAgent::buildObjectForMatchedRule(WebCore::StyleRule& styleRule, Element& element)
+ {
+-    // StyleRules returned by StyleResolver::styleRulesForElement lack parent pointers since that infomation is not cheaply available.
+-    // Since the inspector wants to walk the parent chain, we construct the full wrappers here.
+-    CSSStyleRule* styleRuleWrapper = styleResolver.inspectorCSSOMWrappers().getWrapperForRuleInSheets(&styleRule, styleResolver.document().styleSheetCollection());
+-    if (!styleRuleWrapper || !styleRuleWrapper->parentStyleSheet())
+-        return nullptr;
+-
+-    StylesheetRuleSet& stylesheet = bindStyleSheet(*styleRuleWrapper->parentStyleSheet());
+-    CSSId identifier = stylesheet.idForStyle(styleRuleWrapper->style());
+-
+-    RefPtr<Inspector::Protocol::CSS::CSSRule> result;
+-    stylesheet.withRuleForId(identifier, [&] (Inspector::StyleRule& rule) {
+-        result = buildObjectForStyleRule(rule, element);
+-    });
+-    return WTF::move(result);
+-}
+-
+-RefPtr<Inspector::Protocol::Array<Inspector::Protocol::CSS::RuleMatch>> InspectorCSSAgent::buildArrayForMatchedRuleList(const Vector<RefPtr<StyleRule>>& matchedRules, StyleResolver& styleResolver, Element* element)
+-{
+-    auto result = Inspector::Protocol::Array<Inspector::Protocol::CSS::RuleMatch>::create();
+-
+-    SelectorChecker::CheckingContext context(SelectorChecker::Mode::CollectingRules);
+-    SelectorChecker selectorChecker(element->document());
+-
+-    for (auto& matchedRule : matchedRules) {
+-        if (!matchedRule)
+-            continue;
+-
+-        RefPtr<Inspector::Protocol::CSS::CSSRule> ruleObject = buildObjectForMatchedRule(*matchedRule, styleResolver, element);
+-        if (!ruleObject)
+-            continue;
++    RefPtr<Inspector::Protocol::CSS::RuleMatch> result;
++    withWrappedRule(styleRule, element.document(), [&] (Inspector::StyleRule& rule) {
++        SelectorChecker::CheckingContext context(SelectorChecker::Mode::CollectingRules);
++        SelectorChecker selectorChecker(element.document());
+ 
++        // FIXME: this is duplicated from RuleSelector, it should be calculated there.
+         auto matchingSelectors = Inspector::Protocol::Array<int>::create();
+-        const CSSSelectorList& selectorList = matchedRule->selectorList();
++        const CSSSelectorList& selectorList = styleRule.selectorList();
+         long index = 0;
+         for (const CSSSelector* selector = selectorList.first(); selector; selector = CSSSelectorList::next(selector)) {
+             unsigned ignoredSpecificity;
+-            bool matched = selectorChecker.match(selector, element, context, ignoredSpecificity);
++            bool matched = selectorChecker.match(selector, &element, context, ignoredSpecificity);
+             if (matched)
+                 matchingSelectors->addItem(index);
+             ++index;
+         }
+ 
+-        auto match = Inspector::Protocol::CSS::RuleMatch::create()
+-            .setRule(WTF::move(ruleObject))
++        result = Inspector::Protocol::CSS::RuleMatch::create()
++            .setRule(buildObjectForStyleRule(rule, &element))
+             .setMatchingSelectors(WTF::move(matchingSelectors))
+             .release();
+-        result->addItem(WTF::move(match));
+-    }
++    });
++    return WTF::move(result);
++}
++
++// FIXME: turn this into a collector functor.
++RefPtr<Inspector::Protocol::Array<Inspector::Protocol::CSS::RuleMatch>> InspectorCSSAgent::buildArrayForMatchedRuleList(const Vector<RefPtr<StyleRule>>& matchedRules, Element& element)
++{
++    auto result = Inspector::Protocol::Array<Inspector::Protocol::CSS::RuleMatch>::create();
++
++    for (auto& matchedRule : matchedRules)
++        if (auto matchObject = buildObjectForMatchedRule(*matchedRule, element))
++            result->addItem(WTF::move(matchObject));
+ 
+     return WTF::move(result);
+ }
+ 
+ RefPtr<Inspector::Protocol::Array<Inspector::Protocol::CSS::Region>> InspectorCSSAgent::buildArrayForRegions(ErrorString& errorString, RefPtr<NodeList>&& regionList, int documentNodeId)
+ {
+     auto regions = Inspector::Protocol::Array<Inspector::Protocol::CSS::Region>::create();
+ 
+     for (unsigned i = 0; i < regionList->length(); ++i) {
+         Inspector::Protocol::CSS::Region::RegionOverset regionOverset;
+@@ -1409,21 +1419,21 @@ RefPtr<Inspector::Protocol::CSS::CSSStyle> buildObjectForStyle(StyleDeclaration&
+         result->setStyleId(style.styleId().asProtocolValue<Inspector::Protocol::CSS::CSSStyleId>());
+ 
+     result->setWidth(style.declaration().getPropertyValue("width"));
+     result->setHeight(style.declaration().getPropertyValue("height"));
+ 
+     if (style.isFromSource()) {
+         TextPosition start, end;
+         bool success;
+         success = style.getStyleTextRange(start, end);
+         ASSERT_UNUSED(success, success);
+-        result->setRange(buildSourceRangeObject(start, end));
++        result->setRange(buildObjectForSourceRange(start, end));
+ 
+         String styleText;
+         success = style.getStyleText(styleText);
+         ASSERT_UNUSED(success, success);
+         result->setCssText(styleText);
+     }
+ 
+     return WTF::move(result);
+ }
+ 
+@@ -1486,21 +1496,21 @@ struct CollectPropertyDataFunctor {
+ 
+         auto status = Inspector::Protocol::CSS::CSSPropertyStatus::Active;
+         if (!property.isFromSource())
+             status = Inspector::Protocol::CSS::CSSPropertyStatus::Style;
+         else {
+             propertyObject->setText(property.rawText());
+ 
+             TextPosition start;
+             TextPosition end;
+             property.getTextRange(start, end);
+-            propertyObject->setRange(buildSourceRangeObject(start, end));
++            propertyObject->setRange(buildObjectForSourceRange(start, end));
+ 
+             // Parsed property overrides any property with the same name. Non-parsed property overrides
+             // previous non-parsed property with the same name (if any).
+             bool shouldInactivate = false;
+             CSSPropertyID propertyId = cssPropertyID(property.propertyName());
+             // Canonicalize property names to treat non-prefixed and vendor-prefixed property names the same (opacity vs. -webkit-opacity).
+             String canonicalPropertyName = propertyId ? getPropertyNameString(propertyId) : property.propertyName();
+             auto findResult = m_propertyNameToPreviousActiveProperty.find(canonicalPropertyName);
+             if (findResult != m_propertyNameToPreviousActiveProperty.end()) {
+                 if (property.parsedOk()) {
+diff --git a/Source/WebCore/inspector/InspectorCSSAgent.h b/Source/WebCore/inspector/InspectorCSSAgent.h
+index db65e64..718df7d 100644
+--- a/Source/WebCore/inspector/InspectorCSSAgent.h
++++ b/Source/WebCore/inspector/InspectorCSSAgent.h
+@@ -114,45 +114,52 @@ public:
+     virtual void getStyleSheet(ErrorString&, Inspector::Protocol::CSS::StyleSheetId styleSheetId, RefPtr<Inspector::Protocol::CSS::CSSStyleSheetBody>& result) override;
+     virtual void getStyleSheetText(ErrorString&, Inspector::Protocol::CSS::StyleSheetId styleSheetId, String* result) override;
+     virtual void setStyleSheetText(ErrorString&, Inspector::Protocol::CSS::StyleSheetId styleSheetId, const String& text) override;
+     virtual void setStyleText(ErrorString&, const RefPtr<Inspector::InspectorObject>&& styleId, const String& text, RefPtr<Inspector::Protocol::CSS::CSSStyle>& result) override;
+     virtual void setRuleSelector(ErrorString&, const RefPtr<Inspector::InspectorObject>&& ruleId, const String& selector, RefPtr<Inspector::Protocol::CSS::CSSRule>& result) override;
+     virtual void addRule(ErrorString&, int contextNodeId, const String& selector, RefPtr<Inspector::Protocol::CSS::CSSRule>& result) override;
+     virtual void getSupportedCSSProperties(ErrorString&, RefPtr<Inspector::Protocol::Array<Inspector::Protocol::CSS::CSSPropertyInfo>>& result) override;
+     virtual void forcePseudoState(ErrorString&, int nodeId, const RefPtr<Inspector::InspectorArray>&& forcedPseudoClasses) override;
+     virtual void getNamedFlowCollection(ErrorString&, int documentNodeId, RefPtr<Inspector::Protocol::Array<Inspector::Protocol::CSS::NamedFlow>>& result) override;
+ 
++    // Public entry points for the Inspector CSS wrapper system. Mainly used by DOMTracingAgent.
++    void withWrappedRule(WebCore::StyleRule&, Document& ownerDocument, const std::function<void(Inspector::StyleRule&)>&);
++    void withWrappedStyle(CSSStyleDeclaration&, const std::function<void(Inspector::StyleDeclaration&)>&);
++    Inspector::StylesheetRuleSet& ruleSetForStyleSheet(CSSStyleSheet&);
++    Inspector::InlineStyleRuleSet& ruleSetForInlineStyle(Element&);
++    Inspector::StylesheetRuleSet* ruleSetForRule(WebCore::StyleRule&, Document& ownerDocument);
++
++    RefPtr<Inspector::Protocol::CSS::RuleMatch> buildObjectForMatchedRule(StyleRule&, Element&);
++
+ private:
+     class StyleRuleSetAction;
+     class SetStyleSheetTextAction;
+     class SetStyleTextAction;
+     class SetRuleSelectorAction;
+     class AddRuleAction;
+ 
+     typedef HashMap<uint64_t, RefPtr<Inspector::StyleRuleSet>> IdentifierToRuleSetMap;
+     typedef HashMap<CSSStyleSheet*, RefPtr<Inspector::StylesheetRuleSet>> CSSStyleSheetToRuleSetMap;
+     typedef HashMap<Node*, RefPtr<Inspector::InlineStyleRuleSet>> NodeToInlineRuleSetMap;
+     typedef HashMap<RefPtr<Document>, RefPtr<Inspector::StylesheetRuleSet>> DocumentToInspectorRuleSetMap; // "via inspector" stylesheets
+     typedef HashMap<int, unsigned> NodeIdToForcedPseudoState;
+ 
+     void resetNonPersistentData();
+-    Inspector::InlineStyleRuleSet* asInlineRuleSet(Element& element);
+     Element* elementForId(ErrorString&, int nodeId);
+     int documentNodeWithRequestedFlowsId(Document*);
+     void collectStyleSheets(CSSStyleSheet&, Inspector::Protocol::Array<Inspector::Protocol::CSS::CSSStyleSheetHeader>&);
+ 
+-    Inspector::StylesheetRuleSet& bindStyleSheet(CSSStyleSheet&);
+-    Inspector::StylesheetRuleSet* inspectorRuleSetForDocument(Document&, bool createIfAbsent);
+     Inspector::StyleRuleSet* ruleSetForStylesheetId(ErrorString&, Inspector::Protocol::CSS::StyleSheetId);
++    // For a given document, returns the stylesheet containing rules added through the inspector.
++    Inspector::StylesheetRuleSet* inspectorRuleSetForDocument(Document&, bool createIfAbsent);
+ 
+-    RefPtr<Inspector::Protocol::CSS::CSSRule> buildObjectForMatchedRule(StyleRule&, StyleResolver&, Element*);
+-    RefPtr<Inspector::Protocol::Array<Inspector::Protocol::CSS::RuleMatch>> buildArrayForMatchedRuleList(const Vector<RefPtr<StyleRule>>&, StyleResolver&, Element*);
++    RefPtr<Inspector::Protocol::Array<Inspector::Protocol::CSS::RuleMatch>> buildArrayForMatchedRuleList(const Vector<RefPtr<StyleRule>>&, Element&);
+     RefPtr<Inspector::Protocol::Array<Inspector::Protocol::CSS::Region>> buildArrayForRegions(ErrorString&, RefPtr<NodeList>&&, int documentNodeId);
+     RefPtr<Inspector::Protocol::CSS::NamedFlow> buildObjectForNamedFlow(ErrorString&, WebKitNamedFlow*, int documentNodeId);
+ 
+     // InspectorDOMAgent::DOMListener implementation
+     virtual void didRemoveDocument(Document*) override;
+     virtual void didRemoveDOMNode(Node*) override;
+     virtual void didModifyDOMAttr(Element*) override;
+ 
+     // InspectorCSSAgent::Listener implementation
+     virtual void styleSheetChanged(Inspector::StylesheetRuleSet&) override;
+@@ -166,13 +173,16 @@ private:
+     IdentifierToRuleSetMap m_identifierToRuleSetMap;
+     CSSStyleSheetToRuleSetMap m_cssStyleSheetToRuleSetMap;
+     NodeToInlineRuleSetMap m_nodeToInlineRuleSetMap;
+     DocumentToInspectorRuleSetMap m_documentToInspectorRuleSetMap;
+ 
+     NodeIdToForcedPseudoState m_nodeIdToForcedPseudoState;
+     HashSet<int> m_namedFlowCollectionsRequested;
+     std::unique_ptr<ChangeRegionOversetTask> m_changeRegionOversetTask;
+ };
+ 
++RefPtr<Inspector::Protocol::CSS::CSSStyle> buildObjectForStyle(Inspector::StyleDeclaration&);
++RefPtr<Inspector::Protocol::CSS::SourceRange> buildObjectForSourceRange(TextPosition& start, TextPosition& end);
++
+ } // namespace WebCore
+ 
+ #endif // !defined(InspectorCSSAgent_h)
+diff --git a/Source/WebCore/inspector/InspectorController.cpp b/Source/WebCore/inspector/InspectorController.cpp
+index 8cb943b..625519f 100644
+--- a/Source/WebCore/inspector/InspectorController.cpp
++++ b/Source/WebCore/inspector/InspectorController.cpp
+@@ -112,39 +112,41 @@ InspectorController::InspectorController(Page& page, InspectorClient* inspectorC
+ 
+     auto runtimeAgentPtr = std::make_unique<PageRuntimeAgent>(m_injectedScriptManager.get(), &page, pageAgent);
+     PageRuntimeAgent* runtimeAgent = runtimeAgentPtr.get();
+     m_instrumentingAgents->setPageRuntimeAgent(runtimeAgent);
+     m_agents.append(WTF::move(runtimeAgentPtr));
+ 
+     auto domAgentPtr = std::make_unique<InspectorDOMAgent>(m_instrumentingAgents.get(), pageAgent, m_injectedScriptManager.get(), m_overlay.get());
+     m_domAgent = domAgentPtr.get();
+     m_agents.append(WTF::move(domAgentPtr));
+ 
+-    m_agents.append(std::make_unique<InspectorCSSAgent>(m_instrumentingAgents.get(), m_domAgent));
++    auto cssAgentPtr = std::make_unique<InspectorCSSAgent>(m_instrumentingAgents.get(), m_domAgent);
++    InspectorCSSAgent* cssAgent = cssAgentPtr.get();
++    m_agents.append(WTF::move(cssAgentPtr));
+ 
+     auto databaseAgentPtr = std::make_unique<InspectorDatabaseAgent>(m_instrumentingAgents.get());
+     InspectorDatabaseAgent* databaseAgent = databaseAgentPtr.get();
+     m_agents.append(WTF::move(databaseAgentPtr));
+ 
+ #if ENABLE(INDEXED_DATABASE)
+     m_agents.append(std::make_unique<InspectorIndexedDBAgent>(m_instrumentingAgents.get(), m_injectedScriptManager.get(), pageAgent));
+ #endif
+ 
+ #if ENABLE(WEB_REPLAY)
+     m_agents.append(std::make_unique<InspectorReplayAgent>(m_instrumentingAgents.get(), pageAgent));
+ #endif
+ 
+     auto domStorageAgentPtr = std::make_unique<InspectorDOMStorageAgent>(m_instrumentingAgents.get(), m_pageAgent);
+     InspectorDOMStorageAgent* domStorageAgent = domStorageAgentPtr.get();
+     m_agents.append(WTF::move(domStorageAgentPtr));
+ 
+-    m_agents.append(std::make_unique<DOMTracingAgent>(m_instrumentingAgents.get(), m_domAgent));
++    m_agents.append(std::make_unique<DOMTracingAgent>(m_instrumentingAgents.get(), m_domAgent, cssAgent));
+ 
+     auto timelineAgentPtr = std::make_unique<InspectorTimelineAgent>(m_instrumentingAgents.get(), pageAgent, InspectorTimelineAgent::PageInspector, inspectorClient);
+     m_timelineAgent = timelineAgentPtr.get();
+     m_agents.append(WTF::move(timelineAgentPtr));
+ 
+     auto resourceAgentPtr = std::make_unique<InspectorResourceAgent>(m_instrumentingAgents.get(), pageAgent, inspectorClient);
+     m_resourceAgent = resourceAgentPtr.get();
+     m_agents.append(WTF::move(resourceAgentPtr));
+ 
+     auto consoleAgentPtr = std::make_unique<PageConsoleAgent>(m_injectedScriptManager.get(), m_domAgent);
+diff --git a/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp b/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp
+index 8f2ad4f..96c65a1 100644
+--- a/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp
++++ b/Source/WebCore/inspector/InspectorDOMTracingAgent.cpp
+@@ -25,45 +25,58 @@
+ 
+ #include "config.h"
+ 
+ #include "InspectorDOMTracingAgent.h"
+ 
+ #include "Element.h"
+ #include "ElementTraceOperations.h"
+ #include "FrameSnapshotting.h"
+ #include "FrameView.h"
+ #include "ImageBuffer.h"
++#include "InspectorCSSAgent.h"
+ #include "InspectorDOMAgent.h"
++#include "InspectorInlineStyleRuleSet.h"
+ #include "InspectorPageAgent.h"
++#include "InspectorStyleDeclaration.h"
+ #include "InstrumentingAgents.h"
+ #include "JSMainThreadExecState.h"
+ #include "Logging.h"
+ #include "MainFrame.h"
+ #include "Node.h"
+ #include "Page.h"
+ #include "RenderObject.h"
++#include "StyledElement.h"
++#include "StyleProperties.h"
++#include "StyleResolver.h"
++#include "StyleRule.h"
++#include <bitset>
+ #include <inspector/InspectorFrontendChannel.h>
+ #include <inspector/ScriptCallStack.h>
+ #include <inspector/ScriptCallStackFactory.h>
+ #include <wtf/Stopwatch.h>
+ #include <wtf/TemporaryChange.h>
+ 
+ #if ENABLE(WEB_REPLAY)
+ #include "ReplayController.h"
+ #endif
+ 
+ using namespace WebCore;
+ 
+ namespace Inspector {
+ 
+ static int maxCallStackDepth = 5;
+ 
++StyleSnapshot::StyleSnapshot(RefPtr<Inspector::Protocol::DOMTracing::EffectiveStyle>&& encodedData)
++    : encodedData(encodedData)
++{
++}
++
+ ElementSnapshot::ElementSnapshot() { }
+ ElementSnapshot::~ElementSnapshot() { }
+ 
+ ElementSnapshot::ElementSnapshot(std::unique_ptr<ImageBuffer> data, const LayoutRect& bounds, uint64_t snapshotId)
+     : imageData(std::move(data))
+     , boundingBox(bounds)
+     , snapshotId(snapshotId)
+ {
+ }
+ 
+@@ -75,42 +88,214 @@ bool operator==(const ElementSnapshot& a, const ElementSnapshot& b)
+     // These are root frame view coordinates, so scrolling will not affect equality.
+     if (a.boundingBox != b.boundingBox)
+         return false;
+ 
+     ASSERT(a.imageData->logicalSize() == b.imageData->logicalSize());
+ 
+     float diffPercent = ImageBuffer::computeDifference(*a.imageData, *b.imageData);
+     return diffPercent < 0.01f;
+ }
+ 
+-DOMTracingAgent::DOMTracingAgent(InstrumentingAgents* instrumentingAgents, InspectorDOMAgent* domAgent)
++DOMTracingAgent::DOMTracingAgent(InstrumentingAgents* instrumentingAgents, InspectorDOMAgent* domAgent, InspectorCSSAgent* cssAgent)
+     : InspectorAgentBase(ASCIILiteral("DOMTracing"), instrumentingAgents)
+     , m_domAgent(domAgent)
++    , m_cssAgent(cssAgent)
+ {
+ }
+ 
+ DOMTracingAgent::~DOMTracingAgent()
+ {
+ }
+ 
+ std::unique_ptr<ElementSnapshot> DOMTracingAgent::createSnapshot(Element& element)
+ {
+     TemporaryChange<bool> suppressDidPaintCalls(m_isSnapshottingElement, true);
+ 
+     if (!element.renderer())
+         return std::make_unique<ElementSnapshot>();
+ 
+     std::unique_ptr<ImageBuffer> imageData = snapshotNode(element.renderer()->frame().mainFrame(), element);
+     IntRect bounds = element.boundsInRootViewSpace();
+     return std::make_unique<ElementSnapshot>(std::move(imageData), bounds, m_nextSnapshotId++);
+ }
+ 
++// This is duplicated from CSSAgent.cpp because that functor implementation explicitly tracks
++// active/inactive properties as it builds multiple objects, rather than precomputing status.
++// (Maybe StyleDeclaration::populateProperties should handle this and give such data to StyleProperty...)
++static RefPtr<Inspector::Protocol::CSS::CSSProperty> buildObjectForProperty(StyleDeclaration& declaration, CSSPropertyID propertyId)
++{
++    RefPtr<Inspector::Protocol::CSS::CSSProperty> result;
++    declaration.withPropertyForId(propertyId, [&result] (StyleProperty& property) {
++        result = Inspector::Protocol::CSS::CSSProperty::create()
++            .setName(property.propertyName().lower())
++            .setValue(property.propertyValue())
++            .release();
++
++        result->setParsedOk(property.parsedOk());
++        result->setImplicit(property.isImplicit());
++        auto status = Inspector::Protocol::CSS::CSSPropertyStatus::Active;
++        if (!property.isFromSource())
++            status = Inspector::Protocol::CSS::CSSPropertyStatus::Style;
++        else {
++            result->setText(property.rawText());
++
++            TextPosition start, end;
++            property.getTextRange(start, end);
++            result->setRange(buildObjectForSourceRange(start, end));
++        }
++        result->setStatus(status);
++    });
++
++    return WTF::move(result);
++}
++
++std::unique_ptr<StyleSnapshot> DOMTracingAgent::createStyleSnapshot(Element& targetElement)
++{
++    std::bitset<numCSSProperties> propertyIsClaimed;
++    HashMap<CSSPropertyID, WebCore::StyleRule*> winningRuleMap;
++    HashMap<CSSPropertyID, Element*> winningInlineStyleMap;
++    HashMap<Element*, Vector<WebCore::StyleRule*>> rulesToKeepForElement;
++    HashSet<Element*> elementsWithUsefulInlineStyle;
++
++    StyleResolver& styleResolver = targetElement.document().ensureStyleResolver();
++
++    for (Element* element = &targetElement; element; element = element->parentElement()) {
++        // First try to claim properties in the inline style, as it has highest specificity.
++        const StyleProperties* properties = nullptr;
++        if (is<StyledElement>(element))
++            properties = downcast<StyledElement>(element)->inlineStyle();
++
++        unsigned size = properties ? properties->propertyCount() : 0;
++
++        if (size)
++            LOG(WebReplay, "Checking inline style for element: %p\n", element);
++
++        bool claimedPropertyFromInlineStyle = false;
++        for (unsigned i = 0; i < size; ++i) {
++            auto property = properties->propertyAt(i);
++            if (!propertyIsClaimed[property.id()]) {
++                propertyIsClaimed.set(property.id());
++                claimedPropertyFromInlineStyle = true;
++                auto addResult = winningInlineStyleMap.set(property.id(), element);
++                ASSERT_UNUSED(addResult, addResult.isNewEntry);
++                LOG(WebReplay, "Claimed property  %s: %s\n", getPropertyName(property.id()), property.value()->cssText().utf8().data());
++            }
++        }
++
++        if (claimedPropertyFromInlineStyle)
++            elementsWithUsefulInlineStyle.add(element);
++
++        // Then try to claim properties from each rule that matches this element.
++        // Rules are already sorted by descending specificity, so higher specificity
++        // rules and earlier rules will claim properties first.
++        auto matchedRules = styleResolver.styleRulesForElement(element, StyleResolver::AuthorCSSRules);
++        for (RefPtr<WebCore::StyleRule> rule : matchedRules) {
++            LOG(WebReplay, "Checking rule with selector: %s\n", rule->selectorList().selectorsText().utf8().data());
++
++            bool onlyConsiderInheritedProperties = (element != &targetElement);
++            const StyleProperties& properties = rule->properties();
++            bool claimedPropertyFromRule = false;
++            unsigned size = properties.propertyCount();
++            for (unsigned i = 0; i < size; ++i) {
++                auto property = properties.propertyAt(i);
++                if (onlyConsiderInheritedProperties && !CSSProperty::isInheritedProperty(property.id()))
++                    continue;
++                if (!propertyIsClaimed[property.id()]) {
++                    propertyIsClaimed.set(property.id());
++                    claimedPropertyFromRule = true;
++                    auto addResult = winningRuleMap.set(property.id(), rule.get());
++                    ASSERT_UNUSED(addResult, addResult.isNewEntry);
++                    LOG(WebReplay, "Claimed property  %s: %s\n", getPropertyName(property.id()), property.value()->cssText().utf8().data());
++                }
++            }
++            if (!claimedPropertyFromRule)
++                continue;
++
++            if (!rulesToKeepForElement.contains(element))
++                rulesToKeepForElement.set(element, Vector<WebCore::StyleRule*>());
++
++            auto rulesToKeep = rulesToKeepForElement.get(element);
++            rulesToKeep.append(rule.get());
++        }
++        // TODO: add matched pseudo style rules. See CSSAgent. It could be folded into above.
++    }
++
++    // For now, serialize the data directly to inspector objects since we don't do any analysis on
++    // the backend. In the future, we may want to use a different intermediate format for that.
++    auto elementsArray = Inspector::Protocol::Array<Inspector::Protocol::DOMTracing::ElementEntry>::create();
++    for (Element* element = &targetElement; element; element = element->parentElement()) {
++        auto matchedRulesArray = Inspector::Protocol::Array<Inspector::Protocol::CSS::RuleMatch>::create();
++
++        const Vector<WebCore::StyleRule*>& rulesToKeep = rulesToKeepForElement.get(element);
++        for (WebCore::StyleRule* rule : rulesToKeep)
++            matchedRulesArray->addItem(m_cssAgent->buildObjectForMatchedRule(*rule, *element));
++
++        auto elementObject = Inspector::Protocol::DOMTracing::ElementEntry::create()
++            .setNodeId(m_domAgent->pushNodePathToFrontend(element))
++            .setMatchedRules(WTF::move(matchedRulesArray))
++            .release();
++
++        if (elementsWithUsefulInlineStyle.contains(element)) {
++            ASSERT(is<StyledElement>(element));
++            RefPtr<Inspector::Protocol::CSS::CSSStyle> styleObject;
++            m_cssAgent->withWrappedStyle(*element->style(), [&styleObject] (StyleDeclaration& style) {
++                styleObject = buildObjectForStyle(style);
++            });
++            ASSERT(styleObject);
++            elementObject->setInlineStyle(WTF::move(styleObject));
++        }
++        elementsArray->addItem(WTF::move(elementObject));
++    }
++
++    auto propertiesArray = Inspector::Protocol::Array<Inspector::Protocol::DOMTracing::PropertyEntry>::create();
++    for (auto entry : winningRuleMap) {
++        RefPtr<Inspector::Protocol::DOMTracing::PropertyEntry> entryObject;
++        m_cssAgent->withWrappedRule(*entry.value, targetElement.document(), [&] (Inspector::StyleRule& rule) {
++            RefPtr<Inspector::Protocol::CSS::CSSProperty> propertyObject;
++            rule.withStyle([&] (Inspector::StyleDeclaration& style) {
++                CSSPropertyID propertyId = entry.key;
++                propertyObject = buildObjectForProperty(style, propertyId);
++            });
++            entryObject = Inspector::Protocol::DOMTracing::PropertyEntry::create()
++                .setProperty(WTF::move(propertyObject))
++                .release();
++
++            entryObject->setSourceRule(rule.ruleId().asProtocolValue<Inspector::Protocol::CSS::CSSRuleId>());
++        });
++        propertiesArray->addItem(WTF::move(entryObject));
++    }
++
++    for (auto entry : winningInlineStyleMap) {
++        ASSERT(is<StyledElement>(entry.value));
++        InlineStyleRuleSet& inlineStyle = m_cssAgent->ruleSetForInlineStyle(downcast<StyledElement>(targetElement));
++        RefPtr<Inspector::Protocol::CSS::CSSProperty> propertyObject;
++        RefPtr<Inspector::Protocol::DOMTracing::PropertyEntry> entryObject;
++        inlineStyle.withInlineStyle([&] (StyleDeclaration& style) {
++            CSSPropertyID propertyId = entry.key;
++            propertyObject = buildObjectForProperty(style, propertyId);
++            entryObject = Inspector::Protocol::DOMTracing::PropertyEntry::create()
++                .setProperty(WTF::move(propertyObject))
++                .release();
++        });
++
++        entryObject->setSourceElement(m_domAgent->pushNodePathToFrontend(entry.value));
++        propertiesArray->addItem(WTF::move(entryObject));
++    }
++
++    auto effectiveStyleObject = Inspector::Protocol::DOMTracing::EffectiveStyle::create()
++        .setElements(WTF::move(elementsArray))
++        .setProperties(WTF::move(propertiesArray))
++        .release();
++
++    return std::make_unique<StyleSnapshot>(WTF::move(effectiveStyleObject));
++}
++
+ void DOMTracingAgent::didCreateFrontendAndBackend(FrontendChannel* frontendChannel, BackendDispatcher* backendDispatcher)
+ {
+     m_frontendDispatcher = std::make_unique<DOMTracingFrontendDispatcher>(frontendChannel);
+     m_backendDispatcher = DOMTracingBackendDispatcher::create(backendDispatcher, this);
+ 
+     m_instrumentingAgents->setDOMTracingAgent(this);
+ }
+ 
+ void DOMTracingAgent::willDestroyFrontendAndBackend(DisconnectReason)
+ {
+@@ -163,36 +348,37 @@ void DOMTracingAgent::stopTracking(ErrorString& error, int nodeId)
+ 
+ void DOMTracingAgent::getSnapshotPayload(ErrorString& error, int snapshotId, RefPtr<Inspector::Protocol::DOMTracing::ElementSnapshotPayload>& out_snapshotPayload)
+ {
+     uint64_t lookupKey = static_cast<uint64_t>(snapshotId);
+     if (snapshotId <= 0 || lookupKey >= m_nextSnapshotId) {
+         error = ASCIILiteral("Invalid snapshot id.");
+         return;
+     }
+ 
+     auto findResult = m_savedSnapshotMap.find(lookupKey);
+-
+-    ImageBuffer* buffer = nullptr;
++    const ElementSnapshot* foundSnapshot = nullptr;
+     ASSERT(m_currentSnapshot);
+     if (m_currentSnapshot->snapshotId == lookupKey)
+-        buffer = m_currentSnapshot->imageData.get();
+-    else if (findResult == m_savedSnapshotMap.end()) {
++        foundSnapshot = m_currentSnapshot.get();
++    else if (findResult != m_savedSnapshotMap.end())
++        foundSnapshot = findResult->value.get();
++    else {
+         error = ASCIILiteral("Unknown snapshot id.");
+         return;
+-    } else
+-        buffer = findResult->value->imageData.get();
++    }
+ 
+-    ASSERT(buffer);
++    ASSERT(foundSnapshot);
+ 
+     out_snapshotPayload = Inspector::Protocol::DOMTracing::ElementSnapshotPayload::create()
+         .setSnapshotId(lookupKey)
+-        .setImageData(buffer->toDataURL(ASCIILiteral("image/png")))
++        .setImageData(foundSnapshot->imageData->toDataURL(ASCIILiteral("image/png")))
++        .setStyleData(foundSnapshot->effectiveStyle->encodedData)
+         .release();
+ }
+ 
+ // InspectorInstrumentation entry points.
+ 
+ void DOMTracingAgent::frameNavigated(Frame& frame)
+ {
+     // If the target node was in this frame, its document will soon be detached.
+     if (!m_targetElement || m_targetElement->document().frame() == &frame)
+         setTargetElement(nullptr);
+@@ -387,22 +573,24 @@ void DOMTracingAgent::commitSnapshot(std::unique_ptr<ElementSnapshot> snapshot)
+     // Empty snapshots are loaded when tracking is stopped. Don't save those.
+     if (m_currentSnapshot && m_currentSnapshot->snapshotId) {
+         uint64_t key = m_currentSnapshot->snapshotId;
+         m_savedSnapshotMap.set(key, WTF::move(m_currentSnapshot));
+     }
+     m_currentSnapshot = WTF::move(snapshot);
+ 
+     if (!m_currentSnapshot->snapshotId)
+         return;
+ 
+-    // Send the committed non-empty snapshot to the inspector frontend.
+     ASSERT(m_targetElement);
++    m_currentSnapshot->effectiveStyle = createStyleSnapshot(*m_targetElement);
++
++    // Send the committed non-empty snapshot to the inspector frontend.
+     int nodeId = m_domAgent->pushNodePathToFrontend(m_targetElement.get());
+     ASSERT(nodeId); // This should get an already assigned id, or bind the node and get a new one.
+ 
+     double elapsedTime = m_instrumentingAgents->inspectorEnvironment().executionStopwatch()->elapsedTime();
+ 
+     auto snapshotObject = Inspector::Protocol::DOMTracing::ElementSnapshot::create()
+         .setNodeId(nodeId)
+         .setSnapshotId(m_currentSnapshot->snapshotId)
+         .setBoundingBox(createProtocolObjectForFloatRect(FloatRect(m_currentSnapshot->boundingBox)))
+         .setElapsedTimestamp(elapsedTime)
+diff --git a/Source/WebCore/inspector/InspectorDOMTracingAgent.h b/Source/WebCore/inspector/InspectorDOMTracingAgent.h
+index d921d98..9670321 100644
+--- a/Source/WebCore/inspector/InspectorDOMTracingAgent.h
++++ b/Source/WebCore/inspector/InspectorDOMTracingAgent.h
+@@ -23,61 +23,71 @@
+  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #ifndef InspectorDOMTracingAgent_h
+ #define InspectorDOMTracingAgent_h
+ 
+ #include "InspectorWebAgentBase.h"
+ #include "LayoutRect.h"
+ #include <inspector/InspectorBackendDispatchers.h>
+ #include <inspector/InspectorFrontendDispatchers.h>
++#include <inspector/InspectorProtocolObjects.h>
+ #include <wtf/Forward.h>
+ #include <wtf/WeakPtr.h>
+ 
+ namespace WebCore {
+ class Document;
+ class Element;
+ class Frame;
+ class ImageBuffer;
++class InspectorCSSAgent;
+ class InspectorDOMAgent;
+ class Node;
+ class RenderObject;
+ 
+ #if ENABLE(WEB_REPLAY)
+ class ReplaySessionSegment;
+ #endif
+ }
+ 
+ namespace Inspector {
+ struct TraceOperation;
+ 
++struct StyleSnapshot {
++    StyleSnapshot(RefPtr<Inspector::Protocol::DOMTracing::EffectiveStyle>&&);
++    ~StyleSnapshot() { }
++
++    RefPtr<Inspector::Protocol::DOMTracing::EffectiveStyle> encodedData;
++};
++
+ struct ElementSnapshot {
+     std::unique_ptr<WebCore::ImageBuffer> imageData;
++    std::unique_ptr<StyleSnapshot> effectiveStyle;
+     WebCore::LayoutRect boundingBox;
+     uint64_t snapshotId {0};
+ 
+     bool isEmpty() const { return !imageData || boundingBox.isEmpty(); }
+ 
+     ElementSnapshot();
+     ~ElementSnapshot();
+     ElementSnapshot(std::unique_ptr<WebCore::ImageBuffer>, const WebCore::LayoutRect& bounds, uint64_t snapshotId);
+ };
+ 
+ bool operator==(const ElementSnapshot&, const ElementSnapshot&);
+ inline bool operator!=(const ElementSnapshot& a, const ElementSnapshot& b) { return !(a == b); }
+     
+ class DOMTracingAgent final : public WebCore::InspectorAgentBase, public DOMTracingBackendDispatcherHandler {
+ 
+     WTF_MAKE_NONCOPYABLE(DOMTracingAgent);
+     WTF_MAKE_FAST_ALLOCATED;
+ public:
+-    DOMTracingAgent(WebCore::InstrumentingAgents*, WebCore::InspectorDOMAgent*);
++    DOMTracingAgent(WebCore::InstrumentingAgents*, WebCore::InspectorDOMAgent*, WebCore::InspectorCSSAgent*);
+     virtual ~DOMTracingAgent();
+ 
+     virtual void didCreateFrontendAndBackend(FrontendChannel*, BackendDispatcher*) override;
+     virtual void willDestroyFrontendAndBackend(DisconnectReason) override;
+ 
+     // Methods called from the frontend.
+     virtual void startTrackingElement(Inspector::ErrorString&, int nodeId) override;
+     virtual void stopTracking(Inspector::ErrorString&, int nodeId) override;
+     virtual void getSnapshotPayload(Inspector::ErrorString&, int nodeId, RefPtr<Inspector::Protocol::DOMTracing::ElementSnapshotPayload>&) override;
+ 
+@@ -100,31 +110,34 @@ private:
+ #if ENABLE(WEB_REPLAY)
+     void resetCounters();
+ #endif
+     void commitSnapshot(std::unique_ptr<ElementSnapshot>);
+     void elementAppearanceChanged();
+     void pushOperationToFrontend(const TraceOperation&);
+ 
+     // Use this rather than manually constructing ElementSnapshot to avoid reentrancy issues.
+     std::unique_ptr<ElementSnapshot> createSnapshot(WebCore::Element&);
+ 
++    std::unique_ptr<StyleSnapshot> createStyleSnapshot(WebCore::Element&);
++    
+     std::unique_ptr<DOMTracingFrontendDispatcher> m_frontendDispatcher;
+     RefPtr<DOMTracingBackendDispatcher> m_backendDispatcher;
+ 
+ #if ENABLE(WEB_REPLAY)
+     HashMap<WebCore::Node*, uint64_t> m_stableNodeIdMap;
+     uint64_t m_nextStableNodeId {1};
+ #endif
+     HashMap<uint64_t, std::unique_ptr<ElementSnapshot>> m_savedSnapshotMap;
+     uint64_t m_nextSnapshotId {1};
+ 
+     WebCore::InspectorDOMAgent* m_domAgent {nullptr};
++    WebCore::InspectorCSSAgent* m_cssAgent {nullptr};
+ 
+     WeakPtr<WebCore::Element> m_targetElement;
+     // Used to detect rendering differences between paint events.
+     std::unique_ptr<ElementSnapshot> m_currentSnapshot;
+ 
+     // Used to prevent re-entrancy to didPaint(). This could happen because
+     // didPaint() instrumentation fires underneath the node snapshotting code.
+     bool m_isSnapshottingElement {false};
+ };
+ 
+diff --git a/Source/WebCore/inspector/InspectorInlineStyleRuleSet.h b/Source/WebCore/inspector/InspectorInlineStyleRuleSet.h
+index 2484db5..0524a92 100644
+--- a/Source/WebCore/inspector/InspectorInlineStyleRuleSet.h
++++ b/Source/WebCore/inspector/InspectorInlineStyleRuleSet.h
+@@ -45,54 +45,52 @@ public:
+     virtual ~InlineStyleRuleSet();
+ 
+     // StyleRuleSet API
+     virtual bool isInlineStyle() const override { return true; }
+     virtual void replaceText(const String&) override;
+ 
+     virtual std::unique_ptr<ParsedRuleSetData> originalSourceData() override;
+     virtual WebCore::Document* ownerDocument() const override;
+ 
+     // InlineStyleRuleSet API
+-    template<typename Functor> void withInlineStyle(const Functor&);
++    void withInlineStyle(const std::function<void(Inspector::StyleDeclaration&)>&);
+     // This returns a StyleRule representing CSS styles induced by presentation attributes,
+     // such as 'width', 'align', and other legacy tag attributes.
+-    template<typename Functor> void withAttributeStyle(const Functor&);
++    void withAttributeStyle(const std::function<void(Inspector::StyleDeclaration&)>&);
+ 
+     // Called from CSSAgent through InspectorInstrumentation.
+     void didModifyElementAttribute();
+ private:
+     InlineStyleRuleSet(Ref<WebCore::Element>&&);
+ 
+     WebCore::CSSStyleDeclaration* inlineStyle();
+     WebCore::CSSStyleDeclaration* attributeStyle();
+ 
+     virtual bool setTextForStyle(WebCore::CSSStyleDeclaration&, const String&) override;
+ 
+ private:
+     Ref<WebCore::Element> m_element;
+ };
+ 
+-template<typename Functor>
+-inline void InlineStyleRuleSet::withInlineStyle(const Functor& functor)
++inline void InlineStyleRuleSet::withInlineStyle(const std::function<void(Inspector::StyleDeclaration&)>& callback)
+ {
+     StyleDeclaration wrapper(CSSId(identifier(), 0), *inlineStyle(), this);
+-    functor(wrapper);
++    callback(wrapper);
+ }
+ 
+-template<typename Functor>
+-inline void InlineStyleRuleSet::withAttributeStyle(const Functor& functor)
++inline void InlineStyleRuleSet::withAttributeStyle(const std::function<void(Inspector::StyleDeclaration&)>& callback)
+ {
+     auto style = attributeStyle();
+     if (!style)
+         return;
+ 
+     StyleDeclaration wrapper(CSSId(identifier(), 0), *style, this);
+-    functor(wrapper);
++    callback(wrapper);
+ }
+ 
+ } // namespace Inspector
+ 
+ SPECIALIZE_TYPE_TRAITS_BEGIN(Inspector::InlineStyleRuleSet)
+ static bool isType(const Inspector::StyleRuleSet& ruleSet) { return ruleSet.isInlineStyle(); }
+ SPECIALIZE_TYPE_TRAITS_END()
+ 
+ #endif // InlineStyleRuleSet_h
+diff --git a/Source/WebCore/inspector/InspectorStyleDeclaration.cpp b/Source/WebCore/inspector/InspectorStyleDeclaration.cpp
+index bee845e..4cf25c7 100644
+--- a/Source/WebCore/inspector/InspectorStyleDeclaration.cpp
++++ b/Source/WebCore/inspector/InspectorStyleDeclaration.cpp
+@@ -43,20 +43,44 @@ StyleDeclaration::StyleDeclaration(const CSSId& styleId, CSSStyleDeclaration& de
+     : m_styleId(styleId)
+     , m_declaration(declaration)
+     , m_ruleSet(ruleSet)
+ {
+ }
+ 
+ StyleDeclaration::~StyleDeclaration()
+ {
+ }
+ 
++bool StyleDeclaration::withPropertyForId(CSSPropertyID propertyId, std::function<void(Inspector::StyleProperty&)> callback)
++{
++    Vector<StyleProperty> properties;
++    populateProperties(properties);
++
++    for (StyleProperty& property : properties) {
++        if (!property.isImportant() || property.propertyId() == propertyId)
++            continue;
++
++        callback(property);
++        return true;
++    }
++
++    for (StyleProperty& property : properties) {
++        if (property.propertyId() != propertyId)
++            continue;
++
++        callback(property);
++        return true;
++    }
++
++    return false;
++}
++
+ void StyleDeclaration::populateProperties(Vector<StyleProperty>& result)
+ {
+     HashSet<String> foundProperties;
+ 
+     if (RefPtr<WebCore::CSSRuleSourceData> sourceData = styleSourceData()) {
+         Vector<WebCore::CSSPropertySourceData>& sourcePropertyData = sourceData->styleSourceData->propertyData;
+ 
+         for (auto& data : sourcePropertyData) {
+             foundProperties.add(data.name.lower());
+             result.append(StyleProperty(*this, data, true));
+diff --git a/Source/WebCore/inspector/InspectorStyleDeclaration.h b/Source/WebCore/inspector/InspectorStyleDeclaration.h
+index b0e1a5c..d3f6bc0 100644
+--- a/Source/WebCore/inspector/InspectorStyleDeclaration.h
++++ b/Source/WebCore/inspector/InspectorStyleDeclaration.h
+@@ -60,20 +60,25 @@ public:
+     bool getStyleText(String& result);
+     bool setStyleText(const String&);
+ 
+     bool getStyleTextRange(TextPosition& start, TextPosition& end);
+ 
+     // StyleProperty objects are not heap-allocated to avoid cyclic reference counting.
+     // Thus, they are noncopyable and only available through a functor callback.
+     template<typename Functor>
+     typename Functor::ReturnType forEachProperty(Functor&);
+ 
++    // Invoke a callback with the StyleProperty for the winning 'declared value' for the
++    // specified CSSPropertyID. This is the first !important declared value for the property,
++    // else the first declared value for the property. Return value indicates invoked callback.
++    bool withPropertyForId(WebCore::CSSPropertyID, std::function<void(Inspector::StyleProperty&)>);
++
+     // FIXME: remove
+     String shorthandValue(const String& shorthandProperty);
+ 
+ private:
+     void populateProperties(Vector<StyleProperty>&);
+ 
+     CSSId m_styleId;
+     WebCore::CSSStyleDeclaration& m_declaration;
+     StyleRuleSet* m_ruleSet;
+ };
+diff --git a/Source/WebCore/inspector/InspectorStyleProperty.cpp b/Source/WebCore/inspector/InspectorStyleProperty.cpp
+index 12f7fe5..1f692a5 100644
+--- a/Source/WebCore/inspector/InspectorStyleProperty.cpp
++++ b/Source/WebCore/inspector/InspectorStyleProperty.cpp
+@@ -18,20 +18,21 @@
+  * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+  * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+  * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #include "config.h"
+ #include "InspectorStyleProperty.h"
+ 
++#include "CSSParser.h"
+ #include "CSSStyleDeclaration.h"
+ #include "InspectorStyleDeclaration.h"
+ #include "InspectorStyleRuleSet.h"
+ #include <inspector/ContentSearchUtilities.h>
+ #include <wtf/text/StringBuilder.h>
+ 
+ using namespace WebCore;
+ 
+ namespace Inspector {
+ 
+@@ -69,20 +70,25 @@ bool StyleProperty::isImplicit() const
+ bool StyleProperty::isImportant() const
+ {
+     return m_sourceData.important;
+ }
+ 
+ bool StyleProperty::parsedOk() const
+ {
+     return m_sourceData.parsedOk;
+ }
+ 
++CSSPropertyID StyleProperty::propertyId() const
++{
++    return cssPropertyID(propertyName());
++}
++
+ String StyleProperty::propertyName() const
+ {
+     return m_sourceData.name;
+ }
+ 
+ String StyleProperty::propertyValue() const
+ {
+     return m_style.declaration().getPropertyValue(propertyName());
+ }
+ 
+diff --git a/Source/WebCore/inspector/InspectorStyleProperty.h b/Source/WebCore/inspector/InspectorStyleProperty.h
+index 493ea1b..e1ffba5 100644
+--- a/Source/WebCore/inspector/InspectorStyleProperty.h
++++ b/Source/WebCore/inspector/InspectorStyleProperty.h
+@@ -19,20 +19,21 @@
+  * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+  * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+  * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+ #ifndef InspectorStyleProperty_h
+ #define InspectorStyleProperty_h
+ 
++#include "CSSPropertyNames.h"
+ #include "CSSPropertySourceData.h"
+ 
+ namespace WebCore {
+ class CSSStyleDeclaration;
+ }
+ 
+ namespace Inspector {
+ 
+ class StyleDeclaration;
+ 
+@@ -52,20 +53,21 @@ public:
+     bool isImplicit() const;
+     bool isFromSource() const { return m_fromSource; }
+     bool isImportant() const;
+     bool parsedOk() const;
+ 
+     String rawText() const;
+     void getTextRange(TextPosition& start, TextPosition& end) const;
+ 
+     String propertyName() const;
+     String propertyValue() const;
++    WebCore::CSSPropertyID propertyId() const;
+     String shorthandPropertyName() const;
+     String shorthandPropertyValue() const;
+ private:
+     WebCore::CSSPropertySourceData m_sourceData;
+     StyleDeclaration& m_style;
+     bool m_fromSource;
+ };
+ 
+ } // namespace Inspector
+ 
+diff --git a/Source/WebCore/inspector/InspectorStyleRule.h b/Source/WebCore/inspector/InspectorStyleRule.h
+index e409e9f..c4a8272 100644
+--- a/Source/WebCore/inspector/InspectorStyleRule.h
++++ b/Source/WebCore/inspector/InspectorStyleRule.h
+@@ -34,21 +34,20 @@
+ #include <wtf/text/WTFString.h>
+ 
+ namespace WebCore {
+ struct CSSRuleSourceData;
+ struct CSSStyleSourceData;
+ };
+ 
+ namespace Inspector {
+ 
+ class RuleSelector;
+-class StyleProperty;
+ class StyleRuleSet;
+ class StylesheetRuleSet;
+ 
+ class StyleRule final {
+ WTF_MAKE_NONCOPYABLE(StyleRule);
+ public:
+     StyleRule(StyleRule&&) = default;
+     StyleRule(const CSSId& styleId, WebCore::CSSStyleRule&, StyleRuleSet* ruleSet);
+     ~StyleRule();
+ 
+@@ -57,38 +56,37 @@ public:
+     CSSId ruleId() const { return m_ruleId; }
+     StylesheetRuleSet* stylesheet() const;
+ 
+     bool hasSelectors();
+     bool isFromSource() { return !!ruleSourceData(); }
+     int sourceLine() const;
+ 
+     String selectorListText();
+     bool getSelectorListTextRange(TextPosition& start, TextPosition& end);
+ 
+-    template<typename Functor> void withStyle(const Functor&);
++    void withStyle(const std::function<void(Inspector::StyleDeclaration&)>&);
+ 
+     template<typename Functor>
+     typename Functor::ReturnType forEachSelector(Functor&);
+ 
+ private:
+     void populateSelectors(Vector<RuleSelector>&);
+ 
+     CSSId m_ruleId;
+     WebCore::CSSStyleRule& m_rule;
+     StyleRuleSet* m_ruleSet;
+ };
+ 
+-template<typename Functor>
+-inline void StyleRule::withStyle(const Functor& functor)
++inline void StyleRule::withStyle(const std::function<void(Inspector::StyleDeclaration&)>& callback)
+ {
+     StyleDeclaration style(ruleId(), m_rule.style(), m_ruleSet);
+-    functor(style);
++    callback(style);
+ }
+ 
+ template<typename Functor>
+ inline typename Functor::ReturnType StyleRule::forEachSelector(Functor& functor)
+ {
+     Vector<RuleSelector> selectors;
+     populateSelectors(selectors);
+     for (RuleSelector& selector : selectors)
+         functor(selector);
+ 
+diff --git a/Source/WebCore/inspector/InspectorStylesheetRuleSet.cpp b/Source/WebCore/inspector/InspectorStylesheetRuleSet.cpp
+index 1d323b5..994af7e 100644
+--- a/Source/WebCore/inspector/InspectorStylesheetRuleSet.cpp
++++ b/Source/WebCore/inspector/InspectorStylesheetRuleSet.cpp
+@@ -214,20 +214,42 @@ bool StylesheetRuleSet::deleteRule(const CSSId& id, ExceptionCode& ec)
+     if (ec)
+         return false;
+ 
+     String stylesheetText = parsedRuleSetData().sourceText();
+     stylesheetText.remove(sourceData->ruleHeaderRange.start, sourceData->ruleBodyRange.end - sourceData->ruleHeaderRange.start + 1);
+ 
+     patchStylesheetText(stylesheetText);
+     return true;
+ }
+ 
++bool StylesheetRuleSet::withStyleForId(const CSSId& identifier, const std::function<void(Inspector::StyleDeclaration&)>& callback)
++{
++    WebCore::CSSStyleRule* rule = ruleForId(identifier);
++    if (!rule)
++        return false;
++
++    StyleDeclaration style(identifier, rule->style(), this);
++    callback(style);
++    return true;
++}
++
++bool StylesheetRuleSet::withRuleForId(const CSSId& identifier, const std::function<void(Inspector::StyleRule&)>& callback)
++{
++    WebCore::CSSStyleRule* cssRule = ruleForId(identifier);
++    if (!cssRule)
++        return false;
++
++    Inspector::StyleRule rule(identifier, *cssRule, this);
++    callback(rule);
++    return true;
++}
++
+ CSSStyleRule* StylesheetRuleSet::ruleForId(const CSSId& id)
+ {
+     ParsedRuleSetData& parsedData = parsedRuleSetData();
+     if (id.ruleOrdinal() >= parsedData.flattenedStyleRules().size())
+         return nullptr;
+ 
+     return parsedData.flattenedStyleRules().at(id.ruleOrdinal()).get();
+ }
+ 
+ Document* StylesheetRuleSet::ownerDocument() const
+diff --git a/Source/WebCore/inspector/InspectorStylesheetRuleSet.h b/Source/WebCore/inspector/InspectorStylesheetRuleSet.h
+index 27fd67c..83a55b8 100644
+--- a/Source/WebCore/inspector/InspectorStylesheetRuleSet.h
++++ b/Source/WebCore/inspector/InspectorStylesheetRuleSet.h
+@@ -103,22 +103,22 @@ public:
+     bool isEnabled() const;
+     bool originalSourceText(String& result) const;
+     bool canBind() const { return m_origin != StyleSheetOrigin::UserAgent && m_origin != StyleSheetOrigin::User; }
+ 
+     bool selectorTextForRule(const CSSId&, String& result);
+     bool setSelectorTextForRule(const CSSId&, const String& selectorText);
+ 
+     WebCore::CSSStyleRule* addRule(const String& selector, WebCore::ExceptionCode&);
+     bool deleteRule(const CSSId&, WebCore::ExceptionCode&);
+ 
+-    template<typename Functor> bool withStyleForId(const CSSId&, const Functor&);
+-    template<typename Functor> bool withRuleForId(const CSSId&, const Functor&);
++    bool withStyleForId(const CSSId&, const std::function<void(Inspector::StyleDeclaration&)>&);
++    bool withRuleForId(const CSSId&, const std::function<void(Inspector::StyleRule&)>&);
+     template<typename Functor> typename Functor::ReturnType forEachStyle(Functor&);
+     template<typename Functor> typename Functor::ReturnType forEachRule(Functor&);
+ 
+     WebCore::CSSStyleRule* ruleForId(const CSSId&);
+ 
+ protected:
+     StylesheetRuleSet(Ref<WebCore::CSSStyleSheet>&& pageStyleSheet, StyleSheetOrigin, const String& documentURL, Listener*);
+ 
+     friend struct ParsedRuleSetData;
+     WebCore::CSSStyleSheet& pageStylesheet() { return m_stylesheet.get(); }
+@@ -134,44 +134,20 @@ private:
+     // and updates the StyleSheetContents backing store to hold the new stylesheet text.
+     void patchStylesheetText(const String&);
+ 
+     Ref<WebCore::CSSStyleSheet> m_stylesheet;
+     StyleSheetOrigin m_origin;
+     String m_documentURL;
+     Listener* m_listener;
+ };
+ 
+ template<typename Functor>
+-inline bool StylesheetRuleSet::withStyleForId(const CSSId& identifier, const Functor& functor)
+-{
+-    WebCore::CSSStyleRule* rule = ruleForId(identifier);
+-    if (!rule)
+-        return false;
+-
+-    StyleDeclaration style(identifier, rule->style(), this);
+-    functor(style);
+-    return true;
+-}
+-
+-template<typename Functor>
+-inline bool StylesheetRuleSet::withRuleForId(const CSSId& identifier, const Functor& functor)
+-{
+-    WebCore::CSSStyleRule* cssRule = ruleForId(identifier);
+-    if (!cssRule)
+-        return false;
+-
+-    Inspector::StyleRule rule(identifier, *cssRule, this);
+-    functor(rule);
+-    return true;
+-}
+-
+-template<typename Functor>
+ inline typename Functor::ReturnType StylesheetRuleSet::forEachStyle(Functor& functor)
+ {
+     auto ruleList = parsedRuleSetData().flattenedStyleRules();
+     for (size_t ordinal = 0; ordinal < ruleList.size(); ++ordinal) {
+         RefPtr<WebCore::CSSStyleRule> rule = ruleList.at(ordinal);
+         StyleDeclaration style(CSSId(identifier(), ordinal), rule->style(), this);
+         functor(style);
+     }
+ 
+     return functor.returnValue();
+-- 
+2.3.5
+

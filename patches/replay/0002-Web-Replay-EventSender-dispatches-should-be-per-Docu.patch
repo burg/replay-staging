@@ -1434,5 +1434,5 @@ index f55a615..537ba2d 100644
          m_sawError = true;
      if (type == XMLErrors::fatal)
 -- 
-2.2.2
+2.3.5
 

@@ -1478,5 +1478,5 @@ index 02739f7..2abd350 100644
      pageConfiguration.databaseProvider = WebDatabaseProvider::getOrCreate(m_pageGroup->pageGroupID());
      pageConfiguration.storageNamespaceProvider = WebStorageNamespaceProvider::getOrCreate(m_pageGroup->pageGroupID());
 -- 
-2.2.2
+2.3.5
 

@@ -63,5 +63,5 @@ index e04c1ca..8b0c0b0 100644
      var usesActiveStartTime = false;
      var lastRecordType = null;
 -- 
-2.2.2
+2.3.5
 
